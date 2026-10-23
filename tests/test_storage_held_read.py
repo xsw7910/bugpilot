@@ -736,6 +736,73 @@ def _described(outcome: object, fixture: bytes) -> str:
     return f"read returned {type(outcome).__name__}"
 
 
+# --- Windows: a file's data opened without backup semantics (run 39989051086) ----------------------------------
+
+
+@pytest.mark.skipif(not WINDOWS, reason="CreateFileW's flags are Windows'")
+def test_a_files_data_is_opened_without_backup_semantics_and_every_folder_keeps_them(namespace, monkeypatch):
+    # With FILE_FLAG_BACKUP_SEMANTICS, a runner holding the backup privilege opened a file another program held
+    # exclusively. Only opens that never reach a file's data keep the flag: folders, and the look at an entry that
+    # could not be opened for its data, which asks for its attributes alone.
+    _settings(namespace, "instructions.md", b"kept\n")
+    namespace.settings_file("verification.md", create=True).mkdir()
+    real_create = _held_folders._create
+    opened = []
+
+    def create(path, access, share, flags, *, audited=None):
+        opened.append((os.path.basename(path), access, share, flags))
+        return real_create(path, access, share, flags, audited=audited)
+
+    monkeypatch.setattr(_held_folders, "_create", create)
+    assert namespace.read_settings("instructions.md", limit=100) == SettingsContent("present", b"kept\n")
+    assert namespace.read_settings("verification.md", limit=100) == SettingsContent("not_a_file")
+    folder = _held_folders._FILE_LIST_DIRECTORY | _held_folders._FILE_READ_ATTRIBUTES | _held_folders._SYNCHRONIZE
+    look = _held_folders._FILE_READ_ATTRIBUTES | _held_folders._SYNCHRONIZE
+    data = [entry for entry in opened if entry[1] == _held_folders._GENERIC_READ]
+    assert {name for name, *_ in data} == {"instructions.md", "verification.md", storage.RECORD_NAME}
+    assert all(
+        (share, flags) == (_held_folders._SHARE_FILE, _held_folders._OPEN_REPARSE_POINT) for _, _, share, flags in data
+    )
+    folders = [entry for entry in opened if entry[1] == folder]
+    assert folders and all(
+        share == _held_folders._SHARE_HOLD and flags & _held_folders._BACKUP_SEMANTICS for _, _, share, flags in folders
+    )
+    # Only the folder at a file's name was looked at, after its data open failed, and never for its data.
+    looks = [entry for entry in opened if entry[1] == look]
+    both = _held_folders._BACKUP_SEMANTICS | _held_folders._OPEN_REPARSE_POINT
+    assert looks == [("verification.md", look, _held_folders._SHARE_FILE, both)]
+    assert len(opened) == len(data) + len(folders) + len(looks)
+
+
+@pytest.mark.skipif(not WINDOWS, reason="share modes are Windows'")
+@pytest.mark.parametrize("look", ["finds nothing", "fails"])
+def test_a_file_in_use_stays_the_opens_own_failure_whatever_the_look_at_it_gives(namespace, monkeypatch, look):
+    import _winapi
+
+    monkeypatch.setattr(storage, "_TRANSIENT_DELAY", 0)
+    path = _settings(namespace, "verification.md", b"locked\n")
+    real_create = _held_folders._create
+    looked = []
+
+    def create(path, access, share, flags, *, audited=None):
+        if access == _held_folders._FILE_READ_ATTRIBUTES | _held_folders._SYNCHRONIZE:
+            looked.append(os.path.basename(path))
+            code = 2 if look == "finds nothing" else 5  # ERROR_FILE_NOT_FOUND, ERROR_ACCESS_DENIED
+            raise OSError(None, "injected", None, code)
+        return real_create(path, access, share, flags, audited=audited)
+
+    monkeypatch.setattr(_held_folders, "_create", create)
+    handle = _winapi.CreateFile(str(path), _winapi.GENERIC_READ, 0, 0, _winapi.OPEN_EXISTING, 0, 0)  # no sharing
+    try:
+        with pytest.raises(storage.StorageFileReadError) as failed:
+            namespace.read_settings("verification.md", limit=100)  # never "absent"
+    finally:
+        _winapi.CloseHandle(handle)
+    assert looked and set(looked) == {"verification.md"}
+    assert isinstance(failed.value.error, PermissionError) and failed.value.error.winerror == 32  # in use
+    assert failed.value.filename is None
+
+
 # --- M2: the file's own failure, told apart from a folder's -----------------------------------------------
 
 _FOLDER_CLASS = _held_folders._WindowsFolder if WINDOWS else _held_folders._PosixFolder

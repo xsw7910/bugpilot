@@ -8728,7 +8728,7 @@ No commit, push or CI.
 
 #### Batch 2B-3b — Option C M2: POSIX Case B fix and CI coverage (2026-10-22)
 
-**Status: OPTION C M2 WITH THE CASE B FIX VERIFIED LOCALLY ON WINDOWS; THE POSIX PERMISSION TESTS NOT YET RUN (POSIX ONLY); PYTHON 3.10 CI COVERAGE ADDED, NOT YET RUN; TOCTOU RISK UNRESOLVED; M3 PENDING; NOT COMMITTED.**
+**Status: OPTION C M2 WITH THE CASE B FIX VERIFIED LOCALLY ON WINDOWS; THE POSIX PERMISSION TESTS NOT YET RUN (POSIX ONLY); PYTHON 3.10 CI COVERAGE ADDED, NOT YET RUN; TOCTOU RISK UNRESOLVED; M3 PENDING; NOT COMMITTED.** *(Later, 2026-10-22 and 2026-10-23: committed as `e789ce2` and pushed; CI run 39892585420 failed 7/9 on two Windows tests; see "Batch 2B-3b — Option C: Windows exclusive-file read correction (2026-10-23)".)*
 
 - **The TOCTOU link race is unresolved.** The M3 adversarial gate stays OPEN.
 - **Not yet run:** the POSIX permission tests below have not run anywhere; they skip on Windows.
@@ -8824,6 +8824,149 @@ No skipped test is counted as passed.
 - the first Linux and macOS run, including Cases A, B and C, and the first Python 3.10 run of the M1/M2 tests, both in an owner-dispatched CI run (9/9);
 - the adversarial suite (M3);
 - the owner's commit authorization.
+
+#### Batch 2B-3b — Option C: Windows exclusive-file read correction (2026-10-23)
+
+**Status: THE WINDOWS EXCLUSIVE-FILE READ CORRECTION IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; WINDOWS CI REVALIDATION PENDING; TOCTOU RISK UNRESOLVED; M3 OPEN.**
+
+- **M3 stays OPEN.** The TOCTOU link race is unresolved, and nothing here is adversarial validation.
+- **Not yet shown:** that the correction passes on a Windows runner. Only a new CI run can show that; the local account cannot reproduce the runner's behaviour (below).
+- **Unchanged:**
+  - B1-M and B2 are NOT STARTED, and Unified Storage is inactive;
+  - the version is 0.1.5, and `main` is `ea9659c`.
+- **The state of the work:** in the working tree only, on `c795db4`. Nothing is staged, committed or pushed, and no CI run was dispatched.
+
+**What came before (2026-10-22 and 2026-10-23):**
+
+- **The commit:** Option C M1/M2 with the Case B fix was committed as `e789ce2` (`fix(storage): add held-handle safe reads for unified settings`, parent `d834082`, 15 files) and pushed by fast-forward, owner-authorized.
+- **CI run 39892585420 on `e789ce2`** (`workflow_dispatch`, owner-dispatched): **failure, 7/9.**
+  - **Succeeded:** Linux and macOS, including the POSIX permission Cases A, B and C, and Ubuntu with Python 3.10, which ran the four M1/M2 test files.
+  - **Failed:** both Windows jobs, on the same two tests: `tests/test_storage_held_read.py::test_a_file_in_use_is_a_failure_naming_no_path_never_absent` and `tests/test_settings_read_safety.py::test_a_file_another_program_holds_exclusively_reads_as_permission_denied`.
+  - **What was known:** a file another handle held with no sharing was not refused by the held reader on the runner. Locally (Windows 11, NTFS, Python 3.14) it is refused. The job logs need repository admin rights, so only the public annotations were read.
+- **The diagnostic commit:** `c795db4` (`test(storage): diagnose Windows exclusive-handle reads in CI`, parent `e789ce2`, the two test files only), owner-authorized and pushed by fast-forward.
+  - Both tests keep every assertion.
+  - While the lock is held, they record whether an ordinary `open()` is refused, and what the reader's own `CreateFileW` gets with and without `FILE_FLAG_BACKUP_SEMANTICS`.
+  - They also record the read's state and size, never its bytes.
+
+**CI run 39989051086 on `c795db4`** (`workflow_dispatch`, owner-dispatched, attempt 1): **failure, 7/9**, the evidence the run was dispatched for.
+
+| Job | Result |
+| --- | --- |
+| Safety and baselines, macOS, Python 3.13 | success: 1,986 passed, 68 skipped, 1 deselected |
+| Safety and baselines, Ubuntu, Python 3.13 | success: 1,982 passed, 72 skipped, 1 deselected |
+| Safety and baselines, Ubuntu, Python 3.10 | success: 1,982 passed, 72 skipped, 1 deselected |
+| Full Python suite, macOS | success: 3,939 passed, 74 skipped, 1 deselected |
+| Full Python suite, Ubuntu | success: 3,935 passed, 78 skipped, 1 deselected |
+| Extension evidence boundary, Ubuntu | success |
+| Extension unit tests, Ubuntu | success |
+| Safety and baselines, Windows, Python 3.13 | **failure:** 2 failed, 2,036 passed, 65 skipped, 1 deselected |
+| Full Python suite, Windows | **failure:** 2 failed, 3,995 passed, 65 skipped, 1 deselected |
+
+The same two tests failed in both Windows jobs, with the same evidence. These are the public annotations' words:
+
+- `open() refused (PermissionError)`: the lock held, so the setup was valid.
+- `CreateFileW reader flags opened`: the reader's data open succeeded on the locked file. That open uses `GENERIC_READ`, shares read, write and delete, and passes `FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT`.
+- `without backup semantics refused (winerror 32)`: the same open without `FILE_FLAG_BACKUP_SEMANTICS` got `ERROR_SHARING_VIOLATION`.
+- **The reader read the locked file's bytes:**
+  - the storage test: `read returned present (7 bytes; matches the fixture)`;
+  - the consumer test: `0 warning(s); storage read returned present (2 bytes; matches the fixture)`.
+- `python 3.13.16; Windows-2025Server-10.0.26100-SP0; file system NTFS`.
+
+**Reading of the evidence:**
+
+- **The cause:** `FILE_FLAG_BACKUP_SEMANTICS` on a file's data open let the runner's process open a file another program held exclusively.
+- **The likely reason:** this is consistent with the runner's account holding the backup privilege, which an unelevated local account does not. The privilege itself was not inspected.
+- **What did not go wrong:** nothing was taken as "absent" and no link was followed. The read returned the file's own bytes.
+- **What did go wrong:** the reader did not respect another program's exclusive hold. Its contract makes a file in use a failure, never a read.
+
+**The owner's decision (2026-10-23): the narrow correction, APPROVED.**
+
+- Open a regular file's data without `FILE_FLAG_BACKUP_SEMANTICS`.
+- Keep `FILE_FLAG_OPEN_REPARSE_POINT`.
+- Keep every folder open as it is.
+- **Allowed files:** `bugpilot/core/_held_folders.py`, the two test files and this plan.
+
+**What the literal correction alone broke** (measured, then not kept):
+
+- **The measurement:** removing the flag from `open_file` and changing nothing else failed 28 of the 176 tests in the two Option C test files.
+- **The cause:** Windows opens a folder only with `FILE_FLAG_BACKUP_SEMANTICS`. Without it, a folder, a junction or a directory symbolic link at a file's name fails with `ERROR_ACCESS_DENIED`.
+- **What that turned into "Permission denied"** (a `StorageFileReadError`):
+  - the `not_a_file` state;
+  - the link refusals at settings and user files;
+  - the Fix Mode `link` entries;
+  - DD-27's and DD-28's approved message;
+  - DD-28's unchanged `<name> is not a file.`
+- **The identity record (by reading the code; no test covers it):** a folder at `repository.json` would also go from "corrupt" to the fatal "cannot read … right now".
+
+**The correction** (`bugpilot/core/_held_folders.py`, Windows only):
+
+- **`_WindowsFolder._open`** now takes the `CreateFileW` flags from its caller. It used to pass `FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT` for every open. Its name check, final-path check, "moved" check and not-found handling are unchanged.
+- **Folders, unchanged:**
+  - `child()`, a held folder, passes `FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT` as before, with the same access and the same sharing (read and write, never delete);
+  - the data root's own open (`_hold_windows`) is not touched.
+- **`open_file()`** opens the data with `FILE_FLAG_OPEN_REPARSE_POINT` only. Its access (`GENERIC_READ`) and sharing (read, write and delete) are as before.
+- **When that open fails** with anything but "not found", the new `_WindowsFolder._kind` looks at the entry:
+  - **How it looks:** it opens the entry for its attributes only (`FILE_READ_ATTRIBUTES | SYNCHRONIZE`, sharing read, write and delete, `FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT`), through the same `_open` and its final-path check. It reads the reparse tag from that handle and closes the handle at once.
+  - **What it reports:** a folder, a link or another reparse point is reported as itself, as before.
+  - **Everything else keeps the data open's own error:** a regular file, nothing there, or a look that fails. So a file in use is never "absent".
+  - **Precedent:** this is the POSIX reader's existing rule, which judges a failed open by a no-follow look.
+- **Why the look keeps the flag:** it is the only way Windows opens a folder or a junction as itself. The handle asks for no data access, so no file's contents are read through it.
+
+**Kept unchanged:**
+
+- folder pinning: the folder flags, and folder sharing without delete;
+- the refusal of reparse points and junctions, and the final-path check;
+- the `\\?\` long form for the data root;
+- handle ownership: the descriptor owns the data handle, and every look handle is closed;
+- error classification:
+  - a `StorageFileReadError` for the file's own failure;
+  - the retry of a file in use;
+  - "absent" only for `ERROR_FILE_NOT_FOUND` and `ERROR_PATH_NOT_FOUND`;
+  - `Unsupported` for a query the file system cannot answer;
+- the atomic writer: the data handle still shares delete;
+- the POSIX code, `storage.py` and every consumer.
+
+**One further effect:** a process whose backup privilege is in effect no longer opens a file's data with backup semantics. Its reads now meet the same sharing and access checks as an ordinary account's. No test covers a file whose access-control list denies reading.
+
+**Tests** (`tests/test_storage_held_read.py`, Windows only). Both diagnostic tests are kept, with every assertion.
+
+- **`test_a_files_data_is_opened_without_backup_semantics_and_every_folder_keeps_them`** records every `CreateFileW` call while it reads one present file and one folder at a file's name. It checks that:
+  - every data open (the file, the folder at the name, and `repository.json`) passes `FILE_FLAG_OPEN_REPARSE_POINT` alone and shares read, write and delete;
+  - every folder open keeps `FILE_FLAG_BACKUP_SEMANTICS` and does not share delete;
+  - the only look is at the folder at the file's name, after its data open failed, and asks for attributes only.
+- **`test_a_file_in_use_stays_the_opens_own_failure_whatever_the_look_at_it_gives`** (cases `finds nothing` and `fails`): a file is held with no sharing, and the look is made to report "not found" or "access denied". The read is still the open's own `StorageFileReadError` (`PermissionError`, winerror 32), never "absent".
+- **Shown to detect the defect:** both fail (3 of 3 cases) against `_held_folders.py` as committed in `c795db4`, and pass with the correction.
+- **What stands in for the runner:** the local account does not hold the backup privilege, so here the original flags are refused too. The flag assertions are the regression check; only a Windows CI run shows the runner's behaviour.
+
+**Local verification** (Windows 11 Enterprise 10.0.26300, NTFS, Python 3.14.6, unelevated):
+
+| Group | Result |
+| --- | --- |
+| the literal correction alone (measured, not kept), the two Option C test files | 28 failed, 148 passed, 4 skipped |
+| the two new regression tests against `_held_folders.py` as committed in `c795db4` | 3 of 3 cases fail, as they must |
+| `tests/test_storage_held_read.py` and `tests/test_settings_read_safety.py` | 179 passed, 4 skipped (POSIX only) |
+| 25 related files: held reads and settings read safety; global and repository settings, project settings, the Repository Profile, instructions, the Verification Policy and AI Behavior; the Fix Mode store, custom modes, selection and catalogue; storage safety, identity, scope, the API boundary, the inventory and the witness; the MCP request scope; file safety, write boundaries, cleanup safety and the private folder | 1,231 passed, 62 skipped |
+| the approval gate, baselines and goldens (`test_storage_baseline`, `test_task_golden`, `test_prompt_boundary_golden`, `test_prompt_boundary_baseline`, `test_file_safety_baseline`) | 308 passed, 17 skipped |
+| `python tests/storage_baseline.py --check` | "baselines match" |
+| publishability (`tests/test_publishable.py`) | 20 passed |
+| the plan checker | 0 problems; the decision and batch statuses unchanged |
+| `git diff --check` | clean |
+| **the full Windows Python suite** | **4,003 passed, 63 skipped, 0 failed, 0 errors, 0 deselected**, exit 0, in 20 minutes. That is the 4,000 of `c795db4` plus the 3 new cases. The 63 skips are the same as before (POSIX- and macOS-only cases, and four recorded Windows limitations); only line numbers moved |
+
+No skipped test is counted as passed.
+
+**Integrity:**
+
+- **Owner-protected files:** 11/11 unchanged.
+- **Goldens and frozen records:** 25/25 unchanged. The 2B-3b designed-difference record is unchanged and empty.
+- **Unchanged decisions:** DD-27, DD-28, US-D29 and the eight activation blockers.
+- **This step's changes:** three of the four allowed files: `bugpilot/core/_held_folders.py`, `tests/test_storage_held_read.py` and this plan. `tests/test_settings_read_safety.py` needed no change.
+
+**Still required:**
+
+- the owner's commit authorization;
+- a push, and an owner-dispatched CI run with both Windows jobs successful (9/9). Until then, the Windows result is not verified;
+- the adversarial suite (M3), which stays OPEN.
 
 ### 14.4 Batch 3 — Extension and Agent Handoff
 
@@ -9972,6 +10115,7 @@ These add to the gates that already apply; they do not replace them:
 | 2026-10-22 | 2B-3b | **OPTION C M2 IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; DD-27 APPROVED; A SINGLE-MODE READ FINDING AWAITS THE OWNER; ADVERSARIAL VALIDATION PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED.** <ul><li>**Row 1:** `tests/test_repository_settings_storage.py`'s fixture `unreadable_record` refuses `repository.json` at both of its readers (storage's path read, which the writers' checks still use, and the held folder's `open_file`); the test asserts both fired; every earlier assertion unchanged. The held seam alone was tried first and failed the `set` handlers' assertions.</li><li>**DD-27 APPROVED** (owner, 2026-10-22), exactly as worded; surfaces: `fix-mode list` JSON and `WARN:` lines, MCP `list_fix_modes`, the extension through the CLI. No compared baseline record holds it, so the 2B-3b record has no entry for it and stays empty; "baselines match".</li><li>**Finding, not approved:** single-mode reads (`fix-mode show`, `update`, `delete`, `duplicate`) of a link to a sibling inside the Fix Mode folder now get the DD-27 issue; exit and error code unchanged; the owner's decision is needed (a proposed DD-28 or another rule).</li><li>**Results:** focused groups 680 + 755 + 573 passed; full Windows suite **3,969 passed, 60 skipped, 0 failed, 0 errors, 0 deselected**, exit 0, in 24 minutes. Against M1's run (3,923 passed, 60 skipped), 46 more pass: M2's new tests (34 more in the read-safety file, 12 in the held-read file); the 60 skips are the same platform skips.</li></ul> The link-race gate stays OPEN (§14.3, "Batch 2B-3b — Option C M2: Row 1 repair, DD-27 approval and verification"). Nothing staged, committed or pushed. |
 | 2026-10-22 | 2B-3b | **OPTION C M2 VERIFIED LOCALLY ON WINDOWS; DD-27 AND DD-28 APPROVED AND EVIDENCED; TOCTOU RISK UNRESOLVED; ADVERSARIAL VALIDATION (M3) PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED.** <ul><li>**DD-28 APPROVED** (owner, 2026-10-22), exactly as worded: one mode read by its id that is a link to a sibling inside the Fix Mode folder (a file, a folder, dangling, a Windows junction) gets the DD-27 text; exit 1, `INVALID_INPUT`, the JSON envelope and every non-link entry unchanged. Observed on `show`, `update` and `delete`; `duplicate` reads no mode by its id and is unchanged, so DD-28 is not expanded to it.</li><li>**Evidence against the literal** (written out in `tests/test_settings_read_safety.py`, never imported): 33 tests over `fix-mode list` JSON and `WARN:`, MCP `list_fix_modes`, `show`/`update`/`delete` (JSON and text), the user scope, and DD-28's boundaries (`duplicate`, non-link entries). No production change.</li><li>**Row 1:** both hooks kept; one explicit assertion per hook.</li><li>**Results:** the full Windows suite **4,000 passed, 60 skipped, 0 failed, 0 errors, 0 deselected**, exit 0, in 21 minutes; against the previous run (3,969 passed), 31 more pass: the new evidence tests; the 60 skips are the same platform skips.</li></ul> The 2B-3b record stays empty; the link race is unresolved (§14.3, "Batch 2B-3b — Option C M2: DD-28 approval and exact-message evidence"). Nothing staged, committed or pushed. |
 | 2026-10-22 | 2B-3b | **OPTION C M2 WITH THE CASE B FIX VERIFIED LOCALLY ON WINDOWS; THE POSIX PERMISSION TESTS NOT YET RUN (POSIX ONLY); PYTHON 3.10 CI COVERAGE ADDED, NOT YET RUN; TOCTOU RISK UNRESOLVED; M3 PENDING; NOT COMMITTED.** <ul><li>**Case B (POSIX):** a folder with read but no search permission made a file read fail as the file's own, so the settings readers fell back to defaults and the Fix Modes got an issue. Owner decision, option (a): fatal, as a folder-access failure.</li><li>**Fix:** `_held_folders.FolderDenied`, raised only when the open fails and the no-follow look at the entry (which needs search on the folder, nothing on the file) is refused; `storage._content` re-raises it as the plain folder `PermissionError`. Case C (an unreadable file in a searchable folder) unchanged; Windows, writers, identity and the record cache unchanged.</li><li>**Tests:** three POSIX-only permission tests (A, B, C) in `tests/test_storage_held_read.py`, skipped on Windows; not yet run anywhere.</li><li>**CI:** the four M1/M2 test files appended to the `safety-and-baselines` list (Python 3.10 included); nine jobs unchanged; not yet run.</li><li>**Results:** the full Windows suite **4,000 passed, 63 skipped, 0 failed, 0 errors, 0 deselected**, exit 0, in 21 minutes; the same 4,000 as before the fix, and 3 more skips: the new POSIX-only permission tests.</li></ul> The link race is unresolved; M3 is open (§14.3, "Batch 2B-3b — Option C M2: POSIX Case B fix and CI coverage"). Nothing staged, committed or pushed. |
+| 2026-10-23 | 2B-3b | **WINDOWS EXCLUSIVE-FILE READ CORRECTION IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; WINDOWS CI REVALIDATION PENDING; TOCTOU RISK UNRESOLVED; M3 OPEN.** <ul><li>**Before it:** M1/M2 committed as `e789ce2` and pushed; CI run 39892585420 failed 7/9, on two Windows exclusive-lock tests; the test-only diagnostic `c795db4` pushed.</li><li>**CI run 39989051086 on `c795db4`:** 7/9. Linux, macOS and Ubuntu Python 3.10 succeeded. On both Windows jobs, `open()` was refused, the reader's `CreateFileW` with `FILE_FLAG_BACKUP_SEMANTICS` opened the locked file, the same open without it got winerror 32, and the read returned the file's bytes (Python 3.13.16, Windows Server 2025, NTFS).</li><li>**The owner-approved correction:** a file's data is opened without `FILE_FLAG_BACKUP_SEMANTICS`; folders keep it. A failed data open is judged by an attributes-only look, as on POSIX, so a folder, a junction or a link at a file's name is reported as before. Only `bugpilot/core/_held_folders.py` changed in production.</li><li>**Tests:** two Windows regression tests (3 cases) in `tests/test_storage_held_read.py`; both diagnostic tests kept.</li><li>**Local:** the full Windows suite 4,003 passed, 63 skipped, 0 failed (exit 0); the literal correction alone failed 28 Option C tests, so a folder, junction or link at a file's name keeps its classification through the look; baselines match; goldens and records 25/25; plan checker 0 problems; `git diff --check` clean.</li><li>**Unchanged:** DD-27, DD-28, US-D29, the activation blockers, the version 0.1.5; B1-M and B2 NOT STARTED; Unified Storage inactive.</li></ul> |
 
 ---
 
@@ -10041,6 +10185,9 @@ These add to the gates that already apply; they do not replace them:
 | 2026-10-22 | 2B-3b Option C M2, Row 1 and DD-27 | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `d834082` | — (no CI) | — | the Row 1 test repaired; DD-27 approved; a single-mode read finding awaits the owner; local Windows verification only |
 | 2026-10-22 | 2B-3b Option C M2, DD-28 | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `d834082` | — (no CI) | — | DD-28 approved; DD-27 and DD-28 evidenced against their literal text; local Windows verification only |
 | 2026-10-22 | 2B-3b Option C M2, Case B and CI coverage | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `d834082` | — (no CI) | — | the Case B fix, three POSIX permission tests, the Python 3.10 file list; local Windows verification only |
+| 2026-10-22 and 2026-10-23 | 2B-3b Option C M1/M2 | `verify/0.1.6-storage` | `e789ce2281812a191c6580b6e2f900170beb8a22` (`fix(storage): add held-handle safe reads for unified settings`, parent `d834082`, 15 files, carrying the Case B row above), pushed by fast-forward (`d834082..e789ce2`), owner-authorized | 39892585420 (`CI`, `workflow_dispatch`, owner-dispatched) | **failure: 7/9** | Linux, macOS and Ubuntu Python 3.10 succeeded; both Windows jobs failed the same two exclusive-lock tests; not re-run |
+| 2026-10-23 | 2B-3b Windows diagnostic | `verify/0.1.6-storage` | `c795db41b0d369887a7600319579beeb762cf6f2` (`test(storage): diagnose Windows exclusive-handle reads in CI`, parent `e789ce2`, the two test files only), pushed by fast-forward (`e789ce2..c795db4`), owner-authorized | 39989051086, attempt 1 (`CI`, `workflow_dispatch`, owner-dispatched) | **failure: 7/9** | the evidence sought: the reader's `FILE_FLAG_BACKUP_SEMANTICS` data open read a file held with no sharing; without the flag, winerror 32; Linux, macOS and Ubuntu Python 3.10 succeeded |
+| 2026-10-23 | 2B-3b Windows correction | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `c795db4` | — (no CI) | — | a file's data opened without backup semantics; local Windows verification only; Windows CI revalidation pending |
 
 ---
 

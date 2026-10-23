@@ -23,7 +23,10 @@ open until :func:`held` ends.
   through: a link or junction (a name-surrogate tag, or none) counts as a
   link, any other tag as unsupported. A file is opened sharing read, write
   and delete, so BugPilot's atomic writers can still replace it, and is read
-  from that handle only.
+  from that handle only. Its data is opened without
+  ``FILE_FLAG_BACKUP_SEMANTICS``, which folders need and with which a CI
+  runner's process opened a file another program held exclusively; what
+  cannot be opened that way is looked at for its attributes only.
 
 The anchor is opened through its ``\\\\?\\`` form, so a data root longer than
 ``MAX_PATH`` is opened, never taken as missing: only "not found" there means
@@ -427,13 +430,13 @@ class _WindowsFolder(Folder):
         super().__init__(stack)
         self._handle = handle
 
-    def _open(self, name: str, access: int, share: int) -> int | None:
+    def _open(self, name: str, access: int, share: int, flags: int) -> int | None:
         """``name`` in this folder, opened as itself and shown to be in it; ``None`` when nothing is there."""
         if not plain_name(name):
             raise ValueError("not a plain name")
         base = _final_path(self._handle)
         try:
-            handle = _create(_joined(base, name), access, share, _BACKUP_SEMANTICS | _OPEN_REPARSE_POINT)
+            handle = _create(_joined(base, name), access, share, flags)
         except OSError as error:
             if getattr(error, "winerror", None) not in _ERROR_NOT_FOUND:
                 raise  # in use, no permission, being deleted: never "absent"
@@ -452,7 +455,10 @@ class _WindowsFolder(Folder):
         return handle
 
     def child(self, name: str) -> Folder | None:
-        handle = self._open(name, _FILE_LIST_DIRECTORY | _FILE_READ_ATTRIBUTES | _SYNCHRONIZE, _SHARE_HOLD)
+        handle = self._open(
+            name, _FILE_LIST_DIRECTORY | _FILE_READ_ATTRIBUTES | _SYNCHRONIZE, _SHARE_HOLD,
+            _BACKUP_SEMANTICS | _OPEN_REPARSE_POINT,
+        )
         if handle is None:
             return None
         self._stack.callback(_close, handle)
@@ -465,8 +471,35 @@ class _WindowsFolder(Folder):
             raise Refused("not-a-folder")
         return _WindowsFolder(handle, self._stack)
 
+    def _kind(self, name: str) -> Kind | None:
+        """What is at ``name`` now, opened for its attributes only, never its data; ``None`` when even that fails."""
+        try:
+            handle = self._open(
+                name, _FILE_READ_ATTRIBUTES | _SYNCHRONIZE, _SHARE_FILE, _BACKUP_SEMANTICS | _OPEN_REPARSE_POINT
+            )
+        except OSError:
+            return None
+        if handle is None:
+            return "absent"
+        try:
+            return _windows_kind(handle)
+        except OSError:
+            return None
+        finally:
+            _close(handle)
+
     def open_file(self, name: str) -> Opened:
-        handle = self._open(name, _GENERIC_READ, _SHARE_FILE)
+        # The data is opened without FILE_FLAG_BACKUP_SEMANTICS: with it, a CI runner's process (run 39989051086,
+        # presumably through its backup privilege) opened a file another program held exclusively. Without it a folder,
+        # a junction or a directory link cannot be opened at all, so a failed open is judged by what is at the
+        # name, as on POSIX: one of those is reported as itself, anything else keeps the open's own error.
+        try:
+            handle = self._open(name, _GENERIC_READ, _SHARE_FILE, _OPEN_REPARSE_POINT)
+        except OSError:
+            kind = self._kind(name)
+            if kind in ("folder", "link", "reparse"):
+                return Opened(kind)
+            raise  # a file in use or not readable, or one gone since: never "absent"
         if handle is None:
             return Opened("absent")
         try:
