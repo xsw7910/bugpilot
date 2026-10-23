@@ -671,15 +671,69 @@ def test_a_file_in_use_is_a_failure_naming_no_path_never_absent(namespace, repo)
     path = _settings(namespace, "verification.md", b"locked\n")
     handle = _winapi.CreateFile(str(path), _winapi.GENERIC_READ, 0, 0, _winapi.OPEN_EXISTING, 0, 0)  # no sharing
     try:
-        with pytest.raises(storage.StorageFileReadError) as failed:
-            namespace.read_settings("verification.md", limit=100)
+        evidence = _exclusive_lock_evidence(path)  # while the lock is held, before the read under test
+        try:
+            outcome = namespace.read_settings("verification.md", limit=100)
+        except Exception as error:  # noqa: BLE001 - judged below, with the evidence
+            outcome = error
     finally:
         _winapi.CloseHandle(handle)
+    found = _described(outcome, b"locked\n")
+    assert not evidence.startswith("open() opened"), f"invalid setup, the lock did not stop open(): {evidence}; {found}"
+    assert isinstance(outcome, storage.StorageFileReadError), (
+        f"the reader did not refuse the locked file: {found}; {evidence}"
+    )
+    failed = outcome
     # The file itself (M2): the original's class and number, the standard text Python's own open gave, no path.
-    assert isinstance(failed.value.error, PermissionError) and failed.value.errno == errno.EACCES
-    assert failed.value.strerror == os.strerror(errno.EACCES) and failed.value.filename is None
-    _assert_no_absolute_path(str(failed.value), repo)
+    assert isinstance(failed.error, PermissionError) and failed.errno == errno.EACCES
+    assert failed.strerror == os.strerror(errno.EACCES) and failed.filename is None
+    _assert_no_absolute_path(str(failed), repo)
     assert namespace.read_settings("verification.md", limit=100) == SettingsContent("present", b"locked\n")
+
+
+def _exclusive_lock_evidence(path: Path) -> str:
+    """While another handle holds ``path`` exclusively: what an ordinary open and the reader's own Win32 open get.
+
+    Diagnostics for the Windows CI failures of run 39892585420, as one line for a public annotation. Each probe that
+    opens the file closes it at once; the exclusive handle is left as it was. The reader's open is made as it makes
+    it (``_held_folders._create``, the long form, ``GENERIC_READ``, sharing read, write and delete), with and without
+    ``FILE_FLAG_BACKUP_SEMANTICS``.
+    """
+    import ctypes
+    import platform
+
+    try:
+        with open(path, "rb"):
+            plain = "opened"
+    except OSError as error:
+        plain = f"refused ({type(error).__name__})"
+    probes = []
+    for label, flags in (("reader flags", _held_folders._BACKUP_SEMANTICS | _held_folders._OPEN_REPARSE_POINT),
+                         ("without backup semantics", _held_folders._OPEN_REPARSE_POINT)):
+        try:
+            probe = _held_folders._create(_held_folders._extended(os.path.abspath(path)), _held_folders._GENERIC_READ,
+                                          _held_folders._SHARE_FILE, flags)
+        except OSError as error:
+            probes.append(f"{label} refused (winerror {getattr(error, 'winerror', None)})")
+        else:
+            _held_folders._close(probe)
+            probes.append(f"{label} opened")
+    file_system = ctypes.create_unicode_buffer(64)
+    drive = os.path.splitdrive(os.path.abspath(path))[0] + "\\"
+    known = ctypes.windll.kernel32.GetVolumeInformationW(drive, None, 0, None, None, None, file_system, 64)
+    return (f"open() {plain}; CreateFileW {', '.join(probes)}; python {platform.python_version()}; "
+            f"{platform.platform()}; file system {file_system.value if known else 'unknown'}")
+
+
+def _described(outcome: object, fixture: bytes) -> str:
+    """What a read under test gave, without its contents: a state and a size, or an error's class and numbers."""
+    if isinstance(outcome, SettingsContent):
+        match = "matches" if outcome.data == fixture else "differs from"
+        return f"read returned {outcome.state} ({len(outcome.data)} bytes; {match} the fixture)"
+    if isinstance(outcome, BaseException):
+        return (f"read raised {type(outcome).__name__} (errno {getattr(outcome, 'errno', None)}, "
+                f"winerror {getattr(outcome, 'winerror', None)})")
+    return f"read returned {type(outcome).__name__}"
 
 
 # --- M2: the file's own failure, told apart from a folder's -----------------------------------------------

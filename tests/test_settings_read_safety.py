@@ -172,6 +172,50 @@ def _fail_folder(monkeypatch, name: str) -> list[str]:
     return failed
 
 
+def _exclusive_lock_evidence(path: Path) -> str:
+    """While another handle holds ``path`` exclusively: what an ordinary open and the reader's own Win32 open get.
+
+    Diagnostics for the Windows CI failures of run 39892585420, as one line for a public annotation (the same probe
+    as ``tests/test_storage_held_read.py``'s). Each probe that opens the file closes it at once; the exclusive handle
+    is left as it was.
+    """
+    import ctypes
+    import platform
+
+    try:
+        with open(path, "rb"):
+            plain = "opened"
+    except OSError as error:
+        plain = f"refused ({type(error).__name__})"
+    probes = []
+    for label, flags in (("reader flags", _held_folders._BACKUP_SEMANTICS | _held_folders._OPEN_REPARSE_POINT),
+                         ("without backup semantics", _held_folders._OPEN_REPARSE_POINT)):
+        try:
+            probe = _held_folders._create(_held_folders._extended(os.path.abspath(path)), _held_folders._GENERIC_READ,
+                                          _held_folders._SHARE_FILE, flags)
+        except OSError as error:
+            probes.append(f"{label} refused (winerror {getattr(error, 'winerror', None)})")
+        else:
+            _held_folders._close(probe)
+            probes.append(f"{label} opened")
+    file_system = ctypes.create_unicode_buffer(64)
+    drive = os.path.splitdrive(os.path.abspath(path))[0] + "\\"
+    known = ctypes.windll.kernel32.GetVolumeInformationW(drive, None, 0, None, None, None, file_system, 64)
+    return (f"open() {plain}; CreateFileW {', '.join(probes)}; python {platform.python_version()}; "
+            f"{platform.platform()}; file system {file_system.value if known else 'unknown'}")
+
+
+def _described(outcome: object, fixture: bytes) -> str:
+    """What a read under test gave, without its contents: a state and a size, or an error's class and numbers."""
+    if isinstance(outcome, storage.SettingsContent):
+        match = "matches" if outcome.data == fixture else "differs from"
+        return f"read returned {outcome.state} ({len(outcome.data)} bytes; {match} the fixture)"
+    if isinstance(outcome, BaseException):
+        return (f"read raised {type(outcome).__name__} (errno {getattr(outcome, 'errno', None)}, "
+                f"winerror {getattr(outcome, 'winerror', None)})")
+    return f"read returned {type(outcome).__name__}"
+
+
 def _approved_link_issue(name: str) -> str:
     return APPROVED_LINK_ISSUE.format(name=name)
 
@@ -388,11 +432,27 @@ def test_a_file_another_program_holds_exclusively_reads_as_permission_denied(tmp
     path = _settings(repo, "project_settings.json", "{}")
     handle = _winapi.CreateFile(str(path), _winapi.GENERIC_READ, 0, 0, _winapi.OPEN_EXISTING, 0, 0)  # shares nothing
     try:
-        _, warnings = load_project_settings(repo)
+        evidence = _exclusive_lock_evidence(path)  # while the lock is held, before the read under test
+        try:
+            _, warnings = load_project_settings(repo)
+        except Exception as error:  # noqa: BLE001 - judged below, with the evidence
+            warnings = error
+        # The state storage itself gives, still under the lock: the warnings alone cannot tell content from "absent".
+        try:
+            found = _described(repository_settings.read_settings(repo, "project_settings.json", limit=64 * 1024), b"{}")
+        except Exception as error:  # noqa: BLE001 - described, never raised past the diagnosis
+            found = _described(error, b"{}")
     finally:
         _winapi.CloseHandle(handle)
+    assert not evidence.startswith("open() opened"), f"invalid setup, the lock did not stop open(): {evidence}; {found}"
+    assert isinstance(warnings, list), (
+        f"load_project_settings {_described(warnings, b'{}')}; storage {found}; {evidence}"
+    )
     # The system says "in use" in its own words; the warning keeps the words Python's own open gave it.
-    assert warnings == [f"{_shown(repo, 'project_settings.json')} could not be read (Permission denied). Using the defaults."]
+    expected = [f"{_shown(repo, 'project_settings.json')} could not be read (Permission denied). Using the defaults."]
+    assert warnings == expected, (
+        f"the reader did not refuse the locked file: {len(warnings)} warning(s); storage {found}; {evidence}"
+    )
 
 
 # --- a folder on the way that cannot be read: the command fails, never the defaults -------------------------
