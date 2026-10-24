@@ -37,6 +37,7 @@ between two runs is seen by the second one — these files are meant to be edite
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Literal
@@ -85,6 +86,18 @@ _ALLOWED_KEYS: frozenset[str] = frozenset(
 )
 
 
+class _ListedAndGone(FixModeError):
+    """A listed file that was gone by its read: the issue "is not a file." as always, but absence, not a failure."""
+
+
+class FixModeUnloadableError(FixModeError):
+    """An id whose project definition is on disk but could not be loaded (F3-A): refused, never resolved elsewhere.
+
+    A :class:`FixModeError`, so every entry point reports it as it reports any rejected mode; not a
+    :class:`FixModeNotFoundError`, whose persisted-selection wording would hide the reason.
+    """
+
+
 @dataclass(frozen=True)
 class FixModeIssue:
     """A custom file that could not be loaded, and why.
@@ -92,11 +105,18 @@ class FixModeIssue:
     Carried rather than raised: one unreadable file must not take the other
     modes down with it, and must not be silently skipped either. The developer
     needs the path and the reason, in the listing where they would look.
+
+    ``file_name`` is the file that is there but could not be loaded, so that its
+    id is refused rather than resolved to another scope's definition (F3-A). It
+    is empty for an issue about a whole scope, and for a file listed but gone by
+    the time it was read, which is absence, not a broken definition. Listings
+    show only the scope, the path and the message.
     """
 
     scope: str
     path: str
     message: str
+    file_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -141,7 +161,25 @@ class FixModeCatalog:
         return tuple(effective.values())
 
     def effective_registry(self) -> FixModeRegistry:
-        return FixModeRegistry(self.effective_modes())
+        return _CatalogRegistry(self)
+
+    def blocked_by(self, mode_id: str) -> FixModeIssue | None:
+        """The issue that keeps ``mode_id`` from resolving: its project definition is on disk but failed (F3-A).
+
+        Project beats user, so a project file that could not be loaded is the definition the id names. Resolving
+        the id to the developer's own instead would run another workflow with nothing on screen to say so.
+        Nothing blocks when the project's definition loaded, when there is none at all (the user's applies, as
+        always), or for a built-in id, which no custom file may claim. The file's name is compared with the id as
+        the system compares names: without case on Windows.
+        """
+        if mode_id in BUILTIN_FIX_MODE_IDS or any(mode.id == mode_id for mode in self.project):
+            return None
+        wanted = os.path.normcase(mode_id)
+        for issue in self.issues:
+            if issue.scope == "project" and issue.file_name:
+                if os.path.normcase(os.path.splitext(issue.file_name)[0]) == wanted:
+                    return issue
+        return None
 
     def is_effective(self, mode: FixMode) -> bool:
         """Whether this physical definition is the one its id resolves to."""
@@ -149,6 +187,30 @@ class FixModeCatalog:
             if candidate.id == mode.id:
                 return candidate is mode or candidate == mode
         return False
+
+
+class _CatalogRegistry(FixModeRegistry):
+    """One catalog's effective registry: an id whose project definition failed to load resolves to nothing else.
+
+    The listing (``effective_modes``) is unchanged, so such an id can still be offered; it is refused when it is
+    resolved (F3-A, owner decision; keeping the two consistent is A2, deferred).
+    """
+
+    def __init__(self, catalog: FixModeCatalog) -> None:
+        super().__init__(catalog.effective_modes())
+        self._catalog = catalog
+
+    def resolve(self, mode_id: str | None = None) -> FixMode:
+        if isinstance(mode_id, str):
+            failed = self._catalog.blocked_by(mode_id)
+            if failed is not None:
+                reason = failed.message if failed.message.endswith(".") else f"{failed.message}."
+                raise FixModeUnloadableError(
+                    f"Fix Mode {mode_id!r} cannot be used: its project definition, {failed.path}, could not be "
+                    f"loaded. {reason} BugPilot will not use another scope's definition of {mode_id!r} instead. "
+                    "Repair or remove that file, or choose another Fix Mode."
+                )
+        return super().resolve(mode_id)
 
 
 def custom_mode_payload(mode: FixMode) -> dict[str, object]:
@@ -369,8 +431,11 @@ class FixModeStore:
             try:
                 modes.append(self._load_held(scope, name, directory))
             except FixModeError as exc:
-                # In display form where storage owns the folder (row 22, US-D22): never the user's folder name.
-                issues.append(FixModeIssue(scope=scope, path=self._shown(scope, directory / name), message=str(exc)))
+                # In display form where storage owns the folder (row 22, US-D22): never the user's folder name. A file
+                # gone since it was listed keeps its issue but is absence, so it blocks no id (F3-A).
+                failed = "" if isinstance(exc, _ListedAndGone) else name
+                shown = self._shown(scope, directory / name)
+                issues.append(FixModeIssue(scope=scope, path=shown, message=str(exc), file_name=failed))
         return tuple(modes)
 
     def _checked_dir(self, scope: str) -> Path:
@@ -412,7 +477,9 @@ class FixModeStore:
             raise FixModeError(f"{name} could not be read: {exc.strerror or type(exc).__name__}.") from exc
         if found.state == "absent" and not_found is not None:
             raise not_found
-        if found.state in ("absent", "not_a_file"):
+        if found.state == "absent":
+            raise _ListedAndGone(f"{name} is not a file.")
+        if found.state == "not_a_file":
             raise FixModeError(f"{name} is not a file.")
         if found.state == "link":
             # A link is a definition that lives somewhere else, under rules this store does not set. It is
@@ -447,7 +514,9 @@ class FixModeStore:
             try:
                 modes.append(self._load_file(path, scope))
             except FixModeError as exc:
-                issues.append(FixModeIssue(scope=scope, path=self._shown(scope, path), message=str(exc)))
+                issues.append(
+                    FixModeIssue(scope=scope, path=self._shown(scope, path), message=str(exc), file_name=path.name)
+                )
         return tuple(modes)
 
     def _load_file(self, path: Path, scope: str) -> FixMode:
@@ -531,7 +600,9 @@ class FixModeStore:
         """
         _require_scope(scope)
         _require_not_reserved(new_id)
-        source = (registry or self.effective_registry()).resolve(source_id)
+        # Copying runs nothing and reads no mode by its id: the source resolves as it always did, without F3-A's
+        # refusal, as DD-28's record of `duplicate` requires (`test_dd28_leaves_duplicate_as_it_was`).
+        source = FixModeRegistry.resolve(registry or self.effective_registry(), source_id)
         copy = FixMode(
             id=new_id,
             name=name if name and name.strip() else f"{source.name} (copy)",

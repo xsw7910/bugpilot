@@ -441,3 +441,105 @@ def test_bugpilot_does_not_touch_the_repository_beyond_the_mode_file(repo):
     # (0.1.6 Batch 2B-3a): nothing is written into the repository, not even a .gitignore line.
     assert not (repo / ".bugpilot").exists()
     assert not (repo / ".gitignore").exists()
+
+
+# --- F3-A: a project definition that cannot be loaded is refused, never replaced by the developer's own ---------
+
+REFUSED = "Fix Mode 'my-safe' cannot be used: its project definition, "
+
+
+def _both_scopes(capsys) -> None:
+    assert main(["fix-mode", "duplicate", "standard", "my-safe", "--scope", "user"]) == 0
+    assert main(["fix-mode", "duplicate", "conservative", "my-safe", "--scope", "project"]) == 0
+    capsys.readouterr()
+
+
+def _project_file(repo: Path) -> Path:
+    return storage.repository_storage(repo).fix_modes_dir(create=False) / "my-safe.json"
+
+
+def _assert_no_absolute_path(text: str, repo: Path, home: Path) -> None:
+    for place in (repo, home, storage.data_root()):
+        assert str(place) not in text, text
+
+
+def test_an_explicit_selection_of_a_broken_project_definition_fails_and_writes_no_task(repo, home, capsys):
+    _both_scopes(capsys)
+    _project_file(repo).write_text("{ not json", encoding="utf-8")
+
+    assert prepare("--fix-mode", "my-safe") == 1
+    _out, err = capsys.readouterr()
+    assert f"ERROR: {REFUSED}" in err and "my-safe.json is not valid JSON: " in err
+    assert "Run: bugpilot fix-mode list" in err
+    assert not (repo / ".ai" / "JR-12345" / "task.md").exists()
+    _assert_no_absolute_path(err, repo, home)
+
+
+def test_the_json_envelope_carries_the_refusal_as_invalid_input(repo, home, capsys):
+    _both_scopes(capsys)
+    _project_file(repo).write_text("{ not json", encoding="utf-8")
+
+    assert prepare("--fix-mode", "my-safe", "--json") == 1
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error["code"] == "INVALID_INPUT" and error["message"].startswith(REFUSED)
+    assert not (repo / ".ai" / "JR-12345" / "task.md").exists()
+    _assert_no_absolute_path(error["message"], repo, home)
+
+
+def test_a_persisted_project_selection_whose_definition_broke_is_refused_not_replaced(repo, home, capsys):
+    _both_scopes(capsys)
+    assert prepare("--fix-mode", "my-safe") == 0
+    assert persisted(repo)["source"] == "project"
+    before = task_text(repo)
+    capsys.readouterr()
+    _project_file(repo).write_text("{ not json", encoding="utf-8")
+
+    assert prepare("--resume") == 1
+    out, err = capsys.readouterr()
+    assert REFUSED in err and "source: project -> user" not in out + err
+    assert task_text(repo) == before  # nothing regenerated under the developer's own definition
+    assert persisted(repo)["source"] == "project"
+    # The prepared work item's preview is refused the same way.
+    assert main(["task-preview", "JR-12345", "--json"]) == 1
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error["code"] == "INVALID_INPUT" and error["message"].startswith(REFUSED)
+
+
+def test_a_persisted_project_selection_whose_file_was_removed_still_warns_and_runs(repo, capsys):
+    # Genuine absence, outside BugPilot: the developer's own definition applies, with the drift warning, as always.
+    _both_scopes(capsys)
+    assert prepare("--fix-mode", "my-safe") == 0
+    capsys.readouterr()
+    _project_file(repo).unlink()
+
+    assert prepare("--resume") == 0
+    assert "source: project -> user" in capsys.readouterr().out
+    assert "- Source: user" in task_text(repo)
+
+
+def test_the_template_preview_refuses_a_broken_project_definition(repo, home, capsys):
+    _both_scopes(capsys)
+    _project_file(repo).write_text('{"schema_version": 1, "id": "my-safe"}', encoding="utf-8")
+
+    assert main(["task-preview", "--fix-mode", "my-safe", "--json"]) == 1
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error["code"] == "INVALID_INPUT" and error["message"].startswith(REFUSED)
+    assert "my-safe.json is missing required field(s): " in error["message"]
+
+
+def test_show_without_a_scope_refuses_the_id_while_its_scopes_and_the_listing_stay_as_they_were(repo, capsys):
+    _both_scopes(capsys)
+    _project_file(repo).write_text("{ not json", encoding="utf-8")
+
+    assert main(["fix-mode", "show", "my-safe", "--json"]) == 1
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error["code"] == "INVALID_INPUT" and error["message"].startswith(REFUSED)
+    # Management still reads one scope's definition by name.
+    assert main(["fix-mode", "show", "my-safe", "--scope", "user", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["mode"]["source"] == "user"
+    # The listing a picker reads is unchanged (A2 deferred): the id is offered, and refused when it runs.
+    assert main(["fix-mode", "list", "--json"]) == 0
+    listed = json.loads(capsys.readouterr().out)
+    assert [mode["source"] for mode in listed["modes"] if mode["id"] == "my-safe"] == ["user"]
+    assert [sorted(issue) for issue in listed["issues"]] == [["message", "path", "scope"]]
+    assert listed["issues"][0]["scope"] == "project"

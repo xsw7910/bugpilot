@@ -643,6 +643,37 @@ def test_an_unsafe_scope_directory_cannot_inject_modes_through_mcp(tmp_path, hom
         assert str(tmp_path) not in message and os.environ["BUGPILOT_HOME"] not in message
 
 
+def test_a_broken_project_definition_is_refused_by_prepare_and_show_and_still_listed(tmp_path, home):
+    """F3-A: the id is refused where it would run, never resolved to the developer's own definition."""
+    import os
+
+    from bugpilot.core import storage
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _store(repo, home).create("user", "my-safe", _definition("my-safe", name="Mine"))
+    _store(repo, home).create("project", "my-safe", _definition("my-safe", name="Ours"))
+    project_file = storage.repository_storage(repo).fix_modes_dir(create=False) / "my-safe.json"
+    project_file.write_text("{ not json", encoding="utf-8")
+    server = build_server(repo)
+    refused = "Fix Mode 'my-safe' cannot be used: its project definition, "
+
+    prepared = _expect_tool_error(
+        server, "prepare_bug_description", {"description": "crash", "fix_mode_id": "my-safe"}
+    )
+    assert "[INVALID_INPUT]: " + refused in prepared and "my-safe.json is not valid JSON: " in prepared
+    assert not list((repo / ".ai").glob("*/task.md"))
+    shown = _expect_tool_error(server, "show_fix_mode", {"mode_id": "my-safe"})
+    assert shown.startswith("Error executing tool show_fix_mode: " + refused)
+    for message in (prepared, shown):
+        assert str(tmp_path) not in message and os.environ["BUGPILOT_HOME"] not in message
+    # Discovery is unchanged (A2 deferred): the id is listed with the issue that explains the refusal.
+    listed = _modes(server)
+    assert [mode["source"] for mode in listed["modes"] if mode["id"] == "my-safe"] == ["user"]
+    assert [issue["scope"] for issue in listed["issues"]] == ["project"]
+    assert listed["issues"][0]["message"].startswith("my-safe.json is not valid JSON: ")
+
+
 # --- inspection --------------------------------------------------------------
 
 

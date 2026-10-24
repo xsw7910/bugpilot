@@ -17,15 +17,18 @@ edited or deleted again.
 
 from __future__ import annotations
 
+import errno
 import json
+import os
 from pathlib import Path
 
 import pytest
 
-from bugpilot.core import storage
+from bugpilot.core import _held_folders, repository_settings, storage
 from bugpilot.core.fix_mode_store import (
     BUILTIN_FIX_MODE_IDS,
     FixModeStore,
+    FixModeUnloadableError,
     catalog_for,
     custom_mode_payload,
     effective_registry_for,
@@ -590,3 +593,182 @@ def test_the_registry_helpers_read_the_current_files_every_time(repo, home):
 
 def test_every_builtin_id_is_reserved(store):
     assert BUILTIN_FIX_MODE_IDS == {mode.id for mode in BUILTIN.list_modes()}
+
+
+# --- F3-A: a project definition on disk that cannot be loaded is refused, never resolved elsewhere ------------
+
+WINDOWS = os.name == "nt"
+BROKEN = ["invalid JSON", "invalid schema", "id mismatch", "symlink"] + (["junction"] if WINDOWS else [])
+REFUSED = "Fix Mode 'my-safe' cannot be used: its project definition, "
+GUIDANCE = (
+    "BugPilot will not use another scope's definition of 'my-safe' instead. "
+    "Repair or remove that file, or choose another Fix Mode."
+)
+
+
+def _broken_project(repo: Path, how: str) -> str:
+    """``my-safe`` in the project scope, broken as ``how`` says. Returns part of the issue its catalog reports."""
+    folder = project_dir(repo)
+    target = folder / "my-safe.json"
+    if how == "invalid JSON":
+        target.write_text("{ not json", encoding="utf-8")
+        return "my-safe.json is not valid JSON: "
+    if how == "invalid schema":
+        target.write_text(json.dumps({"schema_version": 1, "id": "my-safe"}), encoding="utf-8")
+        return "my-safe.json is missing required field(s): "
+    if how == "id mismatch":
+        write_mode(folder, definition("other-id"), name="my-safe.json")
+        return "my-safe.json declares id 'other-id' but belongs to 'my-safe'."
+    if how == "symlink":
+        write_mode(folder, definition("sibling"))
+        try:
+            target.symlink_to(folder / "sibling.json")
+        except (OSError, NotImplementedError):
+            pytest.skip("symlinks are not available to this account")
+        return "my-safe.json is a symbolic link or junction."
+    if how == "junction":
+        import _winapi
+
+        (folder / "sibling-folder").mkdir()
+        _winapi.CreateJunction(str(folder / "sibling-folder"), str(target))
+        return "my-safe.json is a symbolic link or junction."
+    raise AssertionError(how)
+
+
+def _assert_no_absolute_path(message: str, *places: Path) -> None:
+    for place in (*places, storage.data_root()):
+        assert str(place) not in message, message
+    assert "/settings/fix_modes/my-safe.json, could not be loaded. " in message  # the display path only
+
+
+@pytest.mark.parametrize("how", BROKEN)
+def test_a_project_definition_that_cannot_be_loaded_is_refused_never_the_users(repo, home, how):
+    write_mode(home / "fix_modes", definition("my-safe", name="Mine"))
+    reason = _broken_project(repo, how)
+    with pytest.raises(FixModeUnloadableError) as refused:
+        effective_registry_for(repo, home).resolve("my-safe")
+    message = str(refused.value)
+    assert message.startswith(REFUSED) and reason in message and message.endswith(GUIDANCE)
+    assert not isinstance(refused.value, FixModeNotFoundError)
+    _assert_no_absolute_path(message, repo, home)
+    # The listing is as it was (A2 deferred): the developer's definition is still the one it shows for the id.
+    catalog = catalog_for(repo, home)
+    assert [mode.source for mode in catalog.effective_modes() if mode.id == "my-safe"] == ["user"]
+    assert [(issue.scope, issue.file_name) for issue in catalog.issues] == [("project", "my-safe.json")]
+
+
+def test_a_project_definition_that_cannot_be_read_is_refused_never_the_users(repo, home, monkeypatch):
+    monkeypatch.setattr(storage, "_TRANSIENT_DELAY", 0)
+    write_mode(home / "fix_modes", definition("my-safe", name="Mine"))
+    write_mode(project_dir(repo), definition("my-safe", name="Ours"))
+    folder_class = _held_folders._WindowsFolder if WINDOWS else _held_folders._PosixFolder
+    real_open_file = folder_class.open_file
+
+    def open_file(self, name):  # the file's own failure, as no permission, or another program's hold, gives it
+        if name == "my-safe.json":
+            raise PermissionError(errno.EACCES, "Permission denied")
+        return real_open_file(self, name)
+
+    monkeypatch.setattr(folder_class, "open_file", open_file)
+    with pytest.raises(FixModeUnloadableError) as refused:
+        effective_registry_for(repo, home).resolve("my-safe")
+    assert "my-safe.json could not be read: " in str(refused.value)
+
+
+@pytest.mark.skipif(not WINDOWS, reason="share modes are Windows'")
+def test_a_project_definition_held_exclusively_is_refused_until_it_is_released(repo, home, monkeypatch):
+    import _winapi
+
+    monkeypatch.setattr(storage, "_TRANSIENT_DELAY", 0)
+    write_mode(home / "fix_modes", definition("my-safe", name="Mine"))
+    path = write_mode(project_dir(repo), definition("my-safe", name="Ours"))
+    handle = _winapi.CreateFile(str(path), _winapi.GENERIC_READ, 0, 0, _winapi.OPEN_EXISTING, 0, 0)  # no sharing
+    try:
+        with pytest.raises(FixModeUnloadableError, match=r"my-safe\.json could not be read: "):
+            effective_registry_for(repo, home).resolve("my-safe")
+    finally:
+        _winapi.CloseHandle(handle)
+    assert effective_registry_for(repo, home).resolve("my-safe").name == "Ours"
+
+
+def test_with_both_definitions_valid_the_projects_runs(repo, home):
+    write_mode(home / "fix_modes", definition("my-safe", name="Mine"))
+    write_mode(project_dir(repo), definition("my-safe", name="Ours"))
+    mode = effective_registry_for(repo, home).resolve("my-safe")
+    assert (mode.name, mode.source) == ("Ours", "project")
+
+
+def test_with_no_project_definition_the_users_runs_as_always(repo, home):
+    write_mode(home / "fix_modes", definition("my-safe", name="Mine"))
+    project_dir(repo)
+    mode = effective_registry_for(repo, home).resolve("my-safe")
+    assert (mode.name, mode.source) == ("Mine", "user")
+
+
+def test_a_broken_project_definition_without_a_users_is_refused_by_its_reason(repo, home):
+    reason = _broken_project(repo, "invalid JSON")
+    with pytest.raises(FixModeUnloadableError) as refused:  # no longer "Unknown Fix Mode"
+        effective_registry_for(repo, home).resolve("my-safe")
+    assert str(refused.value).startswith(REFUSED) and reason in str(refused.value)
+
+
+def test_a_broken_users_definition_never_blocks_a_valid_projects(repo, home):
+    (home / "fix_modes").mkdir(parents=True)
+    (home / "fix_modes" / "my-safe.json").write_text("{ not json", encoding="utf-8")
+    write_mode(project_dir(repo), definition("my-safe", name="Ours"))
+    assert effective_registry_for(repo, home).resolve("my-safe").name == "Ours"
+
+
+def test_a_broken_unrelated_definition_blocks_no_other_id_and_never_the_default(repo, home):
+    folder = project_dir(repo)
+    (folder / "broken.json").write_text("{ not json", encoding="utf-8")
+    write_mode(folder, definition("my-safe", name="Ours"))
+    write_mode(home / "fix_modes", definition("mine-only", name="Mine"))
+    registry = effective_registry_for(repo, home)
+    assert registry.resolve("my-safe").name == "Ours"
+    assert registry.resolve("mine-only").name == "Mine"
+    assert registry.resolve().id == "standard" and registry.default.id == "standard"
+    with pytest.raises(FixModeUnloadableError):
+        registry.resolve("broken")
+
+
+def test_an_unknown_id_is_still_unknown(repo, home):
+    _broken_project(repo, "invalid JSON")
+    with pytest.raises(FixModeNotFoundError, match=r"^Unknown Fix Mode 'no-such-mode'\. Available modes: "):
+        effective_registry_for(repo, home).resolve("no-such-mode")
+
+
+def test_a_custom_file_claiming_a_builtin_id_never_blocks_the_builtin(repo, home):
+    (project_dir(repo) / "standard.json").write_text(json.dumps(definition("standard")), encoding="utf-8")
+    catalog = catalog_for(repo, home)
+    assert [issue.file_name for issue in catalog.issues] == ["standard.json"]  # reported, as always
+    assert catalog.effective_registry().resolve("standard").source == "builtin"
+
+
+def test_a_file_listed_but_gone_before_its_read_is_absence_and_blocks_nothing(repo, home, monkeypatch):
+    write_mode(home / "fix_modes", definition("my-safe", name="Mine"))
+    write_mode(project_dir(repo), definition("my-safe", name="Ours"))
+    real_read = repository_settings.read_fix_mode
+
+    def read_fix_mode(repo_root, file_name, *, limit):  # deleted between the listing and the read
+        if file_name == "my-safe.json":
+            return storage.SettingsContent("absent")
+        return real_read(repo_root, file_name, limit=limit)
+
+    monkeypatch.setattr(repository_settings, "read_fix_mode", read_fix_mode)
+    catalog = catalog_for(repo, home)
+    assert [(issue.message, issue.file_name) for issue in catalog.issues] == [("my-safe.json is not a file.", "")]
+    assert catalog.effective_registry().resolve("my-safe").name == "Mine"
+
+
+def test_a_case_variant_file_name_names_its_id_only_where_names_ignore_case(repo, home):
+    # `My-Safe.json` declaring `my-safe` cannot load (an id must match its file's name). On Windows it is the file
+    # `my-safe` names, so the id is refused; elsewhere it is another file, and the developer's definition runs.
+    write_mode(home / "fix_modes", definition("my-safe", name="Mine"))
+    write_mode(project_dir(repo), definition("my-safe"), name="My-Safe.json")
+    registry = effective_registry_for(repo, home)
+    if WINDOWS:
+        with pytest.raises(FixModeUnloadableError, match="My-Safe.json declares id 'my-safe'"):
+            registry.resolve("my-safe")
+    else:
+        assert registry.resolve("my-safe").name == "Mine"
