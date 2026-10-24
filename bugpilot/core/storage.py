@@ -821,6 +821,8 @@ def _held_record_state(
     """
     try:
         opened = _transient(lambda: namespace.open_file(RECORD_NAME))
+    except _held_folders.FolderFailed as failed:
+        raise failed.error from None  # the namespace's own failure, as any folder's: fatal, never the record's state
     except PermissionError:
         raise _unreadable(path) from None
     except _held_folders.Refused as refused:
@@ -1189,14 +1191,15 @@ def _content(
     :func:`_file`'s words. An ``OSError`` while opening or reading the file
     itself is a :class:`StorageFileReadError`; one in a folder on the way stays
     a plain ``OSError``, and so does a held folder that denies even a look at
-    the file (``FolderDenied``: read permission without search, on POSIX).
+    the file (``FolderDenied``: read permission without search, on POSIX) or
+    whose own handle cannot be queried (``FolderFailed``, on Windows).
     """
     try:
         opened = folder.open_file(name)
     except _held_folders.Refused as refused:
         raise StorageError(_read_refusal((*parts, name), _HELD_REASONS[refused.reason].format(name))) from None
-    except _held_folders.FolderDenied as denied:
-        raise denied.error from None  # the folder's failure, as any other folder's: fatal, never a file's warning
+    except (_held_folders.FolderDenied, _held_folders.FolderFailed) as failed:
+        raise failed.error from None  # the folder's failure, as any other folder's: fatal, never a file's warning
     except OSError as error:
         raise StorageFileReadError(error) from None
     if opened.kind == "absent":

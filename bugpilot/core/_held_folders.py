@@ -18,12 +18,13 @@ open until :func:`held` ends.
   (``FILE_FLAG_OPEN_REPARSE_POINT``), with list access and without sharing
   delete, which refuses its rename and its deletion while it is held. A child
   is opened by the name built from its held parent's final path
-  (``GetFinalPathNameByHandleW``), and its own final path must then be its
-  parent's plus its name, or it is refused. A reparse point is never gone
-  through: a link or junction (a name-surrogate tag, or none) counts as a
-  link, any other tag as unsupported. A file is opened sharing read, write
-  and delete, so BugPilot's atomic writers can still replace it, and is read
-  from that handle only. Its data is opened without
+  (``GetFinalPathNameByHandleW``), and its own final path must then be
+  exactly its parent's, read the same before the open and after it, followed
+  by its name (folded, as the name asked for), or it is refused. A reparse
+  point is never gone through: a link or junction (a name-surrogate tag, or
+  none) counts as a link, any other tag as unsupported. A file is opened
+  sharing read, write and delete, so BugPilot's atomic writers can still
+  replace it, and is read from that handle only. Its data is opened without
   ``FILE_FLAG_BACKUP_SEMANTICS``, which folders need and with which a CI
   runner's process opened a file another program held exclusively; what
   cannot be opened that way is looked at for its attributes only.
@@ -34,15 +35,18 @@ absent. A handle query the file system cannot answer (``ERROR_INVALID_FUNCTION``
 ``ERROR_NOT_SUPPORTED``, ``ERROR_INVALID_PARAMETER``) is :class:`Unsupported`, as
 a missing primitive is.
 
-What Windows rests on without proof: the anchor's own ancestors are not
-renamed while it is held (refused on NTFS when measured, but not documented;
-such a rename fails the final-path check, it cannot pass it), and the volume
-is a local NTFS one. Network shares, other file systems and cloud
-placeholders were not tested.
+What Windows rests on without proof: the ancestors of a held folder are not
+renamed while it is held (refused on NTFS when measured, but not documented),
+and the volume is a local NTFS one. The final-path check narrows what such a
+rename could do, but compares paths read at different moments, so it is no
+proof of containment on its own (M3-R1, F1). Network shares, other file
+systems and cloud placeholders were not tested.
 
 Every handle and descriptor is closed when :func:`held` ends. An ``OSError``
-raised here carries no path, only the system error. The module knows nothing
-of BugPilot's layout: its caller names every component.
+raised here carries no path, only the system error. A held folder's own
+failure is told apart from its entry's (:class:`FolderDenied`,
+:class:`FolderFailed`). The module knows nothing of BugPilot's layout: its
+caller names every component.
 """
 
 from __future__ import annotations
@@ -83,6 +87,18 @@ class FolderDenied(PermissionError):
 
     Raised by :meth:`Folder.open_file` instead of the entry's own error, so a reader never takes a folder it cannot
     search for a file it cannot read. ``error`` is the open's error, without a path.
+    """
+
+    def __init__(self, error: OSError) -> None:
+        super().__init__(error.errno, error.strerror)
+        self.error = error
+
+
+class FolderFailed(OSError):
+    """A held folder's own handle could not be queried (Windows): the folder's failure, never an entry's.
+
+    Raised by :meth:`Folder.open_file` instead of the query's error, so a reader never takes a folder that
+    failed for a file it cannot read (M3-R2A, F2). ``error`` is the query's error, without a path.
     """
 
     def __init__(self, error: OSError) -> None:
@@ -393,6 +409,21 @@ def _joined(base: str, name: str) -> str:
     return (base if base.endswith("\\") else base + "\\") + name
 
 
+def _directly_inside(child: str, parent: str, name: str) -> bool:
+    """Whether the final path ``child`` is ``name`` directly in the folder whose final path is ``parent``.
+
+    The folder's part is compared exactly, as the system spelled both final paths: folded, two different
+    folders that differ only in case (a case-sensitive directory) would count as one. Only the last component
+    is folded, as before, since the entry was opened by the name asked for, in whatever case it has on disk.
+    An exact comparison of two paths read at different moments is not containment by construction (M3-R2A).
+    """
+    prefix = _joined(parent, "")
+    if not child.startswith(prefix):
+        return False
+    leaf = child[len(prefix) :]
+    return "\\" not in leaf and ntpath.normcase(leaf) == ntpath.normcase(name)
+
+
 def _extended(path: str) -> str:
     """An absolute path in ``\\\\?\\`` form (``\\\\?\\UNC\\`` for a share), which no ``MAX_PATH`` limit applies to."""
     if path.startswith(("\\\\?\\", "\\\\.\\")):
@@ -430,22 +461,30 @@ class _WindowsFolder(Folder):
         super().__init__(stack)
         self._handle = handle
 
+    def _own_path(self) -> str:
+        """This folder's final path. A failed query is the folder's (:class:`FolderFailed`), never an entry's."""
+        try:
+            return _final_path(self._handle)
+        except OSError as error:
+            raise FolderFailed(error) from None
+
     def _open(self, name: str, access: int, share: int, flags: int) -> int | None:
         """``name`` in this folder, opened as itself and shown to be in it; ``None`` when nothing is there."""
         if not plain_name(name):
             raise ValueError("not a plain name")
-        base = _final_path(self._handle)
+        base = self._own_path()
         try:
             handle = _create(_joined(base, name), access, share, flags)
         except OSError as error:
             if getattr(error, "winerror", None) not in _ERROR_NOT_FOUND:
                 raise  # in use, no permission, being deleted: never "absent"
-            if ntpath.normcase(_final_path(self._handle)) != ntpath.normcase(base):
+            if self._own_path() != base:
                 raise Refused("moved") from None
             return None
         try:
-            # The entry opened is the one in this held folder only if its own final path says so.
-            inside = ntpath.normcase(_final_path(handle)) == ntpath.normcase(_joined(_final_path(self._handle), name))
+            # The entry opened is the one in this held folder only if its own final path is this folder's, as it
+            # was before the open and still is, followed by its name.
+            inside = _directly_inside(_final_path(handle), base, name) and self._own_path() == base
         except BaseException:
             _close(handle)
             raise
@@ -455,10 +494,13 @@ class _WindowsFolder(Folder):
         return handle
 
     def child(self, name: str) -> Folder | None:
-        handle = self._open(
-            name, _FILE_LIST_DIRECTORY | _FILE_READ_ATTRIBUTES | _SYNCHRONIZE, _SHARE_HOLD,
-            _BACKUP_SEMANTICS | _OPEN_REPARSE_POINT,
-        )
+        try:
+            handle = self._open(
+                name, _FILE_LIST_DIRECTORY | _FILE_READ_ATTRIBUTES | _SYNCHRONIZE, _SHARE_HOLD,
+                _BACKUP_SEMANTICS | _OPEN_REPARSE_POINT,
+            )
+        except FolderFailed as failed:
+            raise failed.error from None  # on the way, every failure is a folder's, raised as it always was
         if handle is None:
             return None
         self._stack.callback(_close, handle)
@@ -477,6 +519,8 @@ class _WindowsFolder(Folder):
             handle = self._open(
                 name, _FILE_READ_ATTRIBUTES | _SYNCHRONIZE, _SHARE_FILE, _BACKUP_SEMANTICS | _OPEN_REPARSE_POINT
             )
+        except FolderFailed:
+            raise  # the folder's failure, which says nothing about the entry
         except OSError:
             return None
         if handle is None:
@@ -495,6 +539,8 @@ class _WindowsFolder(Folder):
         # name, as on POSIX: one of those is reported as itself, anything else keeps the open's own error.
         try:
             handle = self._open(name, _GENERIC_READ, _SHARE_FILE, _OPEN_REPARSE_POINT)
+        except FolderFailed:
+            raise  # the folder's failure: never judged as the entry's
         except OSError:
             kind = self._kind(name)
             if kind in ("folder", "link", "reparse"):

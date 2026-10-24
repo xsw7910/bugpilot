@@ -803,6 +803,224 @@ def test_a_file_in_use_stays_the_opens_own_failure_whatever_the_look_at_it_gives
     assert failed.value.filename is None
 
 
+# --- M3-R2A: the final-path check (F1) and a held folder's own failure (F2) -------------------------------------
+
+_SETTINGS_FINAL = r"\\?\C:\data\repositories\checkout-0123456789abcdef\settings"
+
+
+@pytest.mark.parametrize(
+    "child, parent, inside",
+    [
+        (_SETTINGS_FINAL + r"\instructions.md", _SETTINGS_FINAL, True),
+        (_SETTINGS_FINAL + r"\Instructions.MD", _SETTINGS_FINAL, True),  # the entry in its own case on disk
+        (_SETTINGS_FINAL.replace("settings", "Settings") + r"\instructions.md", _SETTINGS_FINAL, False),
+        (_SETTINGS_FINAL + r"2\instructions.md", _SETTINGS_FINAL, False),  # a sibling folder sharing the prefix
+        (_SETTINGS_FINAL + r"\nested\instructions.md", _SETTINGS_FINAL, False),
+        (_SETTINGS_FINAL + r"\verification.md", _SETTINGS_FINAL, False),
+        (_SETTINGS_FINAL.replace("C:", "D:") + r"\instructions.md", _SETTINGS_FINAL, False),
+        (_SETTINGS_FINAL, _SETTINGS_FINAL, False),  # the folder itself
+        (r"\\?\C:\instructions.md", "\\\\?\\C:\\", True),  # a folder at a volume's root
+    ],
+)
+def test_the_final_path_check_takes_the_folders_part_exactly_and_folds_only_the_name(child, parent, inside):
+    # The third case is what folding the whole path accepted: another folder whose name differs only in case.
+    assert _held_folders._directly_inside(child, parent, "instructions.md") is inside
+
+
+@pytest.mark.skipif(not WINDOWS, reason="final paths are Windows'")
+@pytest.mark.parametrize("elsewhere", ["another folder", "this folder's name in another case"])
+def test_an_entry_whose_final_path_is_not_directly_in_the_held_folder_is_refused_as_moved(namespace, monkeypatch,
+                                                                                          elsewhere):
+    _settings(namespace, "instructions.md", b"kept\n")
+    real_final_path = _held_folders._final_path
+    with _held_folders.held(data_root()) as anchor:
+        folder = anchor
+        for part in ("repositories", namespace.identity.repository_id, "settings"):
+            folder = folder.child(part)
+        own = real_final_path(folder._handle)
+        above, name = os.path.split(own)
+        reported = os.path.join(above, "elsewhere" if elsewhere == "another folder" else name.upper())
+
+        def final_path(handle):  # the entry's own final path names another folder; the held folder's is its own
+            found = real_final_path(handle)
+            return reported + found[len(own):] if handle != folder._handle and found.startswith(own + "\\") else found
+
+        monkeypatch.setattr(_held_folders, "_final_path", final_path)
+        before = _open_handles()
+        with pytest.raises(_held_folders.Refused) as refused:
+            folder.open_file("instructions.md")
+        assert refused.value.reason == "moved"
+        assert _open_handles() == before  # the entry's handle is closed before the refusal
+
+
+@pytest.mark.skipif(not WINDOWS, reason="final paths are Windows'")
+@pytest.mark.parametrize("entry", ["instructions.md", "absent.md"])
+def test_a_held_folder_whose_final_path_reads_differently_after_an_open_is_refused_as_moved(namespace, monkeypatch,
+                                                                                           entry):
+    # After an open that found the entry, and after one that found nothing (never "absent" then). The second
+    # reading differs only in case: the same folder for a folded comparison, another one for an exact one.
+    _settings(namespace, "instructions.md", b"kept\n")
+    real_final_path = _held_folders._final_path
+    with _held_folders.held(data_root()) as anchor:
+        folder = anchor
+        for part in ("repositories", namespace.identity.repository_id, "settings"):
+            folder = folder.child(part)
+        own = real_final_path(folder._handle)
+        reads = []
+
+        def final_path(handle):
+            if handle != folder._handle:
+                return real_final_path(handle)
+            reads.append(handle)
+            return own if len(reads) == 1 else own[: -len("settings")] + "SETTINGS"
+
+        monkeypatch.setattr(_held_folders, "_final_path", final_path)
+        with pytest.raises(_held_folders.Refused) as refused:
+            folder.open_file(entry)
+        assert refused.value.reason == "moved" and len(reads) == 2
+
+
+@pytest.mark.skipif(not WINDOWS, reason="final paths are Windows'")
+def test_a_settings_file_reported_in_another_folder_fails_every_reader_never_the_defaults(namespace, repo,
+                                                                                         monkeypatch):
+    _settings(namespace, "instructions.md", b"kept\n")
+    _settings(namespace, "project_settings.json", b"{}")
+    _settings(namespace, "repository_profile.json", b"{}")
+    real_final_path = _held_folders._final_path
+    redirected = []
+
+    def final_path(handle):  # each settings file reports itself under a sibling folder of the same name's prefix
+        found = real_final_path(handle)
+        above, name = os.path.split(found)
+        if os.path.basename(above) == "settings" and name in SETTINGS_NAMES:
+            redirected.append(name)
+            return os.path.join(above + "2", name)
+        return found
+
+    monkeypatch.setattr(_held_folders, "_final_path", final_path)
+    with pytest.raises(StorageError) as held:
+        namespace.read_settings("instructions.md", limit=100)
+    assert "instructions.md changed while it was being read" in str(held.value)
+    _assert_no_absolute_path(str(held.value), repo)
+    for read in (lambda: read_instructions("project", repo), lambda: load_project_settings(repo),
+                 lambda: load_repository_profile(repo)):
+        with pytest.raises(StorageError):
+            read()  # a refusal, never a warning and the defaults
+    assert {"instructions.md", "project_settings.json", "repository_profile.json"} <= set(redirected)
+
+
+def _fail_the_folder_holding(monkeypatch, file_name: str, code: int) -> list[int]:
+    """From the moment ``file_name`` is opened in a held folder, that folder's own final-path query fails with
+    Windows error ``code`` (the internal handle-query boundary, ``_held_folders._final_path``). Returns the
+    folder handles the failure fired for."""
+    import ctypes
+
+    real_open_file, real_final_path = _held_folders._WindowsFolder.open_file, _held_folders._final_path
+    holders: set[int] = set()
+    fired: list[int] = []
+
+    def open_file(self, name):
+        if name == file_name:
+            holders.add(self._handle)
+        return real_open_file(self, name)
+
+    def final_path(handle):
+        if handle in holders:
+            fired.append(handle)
+            raise ctypes.WinError(code)
+        return real_final_path(handle)
+
+    monkeypatch.setattr(_held_folders._WindowsFolder, "open_file", open_file)
+    monkeypatch.setattr(_held_folders, "_final_path", final_path)
+    return fired
+
+
+@pytest.mark.skipif(not WINDOWS, reason="handle queries are Windows'")
+@pytest.mark.parametrize("code", [5, 1117])  # ERROR_ACCESS_DENIED (a PermissionError), ERROR_IO_DEVICE
+def test_a_held_folder_whose_own_handle_cannot_be_queried_fails_as_the_folder_never_as_the_file(namespace,
+                                                                                               monkeypatch, code):
+    monkeypatch.setattr(storage, "_TRANSIENT_DELAY", 0)
+    _settings(namespace, "instructions.md", b"kept\n")
+    fired = _fail_the_folder_holding(monkeypatch, "instructions.md", code)
+    with pytest.raises(OSError) as failed:
+        namespace.read_settings("instructions.md", limit=100)
+    assert fired
+    assert not isinstance(failed.value, (storage.StorageFileReadError, _held_folders.FolderFailed))
+    assert failed.value.winerror == code and failed.value.filename is None  # the query's own error, as any folder's
+
+
+@pytest.mark.skipif(not WINDOWS, reason="handle queries are Windows'")
+def test_a_namespace_whose_own_handle_cannot_be_queried_fails_as_the_folder_never_as_a_corrupt_record(namespace,
+                                                                                                    monkeypatch):
+    _settings(namespace, "instructions.md", b"kept\n")
+    fired = _fail_the_folder_holding(monkeypatch, storage.RECORD_NAME, 1117)
+    with pytest.raises(OSError) as failed:
+        namespace.read_settings("instructions.md", limit=100)
+    assert fired
+    assert not isinstance(failed.value, (StorageError, storage.StorageFileReadError, _held_folders.FolderFailed))
+    assert failed.value.winerror == 1117 and failed.value.filename is None
+
+
+_FOLDER_FAILURE_READERS = {
+    "project instructions": ("instructions.md", lambda repo: read_instructions("project", repo)),
+    "user instructions": ("instructions.md", lambda repo: read_instructions("user", repo)),
+    "project settings": ("project_settings.json", load_project_settings),
+    "repository profile": ("repository_profile.json", load_repository_profile),
+    "fix modes": ("triage.json", fix_mode_store.catalog_for),
+    "config.toml": ("config.toml", lambda repo: user_config._read_config()),
+}
+
+
+@pytest.mark.skipif(not WINDOWS, reason="handle queries are Windows'")
+@pytest.mark.parametrize("reader", list(_FOLDER_FAILURE_READERS))
+def test_a_held_folder_query_failure_fails_each_consumer_in_one_sentence_never_the_defaults(
+    namespace, user_config_folder, repo, monkeypatch, reader
+):
+    monkeypatch.setattr(storage, "_TRANSIENT_DELAY", 0)
+    file_name, read = _FOLDER_FAILURE_READERS[reader]
+    if reader in ("user instructions", "config.toml"):
+        (user_config_folder / file_name).write_bytes(b"kept\n")
+    elif reader == "fix modes":
+        (namespace.fix_modes_dir(create=True) / file_name).write_bytes(b"{}")
+    else:
+        _settings(namespace, file_name, b"{}" if file_name.endswith(".json") else b"kept\n")
+    fired = _fail_the_folder_holding(monkeypatch, file_name, 1117)
+    with pytest.raises(StorageAccessError) as failed:
+        read(repo)  # fatal: no warning with the defaults, no problem, no Fix Mode issue
+    assert fired
+    assert str(failed.value).startswith("BugPilot could not read ") and "(OSError)" in str(failed.value)
+    _assert_no_absolute_path(str(failed.value), repo)
+
+
+@pytest.mark.skipif(not WINDOWS, reason="handle queries are Windows'")
+def test_the_files_own_final_path_query_failing_stays_the_files_failure(namespace, repo, monkeypatch):
+    # Only the held folder's own queries are the folder's: a query of the entry's handle is the file's (F2's bound).
+    import ctypes
+
+    _settings(namespace, "instructions.md", b"kept\n")
+    real_create, real_final_path = _held_folders._create, _held_folders._final_path
+    data_handles: set[int] = set()
+
+    def create(path, access, share, flags, *, audited=None):
+        handle = real_create(path, access, share, flags, audited=audited)
+        if access == _held_folders._GENERIC_READ and path.endswith("\\instructions.md"):
+            data_handles.add(handle)
+        return handle
+
+    def final_path(handle):
+        if handle in data_handles:
+            raise ctypes.WinError(1117)
+        return real_final_path(handle)
+
+    monkeypatch.setattr(_held_folders, "_create", create)
+    monkeypatch.setattr(_held_folders, "_final_path", final_path)
+    with pytest.raises(storage.StorageFileReadError) as failed:
+        namespace.read_settings("instructions.md", limit=100)
+    assert failed.value.error.winerror == 1117 and failed.value.filename is None
+    found = read_instructions("project", repo)  # the file's own failure keeps the reader's handling: a problem
+    assert found.text == "" and found.problem.startswith("it could not be read (")
+
+
 # --- M2: the file's own failure, told apart from a folder's -----------------------------------------------
 
 _FOLDER_CLASS = _held_folders._WindowsFolder if WINDOWS else _held_folders._PosixFolder
