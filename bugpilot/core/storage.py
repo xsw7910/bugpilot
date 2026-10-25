@@ -52,8 +52,9 @@ Batch 2A added three guarantees, still before any caller uses this module:
   written only after the data root, ``config/`` and any existing file are
   proven private (:mod:`private_folder`); nothing ever changes a permission.
 - **No stale verdict** (cache freshness). A cached repository identity is
-  re-checked against the folder on every use; containment, Git working-tree
-  and record verdicts live only as long as one :func:`request_scope`.
+  re-checked against the folder on every use; containment and Git working-tree
+  verdicts live only as long as one :func:`request_scope`; the identity record
+  is read and judged on every check (F4).
 
 Batch 2B-1 prepared the switch of callers, still before any caller uses it:
 
@@ -628,7 +629,9 @@ def _active_scope() -> _Scope | None:
 
 @contextlib.contextmanager
 def request_scope() -> Iterator[None]:
-    """One bounded operation: within it, each containment, Git working-tree and record verdict is computed once.
+    """One bounded operation: within it, each containment and Git working-tree verdict is computed once.
+
+    The identity record is not among them: it is read and judged on every check (F4).
 
     Outside any scope nothing is remembered, so every check looks at the disk
     again. Each public operation of this module opens one, so one operation
@@ -675,17 +678,6 @@ def _scoped(key: tuple[Any, ...], compute: Callable[[], _T]) -> _T:
 
 
 # --- the identity record -----------------------------------------------------------------------
-
-
-def _record_signature(info: os.stat_result, identity: RepositoryIdentity) -> tuple[Any, ...]:
-    """What must be unchanged for a record verified earlier in this scope to count as verified now.
-
-    ``st_ctime_ns`` is the last change of the file's metadata on POSIX, which a
-    rewrite cannot set back; on Windows it is the creation time, which adds
-    nothing, so it is left out there.
-    """
-    changed = info.st_ctime_ns if os.name != "nt" else 0
-    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, changed, str(identity.root))
 
 
 def _record_text(identity: RepositoryIdentity) -> str:
@@ -778,8 +770,9 @@ def _record_state(path: Path, identity: RepositoryIdentity) -> RecordState:
     outlasts the retries, or no permission) is not reported as corrupt: it
     raises :class:`StorageError` saying so, and nothing is written.
 
-    A record verified earlier in the same request scope, and unchanged since
-    (:func:`_record_signature`), is not read again; outside a scope it always is.
+    The record is read and judged on every check, inside a request scope too:
+    no verdict is kept, since no metadata shows on every system that a record
+    rewritten in place is the one judged before (F4, owner decision Option A).
     """
     try:
         info = _transient(lambda: os.lstat(path))
@@ -789,11 +782,6 @@ def _record_state(path: Path, identity: RepositoryIdentity) -> RecordState:
         raise _unreadable(path) from None
     except OSError:
         return "corrupt"
-    signature = _record_signature(info, identity)
-    verdicts = _active_scope()
-    key = ("record", str(path))
-    if verdicts is not None and verdicts.get(key) == signature:
-        return "ok"
     if not stat.S_ISREG(info.st_mode) or is_link_or_junction(path) or info.st_size > _RECORD_LIMIT:
         return "corrupt"
     try:
@@ -804,10 +792,7 @@ def _record_state(path: Path, identity: RepositoryIdentity) -> RecordState:
         raise _unreadable(path) from None
     except OSError:
         return "corrupt"  # a link swapped in, or the record changed while it was read
-    state = _record_verdict(data, identity)
-    if state == "ok" and verdicts is not None:
-        verdicts[key] = signature
-    return state
+    return _record_verdict(data, identity)
 
 
 def _held_record_state(
@@ -815,9 +800,8 @@ def _held_record_state(
 ) -> RecordState:
     """:func:`_record_state` for a namespace held open: the record opened in it as itself, never by its path (Option C).
 
-    The same verdicts, words and request-scope memory (the same key and
-    :func:`_record_signature`, here from the opened record itself), so a record
-    verified by either one counts for the other.
+    The same verdicts and words, and, as there, the record read and judged on
+    every check (F4): no verdict of either one is kept for the other.
     """
     try:
         opened = _transient(lambda: namespace.open_file(RECORD_NAME))
@@ -835,11 +819,6 @@ def _held_record_state(
         return "missing-record"
     if opened.kind != "file" or opened.info is None:
         return "corrupt"  # a link, a folder or anything else at the name is not a record
-    signature = _record_signature(opened.info, identity)
-    verdicts = _active_scope()
-    key = ("record", str(path))
-    if verdicts is not None and verdicts.get(key) == signature:
-        return "ok"
     if opened.info.st_size > _RECORD_LIMIT:
         return "corrupt"
     try:
@@ -850,10 +829,7 @@ def _held_record_state(
         return "corrupt"
     if data is None:
         return "corrupt"
-    state = _record_verdict(data, identity)
-    if state == "ok" and verdicts is not None:
-        verdicts[key] = signature
-    return state
+    return _record_verdict(data, identity)
 
 
 def _record_verdict(data: bytes, identity: RepositoryIdentity) -> RecordState:

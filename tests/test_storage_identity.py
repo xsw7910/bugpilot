@@ -663,7 +663,8 @@ def _count_reads(monkeypatch) -> dict[str, int]:
     return reads
 
 
-def test_a_verified_record_is_read_once_per_request_scope_and_every_time_outside_one(tmp_path, monkeypatch):
+def test_the_record_is_read_on_every_check_inside_a_request_scope_and_outside_one(tmp_path, monkeypatch):
+    # F4 (owner decision Option A): no record verdict is kept, in a scope or outside one.
     namespace = repository_storage(_repo(tmp_path, "checkout"))
     namespace.ensure()
     reads = _count_reads(monkeypatch)
@@ -674,10 +675,10 @@ def test_a_verified_record_is_read_once_per_request_scope_and_every_time_outside
         namespace.record_state()
         namespace.work_item_dir("JR-12345", create=False)
         namespace.record_state()
-    assert reads["record"] == 3
+    assert reads["record"] == 5  # inside one, every check reads it again
     with storage.request_scope():
         namespace.record_state()
-    assert reads["record"] == 4
+    assert reads["record"] == 6
 
 
 @pytest.mark.parametrize("kind", ["symlink"] + (["junction"] if WINDOWS else []))

@@ -425,31 +425,87 @@ def test_a_namespace_without_its_record_is_read_as_the_path_accessor_reads_it(na
     assert not os.path.lexists(_record(namespace))  # reading never writes a record
 
 
-def test_a_record_verified_by_a_held_read_is_remembered_under_the_path_accessors_key(namespace, monkeypatch):
+def test_a_record_verified_by_a_held_read_is_not_remembered_for_the_path_accessor(namespace, monkeypatch):
+    # F4 (owner decision Option A): no verdict is kept, so the path accessor reads the record again.
     _settings(namespace, "instructions.md", b"kept\n")
     record = _record(namespace)
     with request_scope():
         assert namespace.read_settings("instructions.md", limit=100).state == "present"
-        verdicts = storage._active_scope()
-        assert verdicts[("record", str(record))] == storage._record_signature(os.lstat(record), namespace.identity)
-
-        def never(*args, **kwargs):
-            raise AssertionError("a record verified in this scope was read again")
-
-        monkeypatch.setattr(storage, "_read_regular", never)
+        assert ("record", str(record)) not in storage._active_scope()
+        reads = []
+        real_read = storage._read_regular
+        monkeypatch.setattr(storage, "_read_regular", lambda path, info: reads.append(path) or real_read(path, info))
         assert namespace.record_state() == "ok"
+        assert reads == [record]
 
 
-def test_a_record_verified_by_the_path_accessor_is_not_read_again_by_a_held_read(namespace, monkeypatch):
+def test_a_record_verified_by_the_path_accessor_is_judged_again_by_a_held_read(namespace, monkeypatch):
+    # F4 (owner decision Option A): the held read judges the record again, inside the same scope.
     _settings(namespace, "instructions.md", b"kept\n")
     with request_scope():
         assert namespace.record_state() == "ok"
-
-        def never(*args, **kwargs):
-            raise AssertionError("a record verified in this scope was judged again")
-
-        monkeypatch.setattr(storage, "_record_verdict", never)
+        judged = []
+        verdict = storage._record_verdict
+        monkeypatch.setattr(storage, "_record_verdict", lambda data, identity: judged.append(1) or verdict(data, identity))
         assert namespace.read_settings("instructions.md", limit=100).state == "present"
+        assert judged == [1]
+
+
+def _rewritten_in_place_for_another_repository(namespace) -> None:
+    """The record rewritten in place for another root of the same length, its size and modification time kept."""
+    record = _record(namespace)
+    info = os.stat(record)
+    text = storage._record_text(namespace.identity)
+    root = json.dumps(str(namespace.identity.root))[1:-1]
+    payload = text.replace(root, root[:-1] + ("x" if root[-1] != "x" else "y")).encode("ascii")
+    assert len(payload) == info.st_size
+    record.write_bytes(payload)
+    os.utime(record, ns=(info.st_atime_ns, info.st_mtime_ns))
+
+
+def test_a_held_read_refuses_a_record_rewritten_within_its_scope(namespace, repo):
+    # F4: no verdict is kept, so a rewrite that leaves the record's size and time as they were is still seen.
+    _settings(namespace, "instructions.md", b"kept\n")
+    (namespace.fix_modes_dir(create=True) / "triage.json").write_bytes(b"{}")
+    expected = (f"BugPilot will not use {storage.display_path(_record(namespace))}: it belongs to a different "
+                "repository folder. Nothing was read or written; delete that record only if you are sure it is stale.")
+    with request_scope():
+        assert namespace.read_settings("instructions.md", limit=100).state == "present"
+        assert namespace.fix_mode_names() == ["triage.json"]
+        _rewritten_in_place_for_another_repository(namespace)
+        for read in (
+            lambda: namespace.read_settings("instructions.md", limit=100),
+            lambda: namespace.read_fix_mode("triage.json", limit=None),
+            namespace.fix_mode_names,  # the Fix Mode listing
+            lambda: fix_mode_store.catalog_for(repo),  # and its consumer
+        ):
+            with pytest.raises(StorageIdentityError) as refused:
+                read()
+            assert str(refused.value) == expected
+            _assert_no_absolute_path(str(refused.value), repo)
+
+
+def test_a_held_record_in_use_is_still_retried_then_a_failure(namespace, repo, monkeypatch):
+    monkeypatch.setattr(storage, "_TRANSIENT_DELAY", 0)
+    _settings(namespace, "instructions.md", b"kept\n")
+    folder_class = _held_folders._WindowsFolder if WINDOWS else _held_folders._PosixFolder
+    real_open_file = folder_class.open_file
+    busy = {"left": 2}
+
+    def open_file(self, name):
+        if name == storage.RECORD_NAME and busy["left"]:
+            busy["left"] -= 1
+            raise PermissionError(errno.EACCES, "in use")
+        return real_open_file(self, name)
+
+    monkeypatch.setattr(folder_class, "open_file", open_file)
+    with request_scope():
+        assert namespace.read_settings("instructions.md", limit=100).state == "present"  # retried, then read
+        busy["left"] = 999
+        with pytest.raises(storage.StorageError) as failed:
+            namespace.read_settings("instructions.md", limit=100)
+    assert "right now" in str(failed.value)
+    _assert_no_absolute_path(str(failed.value), repo)
 
 
 def test_outside_a_scope_the_record_is_judged_on_every_read(namespace, monkeypatch):

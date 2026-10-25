@@ -1251,6 +1251,126 @@ def test_on_posix_an_in_place_rewrite_is_seen_even_within_one_scope(repo):
         assert namespace.record_state() == "mismatch"
 
 
+# --- F4: the identity record is read and judged on every check (owner decision Option A) --------------------------
+
+
+def _rewrite_keeping_size_and_time(namespace, payload: bytes) -> None:
+    """The record rewritten in place, its size and modification time kept: nothing in its metadata shows it."""
+    record = namespace._record_file
+    info = os.stat(record)
+    assert len(payload) == info.st_size
+    record.write_bytes(payload)
+    os.utime(record, ns=(info.st_atime_ns, info.st_mtime_ns))
+    after = os.stat(record)
+    assert (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns) == (
+        info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+
+
+def _same_size_unreadable_record(namespace) -> bytes:
+    """Bytes of the record's own size that are not a record at all."""
+    return b"x" * len(storage._record_text(namespace.identity).encode("ascii"))
+
+
+def _identity_refusal(namespace, state: str) -> str:
+    shown = storage.display_path(namespace._record_file)
+    if state == "mismatch":
+        return (f"BugPilot will not use {shown}: it belongs to a different repository folder. "
+                "Nothing was read or written; delete that record only if you are sure it is stale.")
+    return (f"BugPilot will not use {shown}: it is not a readable repository record. "
+            "Nothing was read or written; delete it to let BugPilot create it again.")
+
+
+def test_an_in_place_rewrite_keeping_size_and_time_is_seen_within_one_scope_on_every_system(repo):
+    namespace = repository_storage(repo)
+    with request_scope():
+        namespace.ensure()
+        assert namespace.record_state() == "ok"
+        _rewrite_keeping_size_and_time(namespace, _same_size_foreign_record(namespace))
+        assert namespace.record_state() == "mismatch"
+
+
+@pytest.mark.parametrize("state", ["mismatch", "corrupt"])
+def test_a_record_rewritten_within_one_scope_refuses_every_namespace_operation_in_its_words(repo, state):
+    namespace = repository_storage(repo)
+    with request_scope():
+        namespace.ensure()
+        work = namespace.work_item_dir("JR-12345", create=True)
+        assert namespace.record_state() == "ok"
+        payload = _same_size_foreign_record(namespace) if state == "mismatch" else _same_size_unreadable_record(namespace)
+        _rewrite_keeping_size_and_time(namespace, payload)
+
+        for operation in (
+            lambda: namespace.work_item_dir("JR-12345", create=False),  # a work item's path
+            lambda: namespace.work_item_dir("JR-12345", create=True),  # a write: create=True goes through ensure()
+            namespace.ensure,
+            lambda: namespace.settings_file("instructions.md", create=False),
+        ):
+            with pytest.raises(storage.StorageIdentityError) as refused:
+                operation()
+            assert str(refused.value) == _identity_refusal(namespace, state)
+            for place in (repo, data_root()):
+                assert str(place) not in str(refused.value)
+        why = "it belongs to a different repository folder" if state == "mismatch" else (
+            "its identity record is not readable as one")
+        with pytest.raises(StorageError) as refused:  # a delete
+            namespace.remove_work_item("JR-12345")
+        assert str(refused.value).endswith(f"cannot be shown to be this repository's ({why}). Nothing was deleted.")
+        assert work.is_dir()
+
+
+def test_a_record_removed_within_one_scope_is_missing_as_the_approved_policy_says(repo):
+    namespace = repository_storage(repo)
+    with request_scope():
+        namespace.ensure()
+        assert namespace.record_state() == "ok"
+        namespace._record_file.unlink()
+        assert namespace.record_state() == "missing-record"
+        namespace.work_item_dir("JR-12345", create=False)  # a namespace without its record is not refused
+        namespace.ensure()  # and ensure() publishes it again
+        assert namespace.record_state() == "ok"
+
+
+def test_a_record_in_use_is_still_retried_then_a_failure_never_a_verdict(repo, monkeypatch):
+    monkeypatch.setattr(storage, "_TRANSIENT_DELAY", 0)
+    namespace = repository_storage(repo)
+    namespace.ensure()
+    real_read = storage._read_regular
+    busy = {"left": 2}
+
+    def read_regular(path, info):
+        if busy["left"]:
+            busy["left"] -= 1
+            raise PermissionError(errno.EACCES, "in use")
+        return real_read(path, info)
+
+    monkeypatch.setattr(storage, "_read_regular", read_regular)
+    with request_scope():
+        assert namespace.record_state() == "ok"  # in use twice, retried, then read
+        busy["left"] = 99
+        with pytest.raises(storage.StorageUnavailable) as failed:
+            namespace.record_state()
+    assert "right now" in str(failed.value)
+    for place in (repo, data_root()):
+        assert str(place) not in str(failed.value)
+
+
+def test_containment_and_git_verdicts_are_still_computed_once_per_scope(repo, monkeypatch):
+    namespace = repository_storage(repo)
+    namespace.ensure()
+    git_judged, containment_looks = [], []
+    real_git, real_within = storage._judge_git_tree, storage._physically_within
+    monkeypatch.setattr(storage, "_judge_git_tree", lambda *args: git_judged.append(1) or real_git(*args))
+    monkeypatch.setattr(storage, "_physically_within", lambda *args: containment_looks.append(1) or real_within(*args))
+    with request_scope():
+        for _ in range(3):
+            namespace.record_state()
+            namespace.work_item_dir("JR-12345", create=False)
+        kinds = {key[0] for key in storage._active_scope()}
+    assert {"containment", "git-tree"} <= kinds and "record" not in kinds
+    assert git_judged == [1]
+    assert len(containment_looks) == 2  # one judgement: both directions, once
+
+
 # --- diagnostics: paths as text, nothing checked or created (Batch 2A) ----------------------------
 
 
