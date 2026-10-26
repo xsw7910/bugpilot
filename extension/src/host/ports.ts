@@ -29,36 +29,25 @@ import { createAgentTerminals } from "./agentTerminals.ts";
 import { bugpilotFileKind } from "./bugpilotFiles.ts";
 import type { HostTerminalWindow } from "./agentTerminals.ts";
 import { trustedRunner } from "../runner.ts";
-import { writeWorkItemFile } from "../app/sessionReset.ts";
+import { checkArtifactDirectory, writeWorkItemFile } from "../app/sessionReset.ts";
 import { CAPTURED_REVIEW_TIMEOUT_MS } from "../app/reviewRun.ts";
 import type { SessionCandidate } from "../app/session.ts";
-import type { ControllerPorts, FilesPort, UiPort } from "../app/controller.ts";
+import type { ControllerPorts, FilesPort, UiPort, WorkItemFolder } from "../app/controller.ts";
 import type { GitignoreEntry, GitignoreIo } from "../app/gitignore.ts";
 import { removeScratchFile, writeScratchFile } from "../app/scratchFile.ts";
+import { WorkItemRefusal, listWorkItemFolder, readWorkItemFile, workItemFileState } from "../app/workItemFiles.ts";
 import type { PanelState } from "../panel/messages.ts";
 
 export function createFilesPort(): FilesPort {
   return {
-    listDirectory: async (directory) => {
+    // A work item's folder and files, never through a link (O-1, `workItemFiles.ts`): a link at the folder or
+    // above it makes the listing unreadable, and a read refused that way throws `WorkItemRefusal`.
+    listDirectory: async (directory, workItem) => listWorkItemFolder(directory, workItem),
+    readFile: async (file, workItem) => {
       try {
-        const entries = await readdir(directory, { withFileTypes: true });
-        return {
-          kind: "ok",
-          names: entries.filter((entry) => entry.isFile()).map((entry) => entry.name),
-        };
+        return await readWorkItemFile(file, workItem);
       } catch (error) {
-        // Not there yet is the normal state before the first run; anything else
-        // is a problem the developer has to see, not one to hide behind an
-        // empty list.
-        const code = (error as { code?: string }).code;
-        if (code === "ENOENT" || code === "ENOTDIR") return { kind: "missing" };
-        return { kind: "unreadable", detail: (error as Error).message };
-      }
-    },
-    readFile: async (file) => {
-      try {
-        return await readFile(file, "utf8");
-      } catch {
+        if (error instanceof WorkItemRefusal) throw error;
         return undefined;
       }
     },
@@ -107,7 +96,10 @@ export function createUiPort(deps: UiPortDeps): UiPort {
       // The editor's own external-link path: the browser, never the webview.
       await vscode.env.openExternal(vscode.Uri.parse(url));
     },
-    openFile: async (file) => {
+    openFile: async (file, workItem) => {
+      // A work item's file opens only when it is a regular file reached through real folders (O-1): the editor
+      // would otherwise show whatever a link points at. A refusal throws `WorkItemRefusal` before anything opens.
+      if (workItem !== undefined) await workItemFileState(file, workItem);
       const document = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
       await vscode.window.showTextDocument(document, { preview: false });
     },
@@ -191,22 +183,18 @@ export function createUiPort(deps: UiPortDeps): UiPort {
  */
 const probes = new Map<string, { readonly mtimeMs: number; readonly probe: WorkItemProbe }>();
 
-async function probeWorkItem(directory: string, mtimeMs: number): Promise<WorkItemProbe> {
+async function probeWorkItem(directory: string, mtimeMs: number, item: WorkItemFolder): Promise<WorkItemProbe> {
   const cached = probes.get(directory);
   if (cached && cached.mtimeMs === mtimeMs) return cached.probe;
 
-  let files: string[] = [];
-  try {
-    files = (await readdir(directory, { withFileTypes: true }))
-      .filter((entry) => entry.isFile())
-      .map((entry) => entry.name);
-  } catch {
-    // Unreadable is a real state; it just is not one this row can describe.
-  }
+  // Listed and read as the panel reads a work item's folder: never through a link (O-1).
+  const listing = await listWorkItemFolder(directory, item);
+  const files = listing.kind === "ok" ? [...listing.names] : [];
   let status: unknown;
   if (files.includes("run.json")) {
     try {
-      status = JSON.parse(await readFile(path.join(directory, "run.json"), "utf8"));
+      const text = await readWorkItemFile(path.join(directory, "run.json"), item);
+      status = text === undefined ? undefined : JSON.parse(text);
     } catch {
       // A truncated status file leaves the outcome to the file list alone,
       // rather than dropping the row.
@@ -249,11 +237,13 @@ export async function loadHistory(
   for (const item of Array.isArray(items) ? items : []) {
     const id = item?.work_item_id;
     if (typeof id !== "string") continue;
-    const directory = path.join(root, ".ai", id);
     try {
-      const mtimeMs = (await stat(directory)).mtimeMs;
+      // Only a folder proven the repository's own is looked at further (O-1); any other row stays listed, unprobed.
+      const check = await checkArtifactDirectory(root, id);
+      if (check.kind !== "ok") continue;
+      const mtimeMs = (await stat(check.directory)).mtimeMs;
       times.set(id, mtimeMs);
-      probed.set(id, await probeWorkItem(directory, mtimeMs));
+      probed.set(id, await probeWorkItem(check.directory, mtimeMs, { root, workItemId: id }));
     } catch {
       // Deleted between listing and stat, or unreadable. It still gets listed.
     }

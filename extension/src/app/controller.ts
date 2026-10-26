@@ -206,6 +206,7 @@ import {
   resetSessionForm,
 } from "./sessionReset.ts";
 import type { ArtifactDeletion, ResetSessionOptions } from "./sessionReset.ts";
+import { WorkItemRefusal } from "./workItemFiles.ts";
 import type {
   CreatedFixMode,
   Notice,
@@ -307,8 +308,16 @@ interface InstructionsEditorState {
 }
 
 export interface FilesPort {
-  listDirectory(directory: string): Promise<DirectoryListing>;
-  readFile(file: string): Promise<string | undefined>;
+  /**
+   * `workItem`'s folder, `directory`, listed never through a link (O-1, `workItemFiles.ts`): a link or junction
+   * at the folder or above it makes the listing `unreadable`, and a link among its entries is not listed.
+   */
+  listDirectory(directory: string, workItem: WorkItemFolder): Promise<DirectoryListing>;
+  /**
+   * A file in `workItem`'s folder, read only as a regular file through real folders, and bounded (O-1);
+   * `undefined` when it is not there. A link, a junction or anything else there throws `WorkItemRefusal`.
+   */
+  readFile(file: string, workItem: WorkItemFolder): Promise<string | undefined>;
   /**
    * `workItem`, when `file` is in `.ai/<work item>/`: the host then writes it
    * only through real directories inside the repository, never through a link
@@ -335,7 +344,11 @@ export interface WorkItemFolder {
 export interface UiPort {
   /** Push a new state to the panel. */
   render(state: PanelState): void;
-  openFile(file: string): Promise<void>;
+  /**
+   * `workItem`, when `file` is in its folder: the host then opens it only as a regular file reached through real
+   * folders, and throws `WorkItemRefusal` instead of opening what a link points at (O-1).
+   */
+  openFile(file: string, workItem?: WorkItemFolder): Promise<void>;
   copyToClipboard(text: string): Promise<void>;
   /**
    * A yes/no the developer must answer before something destructive happens.
@@ -2428,7 +2441,7 @@ export class Controller {
       // someone to hand off agent_retry_prompt.md while opening a different
       // file makes them go looking for it.
       const next = created ? "user_feedback.md" : "agent_retry_prompt.md";
-      await this.#ports.ui.openFile(this.#itemFile(workItemId, next));
+      await this.#openItemFile(workItemId, next);
       await this.refreshArtifacts();
       this.#ports.ui.refreshViews();
       this.#push();
@@ -2766,10 +2779,8 @@ export class Controller {
       return;
     }
     const review = helper === "useReviewFindings";
-    const file = await this.#ports.files.readFile(
-      this.#itemFile(workItemId, review ? REVIEW_REPORT_ARTIFACT : VERIFICATION_REPORT_ARTIFACT),
-    );
-    if (this.#workItemId !== workItemId) return;
+    const file = await this.#readItemFile(workItemId, review ? REVIEW_REPORT_ARTIFACT : VERIFICATION_REPORT_ARTIFACT, true);
+    if (this.#workItemId !== workItemId || file instanceof WorkItemRefusal) return;
     const text = review ? feedbackFromReview(file) : feedbackFromVerification(parseVerificationReport(file));
     if (text === undefined) {
       this.#ports.ui.notify(
@@ -2801,7 +2812,7 @@ export class Controller {
       this.#ports.log.error(`Refusing to open a suspicious artifact name: ${name}`);
       return;
     }
-    await this.#ports.ui.openFile(this.#itemFile(workItemId, name));
+    await this.#openItemFile(workItemId, name);
   }
 
   /** The handoff sentence, for the "Copy Handoff Prompt" command. */
@@ -2821,7 +2832,8 @@ export class Controller {
   async copyContext(): Promise<void> {
     const workItemId = this.#workItemId;
     if (!workItemId) return;
-    const context = await this.#ports.files.readFile(this.#itemFile(workItemId, CONTEXT_ARTIFACT));
+    const context = await this.#readItemFile(workItemId, CONTEXT_ARTIFACT, true);
+    if (context instanceof WorkItemRefusal) return;
     if (context === undefined) {
       this.#ports.ui.notify("warning", `There is no ${CONTEXT_ARTIFACT} for ${workItemId} to copy yet.`);
       return;
@@ -3505,6 +3517,7 @@ export class Controller {
     }
     const listing = await this.#ports.files.listDirectory(
       path.join(this.#root, ".ai", workItemId),
+      this.#itemFolder(workItemId),
     );
     // Another work item was shown while the directory was read, or the session
     // was reset.
@@ -5107,11 +5120,9 @@ export class Controller {
 
   async #readStatus(workItemId: string): Promise<unknown> {
     if (!this.#root) return undefined;
-    const text = await this.#ports.files.readFile(
-      path.join(this.#root, ".ai", workItemId, RUN_ARTIFACT),
-    );
+    const text = await this.#readItemFile(workItemId, RUN_ARTIFACT, false);
     try {
-      return text === undefined ? undefined : JSON.parse(text);
+      return text === undefined || text instanceof WorkItemRefusal ? undefined : JSON.parse(text);
     } catch {
       // A truncated status file is not worth failing over: it costs the mode
       // line, and the artifacts still list.
@@ -5185,6 +5196,37 @@ export class Controller {
 
   #itemFile(workItemId: string, name: string): string {
     return path.join(this.#root ?? "", ".ai", workItemId, name);
+  }
+
+  /** `#itemFile`'s repository and work item, for the host's checks of a file in the work item's folder (O-1). */
+  #itemFolder(workItemId: string): WorkItemFolder {
+    return { root: this.#root ?? "", workItemId };
+  }
+
+  /**
+   * A file in `workItemId`'s folder, read never through a link (O-1); `undefined` when it is not there. A refused
+   * read is returned as its `WorkItemRefusal`, said once: a warning when the developer asked for it (`said`), the
+   * log otherwise.
+   */
+  async #readItemFile(workItemId: string, name: string, said: boolean): Promise<string | undefined | WorkItemRefusal> {
+    try {
+      return await this.#ports.files.readFile(this.#itemFile(workItemId, name), this.#itemFolder(workItemId));
+    } catch (error) {
+      if (!(error instanceof WorkItemRefusal)) throw error;
+      if (said) this.#ports.ui.notify("warning", error.message);
+      else this.#ports.log.error(error.message);
+      return error;
+    }
+  }
+
+  /** Open a file in `workItemId`'s folder in the editor; a refusal is said, and nothing a link points at opens (O-1). */
+  async #openItemFile(workItemId: string, name: string): Promise<void> {
+    try {
+      await this.#ports.ui.openFile(this.#itemFile(workItemId, name), this.#itemFolder(workItemId));
+    } catch (error) {
+      if (!(error instanceof WorkItemRefusal)) throw error;
+      this.#ports.ui.notify("warning", error.message);
+    }
   }
 
   #instructionsView(): PanelState["instructions"] {
@@ -5947,8 +5989,15 @@ export class Controller {
 
       if (overwrite) {
         const edited = this.#verificationEditBasis;
-        const current = await this.#ports.files.readFile(this.#itemFile(workItemId, VERIFICATION_REPORT_ARTIFACT));
+        const current = await this.#readItemFile(workItemId, VERIFICATION_REPORT_ARTIFACT, false);
         if (epoch !== this.#captureEpoch) return;
+        if (current instanceof WorkItemRefusal) {
+          // Never compared, never replaced: the report on disk is not one BugPilot reads (O-1).
+          this.#mutation = undefined;
+          this.#verificationCapture = { state: "failed", message: `${VERIFICATION_NOT_RECORDED}: ${current.message}` };
+          await this.refreshArtifacts();
+          return;
+        }
         if (edited === undefined || basis !== edited.token || current !== edited.text) {
           this.#mutation = undefined;
           this.#verificationCapture = {
@@ -6176,8 +6225,8 @@ export class Controller {
       this.#ports.log.error("Refusing to overwrite verification evidence: there is no conflict to resolve.");
       return;
     }
-    const current = await this.#ports.files.readFile(this.#itemFile(workItemId, VERIFICATION_REPORT_ARTIFACT));
-    if (this.#workItemId !== workItemId) return;
+    const current = await this.#readItemFile(workItemId, VERIFICATION_REPORT_ARTIFACT, true);
+    if (this.#workItemId !== workItemId || current instanceof WorkItemRefusal) return;
     this.#verificationEditToken += 1;
     this.#verificationEditBasis = { token: this.#verificationEditToken, text: current };
     this.#verificationSavedContent = undefined;
@@ -6526,7 +6575,10 @@ export class Controller {
     // unreadable — and all of them before any is projected, so a reset or
     // another work item during a read leaves nothing half-written (§37.103):
     // that is `undefined`.
-    const read = (name: string) => this.#ports.files.readFile(this.#itemFile(workItemId, name));
+    const read = async (name: string): Promise<string | undefined> => {
+      const text = await this.#readItemFile(workItemId, name, false);
+      return text instanceof WorkItemRefusal ? undefined : text;
+    };
     const issueText = names.includes(ISSUE_ARTIFACT) ? await read(ISSUE_ARTIFACT) : undefined;
     const fixText = names.includes(FIX_REPORT_ARTIFACT) ? await read(FIX_REPORT_ARTIFACT) : undefined;
     const reviewText = names.includes(REVIEW_REPORT_ARTIFACT) ? await read(REVIEW_REPORT_ARTIFACT) : undefined;

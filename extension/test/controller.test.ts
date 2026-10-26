@@ -6,6 +6,7 @@ import nodePath from "node:path";
 import { COMMANDS } from "../src/commands.ts";
 
 import { Controller } from "../src/app/controller.ts";
+import { WorkItemRefusal } from "../src/app/workItemFiles.ts";
 import type { RepositoryProfileOutcome, RepositoryProfilePayload } from "../src/app/repositoryProfile.ts";
 import { MAX_INSTRUCTION_CHARS } from "../src/app/instructions.ts";
 import type { ProjectSettingsOutcome, ProjectSettingsPayload } from "../src/app/projectSettings.ts";
@@ -208,7 +209,11 @@ interface HarnessOptions {
   /** Make the artifact directory unreadable rather than absent. */
   readonly directoryError?: string;
   /** Called for every file the controller reads, so a test can count them — or, returning a promise, hold a read open. */
-  readonly onReadFile?: (file: string) => unknown;
+  readonly onReadFile?: (file: string, workItem?: WorkItemFolder) => unknown;
+  /** Called for every file the controller opens in the editor, before it is recorded; throwing refuses the open. */
+  readonly onOpenFile?: (file: string, workItem?: WorkItemFolder) => unknown;
+  /** Called for every work item folder the controller lists. */
+  readonly onListDirectory?: (directory: string, workItem?: WorkItemFolder) => unknown;
   /** Whether a Jira credential is stored. Configured unless a test says not. */
   readonly credentialsConfigured?: boolean;
   /** Make reading the stored credentials reject, as a broken keyring can — from when it returns an error. */
@@ -367,14 +372,16 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
       },
     },
     files: {
-      listDirectory: async () =>
-        options.directoryError
+      listDirectory: async (directory, workItem) => {
+        await options.onListDirectory?.(directory, workItem);
+        return options.directoryError
           ? { kind: "unreadable", detail: options.directoryError }
           : options.directory
             ? { kind: "ok", names: [...options.directory] }
-            : { kind: "missing" },
-      readFile: async (file) => {
-        await options.onReadFile?.(file);
+            : { kind: "missing" };
+      },
+      readFile: async (file, workItem) => {
+        await options.onReadFile?.(file, workItem);
         const key = Object.keys(files).find((name) => file.endsWith(name));
         return key ? files[key] : undefined;
       },
@@ -390,7 +397,8 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     },
     ui: {
       render: (state) => states.push(state),
-      openFile: async (file) => {
+      openFile: async (file, workItem) => {
+        await options.onOpenFile?.(file, workItem);
         opened.push(file);
       },
       copyToClipboard: async (text) => {
@@ -9477,6 +9485,7 @@ async function autosaving(setup: {
   answer?: (request: PayloadCommandRequest) => Promise<Envelope>;
   confirm?: boolean;
   runReview?: (request: PayloadCommandRequest) => Promise<Envelope>;
+  onReadFile?: (file: string, workItem?: WorkItemFolder) => unknown;
 } = {}) {
   const timers: { callback: () => void; delay: number; cancelled: boolean; ran: boolean }[] = [];
   const calls: { args: readonly string[]; payload: { checks: Check[] } }[] = [];
@@ -9494,6 +9503,7 @@ async function autosaving(setup: {
     },
     ...(setup.confirm === undefined ? {} : { confirm: setup.confirm }),
     ...(setup.runReview === undefined ? {} : { runReview: setup.runReview }),
+    ...(setup.onReadFile === undefined ? {} : { onReadFile: setup.onReadFile }),
   });
   let h: Harness;
   options.runVerification = async (request) => {
@@ -14480,4 +14490,144 @@ test("AI Behavior row: an older CLI offers nothing, and a link is not opened", a
   await h.controller.handle({ type: "editAiBehavior" });
   assert.deepEqual(h.opened, []);
   assert.match(h.notices.at(-1)!.message, /does not open \.bugpilot\/ai_behavior\.md: it is a link or not a regular file/);
+});
+
+
+// --- O-1: a work item's files are read, listed and opened only as the host allows ----------------------------
+//
+// The host refuses a link, a junction or a non-regular file in a work item's folder with `WorkItemRefusal`
+// (`workItemFiles.ts`; its own tests prove that against a real file system). These check what the controller
+// does with a refusal: it says it, uses nothing, and never falls back to another read.
+
+const refusedRead = (name: string) =>
+  new WorkItemRefusal(
+    `BugPilot will not read .ai/JR-12345/${name}: it is a symbolic link or junction. It reads the files it ` +
+      "generated only as regular files in real folders, never through a link, and nothing in this one was used.",
+  );
+
+test("O-1: every work item read, listing and open names its repository and work item", async () => {
+  const seen: (WorkItemFolder | undefined)[] = [];
+  const h = harness({
+    events: successfulRun,
+    directory: ["task.md", "context.md"],
+    files: { "context.md": "# Bug Context\n" },
+    onReadFile: (_file, workItem) => void seen.push(workItem),
+    onListDirectory: (_directory, workItem) => void seen.push(workItem),
+    onOpenFile: (_file, workItem) => void seen.push(workItem),
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+  await h.controller.copyContext();
+  await h.controller.handle({ type: "action", id: "openContext" });
+
+  assert.equal(h.clipboard.at(-1), "# Bug Context\n", "a regular context.md copies as before");
+  assert.match(h.opened.at(-1) ?? "", /context\.md$/, "and opens as before");
+  assert.ok(seen.length >= 3);
+  for (const workItem of seen) {
+    assert.equal(workItem?.workItemId, "JR-12345");
+    assert.ok((workItem?.root ?? "") !== "");
+  }
+});
+
+test("O-1: Copy says the host's refusal and copies nothing", async () => {
+  const h = harness({
+    events: successfulRun,
+    directory: ["task.md", "context.md"],
+    files: { "context.md": "# Bug Context\n" },
+    onReadFile: (file) => {
+      if (file.endsWith("context.md")) throw refusedRead("context.md");
+    },
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+
+  await h.controller.copyContext();
+
+  assert.deepEqual(h.clipboard, []);
+  assert.equal(h.notices.at(-1)?.kind, "warning");
+  assert.match(h.notices.at(-1)!.message, /^BugPilot will not read \.ai\/JR-12345\/context\.md: it is a symbolic link/);
+});
+
+test("O-1: Use Review Findings stops at a report the host refuses, and drafts nothing", async () => {
+  let refuse = false;
+  const h = harness({
+    agentOnPath: true,
+    directory: [...PREPARED_FILES, "fix_report.md", "review_report.md"],
+    files: {
+      "run.json": PREPARED_RUN_JSON,
+      "fix_report.md": fixReportMd("Fixed it.", "3 passed."),
+      "review_report.md": REVIEW_REPORT_MD(),
+    },
+    onReadFile: (file) => {
+      if (refuse && file.endsWith("review_report.md")) throw refusedRead("review_report.md");
+    },
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+  assert.deepEqual(fixRow(h.last()).feedbackHelpers, ["useReviewFindings"]);
+
+  refuse = true;
+  await h.controller.handle({ type: "action", id: "useReviewFindings" });
+
+  assert.equal(h.states.some((state) => fixRow(state).attemptDraft !== undefined), false);
+  assert.equal(h.notices.at(-1)?.kind, "warning");
+  assert.match(h.notices.at(-1)!.message, /review_report\.md: it is a symbolic link or junction/);
+});
+
+test("O-1: an artifact the host refuses to open is not opened, and the refusal is said", async () => {
+  const h = harness({
+    events: successfulRun,
+    directory: ["task.md", "context.md"],
+    files: { "context.md": "# Bug Context\n" },
+    onOpenFile: (file) => {
+      if (file.endsWith("context.md")) throw refusedRead("context.md");
+    },
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+
+  await h.controller.openArtifact("context.md");
+
+  assert.equal(h.opened.some((file) => file.endsWith("context.md")), false);
+  assert.equal(h.notices.at(-1)?.kind, "warning");
+  assert.match(h.notices.at(-1)!.message, /context\.md: it is a symbolic link or junction/);
+});
+
+test("O-1: a status read the host refuses is logged, not shown, and reads as absent", async () => {
+  const h = harness({
+    agentOnPath: true,
+    directory: [...PREPARED_FILES],
+    files: { "run.json": PREPARED_RUN_JSON },
+    onReadFile: (file) => {
+      if (file.endsWith("run.json")) throw refusedRead("run.json");
+    },
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+
+  assert.ok(h.logged.some((line) => /run\.json: it is a symbolic link or junction/.test(line)));
+  assert.equal(h.notices.some((notice) => /run\.json/.test(notice.message)), false);
+});
+
+test("O-1: verification evidence is never compared with, or written over, a report the host refuses", async () => {
+  let refuse = false;
+  const a = await autosaving({
+    onReadFile: (file) => {
+      if (refuse && file.endsWith("verification_report.md")) throw refusedRead("verification_report.md");
+    },
+  });
+  await a.draft([check("Unit tests")]);
+  await a.flush();
+  assert.equal(a.calls.length, 1);
+
+  // The auto-save's compare is refused: nothing is replaced, and the refusal is in the log.
+  refuse = true;
+  await a.draft([check("Unit tests", { notes: "mine" })]);
+  await a.flush();
+  assert.equal(a.calls.length, 1, "a report the host refused was written over");
+  assert.ok(a.h.logged.some((line) => /verification_report\.md: it is a symbolic link or junction/.test(line)));
+
+  // Overwrite Saved Version reads the report at the press: refused, said, and nothing is saved.
+  await a.h.controller.handle({ type: "overwriteVerification" });
+  assert.equal(a.calls.length, 1);
 });

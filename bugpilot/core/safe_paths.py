@@ -39,7 +39,7 @@ import os
 import shutil
 import stat
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
 
 # IsReparseTagNameSurrogate(): bit 29 of a reparse tag marks a tag that names
 # another file or directory — junctions and symbolic links among them.
@@ -313,6 +313,19 @@ def generated_file_names(base: Path, folder: Path) -> list[str] | None:
     Nothing is read. POSIX lists from the folder's own descriptor; Windows looks at the folders again after the
     listing, as :func:`read_generated_file` does.
     """
+    return _names_in(base, folder, stat.S_ISREG)
+
+
+def generated_folder_names(base: Path, folder: Path) -> list[str] | None:
+    """The names of the real folders in ``folder``, judged as :func:`generated_file_names` judges files.
+
+    A link or junction among the entries, whatever it points at, is left out and never followed; the folder
+    itself, and every one above it below ``base``, is refused when it is a link. ``None`` when it is absent.
+    """
+    return _names_in(base, folder, stat.S_ISDIR)
+
+
+def _names_in(base: Path, folder: Path, kind: Callable[[int], bool]) -> list[str] | None:
     parts = _generated_parts(base, folder)
     display = "/".join(parts)
     if _BY_DESCRIPTOR:
@@ -320,22 +333,22 @@ def generated_file_names(base: Path, folder: Path) -> list[str] | None:
         if handle is None:
             return None
         try:
-            return _regular_names(handle)
+            return _names_of_kind(handle, kind)
         finally:
             os.close(handle)
     info = _entry_by_look(base, parts, display)
     if info is None:
         return None
     _refuse_unless_folder(info, display, display)
-    names = _regular_names(base.joinpath(*parts))
+    names = _names_of_kind(base.joinpath(*parts), kind)
     again = _entry_by_look(base, parts, display)  # the folders again: one made a link since the first look is refused
     if again is not None:
         _refuse_unless_folder(again, display, display)
     return names
 
 
-def _regular_names(folder: int | Path) -> list[str]:
-    """The entries of ``folder`` that are regular files as they stand (never followed), in listing order."""
+def _names_of_kind(folder: int | Path, kind: Callable[[int], bool]) -> list[str]:
+    """The entries of ``folder`` of ``kind`` as they stand (never followed, never a link), in listing order."""
     names: list[str] = []
     try:
         listing = os.scandir(folder)
@@ -347,7 +360,7 @@ def _regular_names(folder: int | Path) -> list[str]:
                 info = entry.stat(follow_symlinks=False)
             except OSError:
                 continue  # gone since it was listed
-            if stat.S_ISREG(info.st_mode) and not is_link_stat(info):
+            if kind(info.st_mode) and not is_link_stat(info):
                 names.append(entry.name)
     return names
 

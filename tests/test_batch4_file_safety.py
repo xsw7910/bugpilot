@@ -1117,3 +1117,82 @@ def test_o1_a_run_names_its_real_attachment_and_never_a_planted_link(tmp_path, m
     assert f".ai/{_O1_ITEM}/attachments/crash.log" in run["generated_files"]
     assert not any("planted" in name for name in run["generated_files"])
     assert _O1_SENTINEL not in captured.out + captured.err + task + json.dumps(run)
+
+
+# --- O-1: `bugpilot list` never through a link --------------------------------------------------------------
+#
+# The list hands work item names to the extension's History. A linked `.ai` must not list an outside folder's
+# names, a linked work item folder must not be listed, and nothing outside may be asked whether it holds a run.json.
+
+_O1_LOCAL = "local_20261026120000"
+_O1_OUTSIDE_ID = "local_7319026101"  # a work-item-shaped name that exists only outside the repository
+
+
+def test_o1_generated_folder_names_lists_real_folders_only(tmp_path, o1_strategy):
+    repo, _item, secret = _o1_repo(tmp_path)
+    (repo / ".ai" / _O1_LOCAL).mkdir()
+    (repo / ".ai" / "notes.txt").write_text("x\n", encoding="utf-8")
+    _link_dir(repo / ".ai" / _O1_OUTSIDE_ID, secret.parent)
+    assert sorted(safe_paths.generated_folder_names(repo, repo / ".ai")) == [_O1_ITEM, _O1_LOCAL]
+    assert safe_paths.generated_folder_names(repo, repo / "missing") is None
+
+
+@pytest.mark.parametrize("output", ["json", "text"])
+def test_o1_list_refuses_a_linked_ai_folder_and_names_nothing_outside(tmp_path, monkeypatch, capsys, output):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / _O1_OUTSIDE_ID).mkdir(parents=True)
+    (elsewhere / _O1_OUTSIDE_ID / "run.json").write_text("{}", encoding="utf-8")
+    _link_dir(repo / ".ai", elsewhere)
+    monkeypatch.chdir(repo)
+    assert main(["list", "--json"] if output == "json" else ["list"]) == 1
+    captured = capsys.readouterr()
+    if output == "json":
+        payload = json.loads(captured.out)
+        assert payload["ok"] is False and payload["error"]["code"] == "INVALID_INPUT", payload
+        assert "BugPilot will not read .ai: .ai is a symbolic link or junction." in payload["error"]["message"]
+    assert "ERROR: BugPilot will not read .ai: .ai is a symbolic link or junction." in captured.err
+    assert _O1_OUTSIDE_ID not in captured.out + captured.err
+    assert str(tmp_path) not in captured.out + captured.err
+
+
+def test_o1_list_leaves_out_a_linked_work_item_folder_and_a_linked_run_record(tmp_path, monkeypatch, capsys):
+    repo, item, secret = _o1_repo(tmp_path)
+    (item / "run.json").write_text("{}", encoding="utf-8")
+    local = repo / ".ai" / _O1_LOCAL
+    local.mkdir()
+    _link_file(local / "run.json", secret)  # whatever it points at, a link is not a prepared work item
+    elsewhere = tmp_path / "elsewhere" / _O1_OUTSIDE_ID
+    elsewhere.mkdir(parents=True)
+    (elsewhere / "run.json").write_text("{}", encoding="utf-8")
+    _link_dir(repo / ".ai" / _O1_OUTSIDE_ID, elsewhere)
+    monkeypatch.chdir(repo)
+    assert main(["list", "--json"]) == 0
+    items = json.loads(capsys.readouterr().out)["work_items"]
+    assert [entry["work_item_id"] for entry in items] == [_O1_ITEM, _O1_LOCAL]
+    assert {entry["work_item_id"]: entry["prepared"] for entry in items} == {_O1_ITEM: True, _O1_LOCAL: False}
+
+
+def test_o1_list_of_real_work_items_is_unchanged(tmp_path, monkeypatch, capsys):
+    repo, item, _secret = _o1_repo(tmp_path)
+    (item / "run.json").write_text("{}", encoding="utf-8")
+    (repo / ".ai" / _O1_LOCAL).mkdir()
+    (repo / ".ai" / "not-an-id").mkdir()
+    (repo / ".ai" / "notes.txt").write_text("x\n", encoding="utf-8")
+    monkeypatch.chdir(repo)
+    assert main(["list", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["work_items"] == [
+        {"work_item_id": _O1_ITEM, "source": None, "title": None, "prepared": True},
+        {"work_item_id": _O1_LOCAL, "source": None, "title": None, "prepared": False},
+    ]
+    assert main(["list"]) == 0
+    text = capsys.readouterr().out
+    assert _O1_ITEM in text and "prepared" in text and _O1_LOCAL in text and "incomplete" in text
+    shutil.rmtree(repo / ".ai")
+    assert main(["list", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["work_items"] == []
+    assert main(["list"]) == 0
+    assert "No work items found under .ai/." in capsys.readouterr().out
