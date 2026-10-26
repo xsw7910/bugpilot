@@ -81,6 +81,13 @@ from bugpilot.core.issue import read_issue_quietly
 # import would be shadowed by it inside build_server.
 from bugpilot.core.memory import search_memory as search_memory_impl
 from bugpilot.core.models import InvestigationOptions, InvestigationRequest
+from bugpilot.core.safe_paths import (
+    UnsafePathError,
+    decode_text,
+    generated_file_exists,
+    generated_folder_exists,
+    read_generated_file,
+)
 
 REPO_ROOT_ENV = "BUGPILOT_MCP_REPO_ROOT"
 
@@ -178,7 +185,12 @@ def _existing(repo_root: Path, work_item_id: str) -> str:
     prepared — the same failure mode an id-shaped memory query used to have.
     """
     item = _checked(work_item_id)
-    if not issue_dir(repo_root, item).is_dir():
+    try:
+        # Its folder judged as it stands, never followed (O-1): a link there is refused, not taken as prepared.
+        prepared = generated_folder_exists(repo_root, issue_dir(repo_root, item))
+    except UnsafePathError as exc:
+        raise ToolError(str(exc)) from exc
+    if not prepared:
         raise ToolError(
             f"{item} has not been prepared. Run prepare_jira_bug or "
             "prepare_bug_description first."
@@ -218,14 +230,31 @@ def _read_artifact(root: Path, work_item_id: str, name: str) -> str | None:
     read signatures that do not exist. It also protects nothing here — the agent
     can open the same file with its own tools. Redaction belongs on text leaving
     the machine, which is where ``jira.py`` and ``email_notify.py`` apply it.
+
+    That holds only for the work item's own file, so it is read as one (O-1):
+    never through a link, which a cloned repository can commit to send the
+    read outside it, and only as a bounded regular file. A refusal is a tool
+    error, never ``None``.
     """
-    path = issue_dir(root, work_item_id) / name
-    if not path.exists():
-        return None
     try:
-        return path.read_text(encoding="utf-8", errors="replace")
+        data = read_generated_file(root, issue_dir(root, work_item_id) / name)
+    except UnsafePathError as exc:
+        raise _refused(exc) from exc
     except OSError:
         return None
+    return None if data is None else decode_text(data, "utf-8", errors="replace")
+
+
+def _present(root: Path, path: Path) -> bool:
+    """Whether a work item's file is there, judged without following a link (O-1); a link is a tool error."""
+    try:
+        return generated_file_exists(root, path)
+    except UnsafePathError as exc:
+        raise _refused(exc) from exc
+
+
+def _refused(exc: UnsafePathError) -> ToolError:
+    return ToolError(f"Could not read the work item [{errors.error_code_for(exc)}]: {exc}")
 
 
 def _context_excerpt(root: Path, work_item_id: str) -> str | None:
@@ -271,7 +300,7 @@ def _package(root: Path, work_item_id: str, result: workflow.WorkflowResult) -> 
         # On one line (0.1.5, N5): the issue keeps its title; only what is shown changes.
         "title": one_line(issue.title) if issue else None,
         "issue_dir": f".ai/{work_item_id}",
-        "agent_task": f".ai/{work_item_id}/{TASK_ARTIFACT}" if task_path.exists() else None,
+        "agent_task": f".ai/{work_item_id}/{TASK_ARTIFACT}" if _present(root, task_path) else None,
         "generated_files": result.generated_files,
         # What the package was actually prepared with, in the same shape
         # run.json and the CLI's --json use. Additive: a client that
@@ -567,9 +596,10 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         except Exception as exc:
             raise ToolError(f"Could not summarize {item} [{errors.error_code_for(exc)}]: {exc}") from exc
         report = f".ai/{item}/{FIX_REPORT_ARTIFACT}"
+        present = _present(bound.repo_root, issue_dir(bound.repo_root, item) / FIX_REPORT_ARTIFACT)
         return {
             "work_item_id": item,
-            "fix_report": report if (issue_dir(bound.repo_root, item) / FIX_REPORT_ARTIFACT).exists() else None,
+            "fix_report": report if present else None,
             "overview": overview,
             "report_excerpt": _report_excerpt(bound.repo_root, item),
         }

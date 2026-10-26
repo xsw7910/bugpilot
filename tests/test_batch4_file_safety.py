@@ -44,9 +44,15 @@ from pathlib import Path
 import pytest
 
 from bugpilot.cli import main
-from bugpilot.core import user_config
+from bugpilot.core import safe_paths, user_config, workflow
 from bugpilot.core.artifact_io import atomic_write_text
+from bugpilot.core.attachments import attachment_names, listed_attachments
 from bugpilot.core.context_preview import STATE_UNREADABLE, preview_context
+from bugpilot.core.fix_report import read_fix_report
+from bugpilot.core.issue import IssueArtifactError, load_issue, read_issue_quietly
+from bugpilot.core.memory import search_memory
+from bugpilot.core.retrieval import RetrievalArtifactError, load_retrieval, read_retrieval_quietly
+from bugpilot.core.run import RunArtifactError, load_run, read_run_quietly
 from bugpilot.core.safe_paths import UnsafePathError
 from bugpilot.core.task_preview import TaskPreviewError, preview_work_item
 
@@ -611,3 +617,503 @@ def test_f13_a_real_work_item_previews_as_before(tmp_path, monkeypatch, capsys):
     real, item = _prepared_elsewhere(tmp_path, monkeypatch, capsys)
     preview = preview_work_item(real, item)
     assert preview.work_item == item and preview.prepared.task_current
+
+
+# --- O-1: BugPilot's generated files are read only as regular files, never through a link -------------------
+#
+# A cloned repository can commit a link at `.ai`, a work item's folder, a file in it, `.ai_memory`, `bugs` or a
+# memory file. Every reader refuses it, or skips it unread, so nothing the link points at reaches an output. The
+# "outside" file below is synthetic: no real home, credential or user file is ever read.
+
+_O1_ITEM = "JR-12345"
+_O1_SENTINEL = "o1-outside-sentinel-" + uuid.uuid4().hex
+
+
+@pytest.fixture(params=["descriptor", "look"])
+def o1_strategy(request, monkeypatch):
+    """Each read strategy in turn: POSIX's descriptor walk where the system has it, and the look-based one."""
+    if request.param == "descriptor" and not safe_paths._BY_DESCRIPTOR:
+        pytest.skip("this system has no descriptor-relative opens")
+    monkeypatch.setattr(safe_paths, "_BY_DESCRIPTOR", request.param == "descriptor")
+    return request.param
+
+
+def _o1_repo(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """A repository with a work item's folder and the memory folder, and a synthetic file outside it."""
+    repo = tmp_path / "repo"
+    (repo / ".ai" / _O1_ITEM).mkdir(parents=True)
+    (repo / ".ai_memory" / "bugs").mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    secret = outside / "notes.md"
+    secret.write_text(
+        f"# {_O1_SENTINEL}\n\n## Summary\n\n{_O1_SENTINEL}\n\n## Analysis\n\n{_O1_SENTINEL}\n", encoding="utf-8"
+    )
+    return repo, repo / ".ai" / _O1_ITEM, secret
+
+
+def _o1_restat(info: os.stat_result, index: int, value: int) -> os.stat_result:
+    """``info`` with one field changed, its named-only fields (Windows' attributes and reparse tag) kept."""
+    values = list(info)
+    values[index] = value
+    named = {name: getattr(info, name) for name in ("st_file_attributes", "st_reparse_tag") if hasattr(info, name)}
+    return os.stat_result(values, named)
+
+
+def _o1_clean(text: str, tmp_path: Path) -> None:
+    """Nothing of the outside file, and no absolute path, in what a reader said."""
+    assert _O1_SENTINEL not in text
+    assert str(tmp_path) not in text
+
+
+def test_o1_a_link_at_the_fix_report_is_refused(tmp_path, o1_strategy):
+    repo, item, secret = _o1_repo(tmp_path)
+    _link_file(item / "fix_report.md", secret)
+    with pytest.raises(UnsafePathError) as caught:
+        read_fix_report(repo, _O1_ITEM)
+    message = str(caught.value)
+    assert message.startswith(f"BugPilot will not read .ai/{_O1_ITEM}/fix_report.md: it is a symbolic link or junction")
+    _o1_clean(message, tmp_path)
+    with pytest.raises(UnsafePathError):
+        workflow.check_result_files(repo, _O1_ITEM)
+    with pytest.raises(UnsafePathError):
+        workflow._previous_attempt_summary(repo, item)
+
+
+@pytest.mark.parametrize(
+    ("name", "read", "error"),
+    [
+        ("run.json", load_run, RunArtifactError),
+        ("issue.json", load_issue, IssueArtifactError),
+        ("retrieval.json", load_retrieval, RetrievalArtifactError),
+    ],
+)
+def test_o1_a_link_at_a_record_is_refused_and_quiet_readers_read_nothing(tmp_path, o1_strategy, name, read, error):
+    repo, item, secret = _o1_repo(tmp_path)
+    _link_file(item / name, secret)
+    with pytest.raises(error) as caught:
+        read(repo, _O1_ITEM)
+    assert "is a symbolic link or junction" in str(caught.value)
+    _o1_clean(str(caught.value), tmp_path)
+    quiet = {"run.json": read_run_quietly, "issue.json": read_issue_quietly, "retrieval.json": read_retrieval_quietly}
+    assert quiet[name](repo, _O1_ITEM) is None
+
+
+@pytest.mark.parametrize("name", ["user_feedback.md", "jira_comment_draft.md"])
+def test_o1_prompt_and_jira_inputs_are_never_read_through_a_link(tmp_path, o1_strategy, name):
+    repo, item, secret = _o1_repo(tmp_path)
+    _link_file(item / name, secret)
+    with pytest.raises(UnsafePathError) as caught:
+        if name == "user_feedback.md":
+            workflow._developer_feedback(repo, item)
+        else:
+            workflow.jira_comment_step(repo, _O1_ITEM)  # a preview: nothing is posted either way
+    _o1_clean(str(caught.value), tmp_path)
+
+
+@pytest.mark.parametrize("linked", [".ai", "work-item"])
+def test_o1_a_link_on_the_way_is_refused(tmp_path, o1_strategy, linked):
+    repo, item, secret = _o1_repo(tmp_path)
+    elsewhere = tmp_path / "elsewhere" / ".ai" / _O1_ITEM
+    elsewhere.mkdir(parents=True)
+    (elsewhere / "fix_report.md").write_text(secret.read_text(encoding="utf-8"), encoding="utf-8")
+    (elsewhere / "run.json").write_text("{}", encoding="utf-8")
+    if linked == ".ai":
+        shutil.rmtree(repo / ".ai")
+        _link_dir(repo / ".ai", elsewhere.parent)
+        shown = ".ai"
+    else:
+        item.rmdir()
+        _link_dir(item, elsewhere)
+        shown = f".ai/{_O1_ITEM}"
+    with pytest.raises(UnsafePathError) as caught:
+        read_fix_report(repo, _O1_ITEM)
+    assert f": {shown} is a symbolic link or junction." in str(caught.value)
+    _o1_clean(str(caught.value), tmp_path)
+    with pytest.raises(UnsafePathError):
+        workflow.check_result_files(repo, _O1_ITEM)  # no existence answer through the link either
+    with pytest.raises(RunArtifactError):
+        load_run(repo, _O1_ITEM)
+    with pytest.raises(UnsafePathError):
+        safe_paths.generated_folder_exists(repo, repo / ".ai" / _O1_ITEM)
+
+
+@pytest.mark.parametrize("linked", [".ai_memory", "bugs"])
+def test_o1_a_link_at_the_memory_folders_refuses_the_search(tmp_path, o1_strategy, linked):
+    repo, _item, secret = _o1_repo(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / "bugs").mkdir(parents=True)
+    (elsewhere / "bugs" / "JR-12345.md").write_text(secret.read_text(encoding="utf-8"), encoding="utf-8")
+    if linked == ".ai_memory":
+        shutil.rmtree(repo / ".ai_memory")
+        _link_dir(repo / ".ai_memory", elsewhere)
+    else:
+        (repo / ".ai_memory" / "bugs").rmdir()
+        _link_dir(repo / ".ai_memory" / "bugs", elsewhere / "bugs")
+    with pytest.raises(UnsafePathError) as caught:
+        search_memory(repo, _O1_SENTINEL)
+    _o1_clean(str(caught.value), tmp_path)
+
+
+def test_o1_a_linked_memory_file_is_skipped_unread(tmp_path, o1_strategy):
+    repo, _item, secret = _o1_repo(tmp_path)
+    bugs = repo / ".ai_memory" / "bugs"
+    (bugs / "JR-12345.md").write_text("# A real memory\n\nselector format lost\n", encoding="utf-8")
+    _link_file(bugs / "notes.md", secret)
+    # "summary" is only in the outside file: read, it would score and its first heading, the sentinel, would show.
+    _matched, report, results = search_memory(repo, "selector summary")
+    assert [result["file"] for result in results] == [".ai_memory/bugs/JR-12345.md"]
+    assert "1 memory file(s) were not read: a link, a junction or not a regular file." in report
+    _o1_clean(report + json.dumps(results), tmp_path)
+
+
+def test_o1_a_folder_at_a_file_name_is_refused(tmp_path, o1_strategy):
+    repo, item, _secret = _o1_repo(tmp_path)
+    (item / "fix_report.md").mkdir()
+    with pytest.raises(UnsafePathError) as caught:
+        read_fix_report(repo, _O1_ITEM)
+    assert str(caught.value).startswith(f"BugPilot will not read .ai/{_O1_ITEM}/fix_report.md: it is not a regular file")
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs are POSIX")
+def test_o1_a_fifo_is_refused_without_blocking(tmp_path, o1_strategy):
+    """No writer ever opens these FIFOs: a reader that blocked on one would never return."""
+    repo, item, _secret = _o1_repo(tmp_path)
+    os.mkfifo(item / "fix_report.md")
+    outside_fifo = tmp_path / "outside" / "pipe"
+    os.mkfifo(outside_fifo)
+    _link_file(item / "user_feedback.md", outside_fifo)
+    outcomes: list[BaseException | None] = []
+
+    def read_both() -> None:
+        for read in (lambda: read_fix_report(repo, _O1_ITEM), lambda: workflow._feedback_text(repo, item)):
+            try:
+                read()
+                outcomes.append(None)
+            except BaseException as exc:  # noqa: BLE001 - recorded for the assertions below
+                outcomes.append(exc)
+
+    reader = threading.Thread(target=read_both, daemon=True)
+    reader.start()
+    reader.join(10)
+    assert not reader.is_alive(), "a read blocked on a FIFO"
+    assert [type(outcome) for outcome in outcomes] == [UnsafePathError, UnsafePathError]
+    assert "it is not a regular file" in str(outcomes[0])
+    assert "it is a symbolic link or junction" in str(outcomes[1])
+
+
+def test_o1_an_oversized_file_is_refused_before_it_is_decoded(tmp_path, o1_strategy):
+    repo, item, _secret = _o1_repo(tmp_path)
+    path = item / "fix_report.md"
+    with open(path, "wb") as handle:
+        handle.truncate(safe_paths.GENERATED_READ_LIMIT + 1)
+    with pytest.raises(UnsafePathError) as caught:
+        read_fix_report(repo, _O1_ITEM)
+    assert "it is larger than the 16 MiB BugPilot reads from one generated file" in str(caught.value)
+
+
+def test_o1_the_read_stops_at_the_limit_whatever_the_size_said(tmp_path, o1_strategy, monkeypatch):
+    """A file that grows, or a size that understates it: never more than the limit and one byte is read."""
+    repo, item, _secret = _o1_repo(tmp_path)
+    path = item / "fix_report.md"
+    path.write_bytes(b"x" * 1000)
+    real_fstat, real_read = os.fstat, os.read
+    taken: list[int] = []
+
+    def understated(handle):
+        info = real_fstat(handle)
+        return _o1_restat(info, stat.ST_SIZE, 0) if stat.S_ISREG(info.st_mode) else info
+
+    def counted(handle, size):
+        data = real_read(handle, size)
+        taken.append(len(data))
+        return data
+
+    with monkeypatch.context() as patch:
+        patch.setattr(safe_paths.os, "fstat", understated)
+        patch.setattr(safe_paths.os, "read", counted)
+        with pytest.raises(UnsafePathError):
+            safe_paths.read_generated_file(repo, path, limit=100)
+    assert sum(taken) <= 101
+
+
+def test_o1_a_file_swapped_after_the_look_is_refused(tmp_path, monkeypatch):
+    """The look-based read (Windows): the open must reach the file the look found."""
+    monkeypatch.setattr(safe_paths, "_BY_DESCRIPTOR", False)
+    repo, item, _secret = _o1_repo(tmp_path)
+    path = item / "fix_report.md"
+    path.write_text("## Summary\n\nreal\n", encoding="utf-8")
+    real_fstat = os.fstat
+
+    def another_file(handle):
+        info = real_fstat(handle)
+        return _o1_restat(info, stat.ST_INO, info.st_ino + 1)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(safe_paths.os, "fstat", another_file)
+        with pytest.raises(UnsafePathError) as caught:
+            read_fix_report(repo, _O1_ITEM)
+    assert "it changed while it was being opened" in str(caught.value)
+
+
+def test_o1_regular_files_read_exactly_as_before(tmp_path, o1_strategy):
+    repo, item, _secret = _o1_repo(tmp_path)
+    report = item / "fix_report.md"
+    report.write_bytes(b"\xef\xbb\xbf## Summary\r\n\r\nfixed \xff it\rnow\n\n## Analysis\n\ncause\n")
+    expected = report.read_text(encoding="utf-8", errors="replace")
+    assert read_fix_report(repo, _O1_ITEM).text == expected
+    feedback = item / "user_feedback.md"
+    feedback.write_bytes(b"  first line\r\nsecond\r\n\r\n")
+    assert workflow._feedback_text(repo, item) == "  first line\nsecond"
+    (item / "run.json").write_text("{not json", encoding="utf-8")
+    with pytest.raises(RunArtifactError) as caught:
+        load_run(repo, _O1_ITEM)
+    assert f".ai/{_O1_ITEM}/run.json could not be read (" in str(caught.value), "the same words as before"
+
+
+def test_o1_missing_files_keep_their_answers(tmp_path, o1_strategy):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    assert read_fix_report(repo, _O1_ITEM) is None
+    assert load_run(repo, _O1_ITEM) is None and load_issue(repo, _O1_ITEM) is None
+    assert load_retrieval(repo, _O1_ITEM) is None
+    assert workflow.check_result_files(repo, _O1_ITEM) == [f".ai/{_O1_ITEM}/fix_report.md"]
+    assert search_memory(repo, "selector")[2] == []
+    assert safe_paths.generated_folder_exists(repo, repo / ".ai" / _O1_ITEM) is False
+    (repo / ".ai" / _O1_ITEM).mkdir(parents=True)
+    assert safe_paths.generated_folder_exists(repo, repo / ".ai" / _O1_ITEM) is True
+    assert workflow._developer_feedback(repo, repo / ".ai" / _O1_ITEM) == "No user feedback file found."
+
+
+@pytest.mark.skipif(os.name != "nt", reason="junctions are Windows'")
+def test_o1_windows_junctions_are_refused_as_links(tmp_path):
+    import _winapi
+
+    repo, _item, secret = _o1_repo(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / _O1_ITEM).mkdir(parents=True)
+    (elsewhere / _O1_ITEM / "fix_report.md").write_text(secret.read_text(encoding="utf-8"), encoding="utf-8")
+    (elsewhere / "bugs").mkdir()
+    shutil.rmtree(repo / ".ai")
+    _winapi.CreateJunction(str(elsewhere), str(repo / ".ai"))
+    shutil.rmtree(repo / ".ai_memory")
+    _winapi.CreateJunction(str(elsewhere), str(repo / ".ai_memory"))
+    with pytest.raises(UnsafePathError) as caught:
+        read_fix_report(repo, _O1_ITEM)
+    assert ": .ai is a symbolic link or junction." in str(caught.value)
+    with pytest.raises(UnsafePathError):
+        search_memory(repo, "anything")
+    _o1_clean(str(caught.value), tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("command", "linked", "code"),
+    [
+        (["check-results", _O1_ITEM, "--json"], "fix_report.md", "INVALID_INPUT"),
+        (["summarize-results", _O1_ITEM, "--json"], "fix_report.md", "INVALID_INPUT"),
+        (["status", _O1_ITEM, "--json"], "run.json", "ARTIFACT_NOT_FOUND"),
+    ],
+)
+def test_o1_the_cli_refuses_alike(tmp_path, monkeypatch, capsys, command, linked, code):
+    repo, item, secret = _o1_repo(tmp_path)
+    _link_file(item / linked, secret)
+    monkeypatch.chdir(repo)
+    assert main(command) == 1
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["ok"] is False and payload["error"]["code"] == code, payload
+    assert "is a symbolic link or junction" in payload["error"]["message"]
+    _o1_clean(captured.out + captured.err, tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("command", "linked"),
+    [(["retry-prompt", _O1_ITEM], "user_feedback.md"), (["jira-comment", _O1_ITEM], "jira_comment_draft.md")],
+)
+def test_o1_the_cli_prompt_and_jira_paths_read_nothing_through_a_link(tmp_path, monkeypatch, capsys, command, linked):
+    repo, item, secret = _o1_repo(tmp_path)
+    _link_file(item / linked, secret)
+    monkeypatch.chdir(repo)
+    assert main(command) == 1
+    captured = capsys.readouterr()
+    assert "is a symbolic link or junction" in captured.out + captured.err
+    _o1_clean(captured.out + captured.err, tmp_path)
+
+
+# --- O-1 completion: attachments and the memory folders, never through a link ------------------------------
+#
+# An attachment's name reaches task.md, which tells the agent to read it, and run.json. A link at the attachments
+# folder or at an entry must not put an outside folder's names, or the existence of an outside file, there.
+
+
+def _o1_attachments(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """`_o1_repo`, plus a synthetic outside file whose very name is the sentinel."""
+    repo, item, secret = _o1_repo(tmp_path)
+    (secret.parent / f"{_O1_SENTINEL}.log").write_text("outside\n", encoding="utf-8")
+    return repo, item, secret.parent
+
+
+def _o1_rich_elsewhere(root: Path) -> Path:
+    """A folder laid out like a work item's, with an outside attachment in it; returns the work item folder."""
+    folder = root / _O1_ITEM / "attachments"
+    folder.mkdir(parents=True)
+    (folder / f"{_O1_SENTINEL}.log").write_text("outside\n", encoding="utf-8")
+    return folder.parent
+
+
+@pytest.mark.parametrize("linked", ["attachments", "work-item", ".ai"])
+def test_o1_a_linked_attachments_folder_is_refused(tmp_path, o1_strategy, linked):
+    repo, item, outside = _o1_attachments(tmp_path)
+    if linked == "attachments":
+        _link_dir(item / "attachments", outside)
+        shown = f".ai/{_O1_ITEM}/attachments"
+    elif linked == "work-item":
+        item.rmdir()
+        _link_dir(item, _o1_rich_elsewhere(tmp_path / "elsewhere"))
+        shown = f".ai/{_O1_ITEM}"
+    else:
+        shutil.rmtree(repo / ".ai")
+        _link_dir(repo / ".ai", _o1_rich_elsewhere(tmp_path / "elsewhere").parent)
+        shown = ".ai"
+    for call in (
+        lambda: attachment_names(item),
+        lambda: listed_attachments(item, None),
+        lambda: listed_attachments(item, [f"{_O1_SENTINEL}.log"]),
+        lambda: workflow._generated_files(repo, _O1_ITEM),
+    ):
+        with pytest.raises(UnsafePathError) as caught:
+            call()
+        assert f": {shown} is a symbolic link or junction." in str(caught.value)
+        _o1_clean(str(caught.value), tmp_path)
+
+
+def test_o1_a_linked_attachment_is_never_named(tmp_path, o1_strategy):
+    """Left out whatever it points at, and whether that exists: no name, no content, no existence answer."""
+    repo, item, outside = _o1_attachments(tmp_path)
+    folder = item / "attachments"
+    folder.mkdir()
+    (folder / "crash.log").write_text("real\n", encoding="utf-8")
+    _link_file(folder / "outside.log", outside / f"{_O1_SENTINEL}.log")
+    _link_file(folder / "dangling.log", outside / "missing.log")
+    (folder / "nested").mkdir()  # a folder never was an attachment
+    assert attachment_names(item) == ["crash.log"]
+    assert listed_attachments(item, None) == ["crash.log"]
+    assert listed_attachments(item, ["outside.log", "dangling.log", "crash.log", "nested"]) == ["crash.log"]
+    assert workflow._generated_files(repo, _O1_ITEM) == [f".ai/{_O1_ITEM}/attachments/crash.log"]
+
+
+def test_o1_regular_attachments_list_as_before(tmp_path, o1_strategy):
+    _repo, item, _outside = _o1_attachments(tmp_path)
+    assert attachment_names(item) == [] and listed_attachments(item, None) == []  # no folder
+    assert listed_attachments(item, ["a.log"]) == []
+    folder = item / "attachments"
+    folder.mkdir()
+    assert attachment_names(item) == [] and listed_attachments(item, ["a.log"]) == []  # an empty folder
+    for name in ("b.log", "a.log", "screen shot.png"):
+        (folder / name).write_bytes(b"x")
+    assert attachment_names(item) == ["a.log", "b.log", "screen shot.png"]
+    assert listed_attachments(item, None) == ["a.log", "b.log", "screen shot.png"]
+    # The recorded order, the names still there, and never a name that is not plain.
+    assert listed_attachments(item, ["screen shot.png", "b.log", "gone.log", "../a.log"]) == ["screen shot.png", "b.log"]
+
+
+@pytest.mark.parametrize("linked", [".ai_memory", "bugs", "file"])
+def test_o1_the_status_listing_refuses_linked_memory(tmp_path, o1_strategy, linked):
+    repo, _item, secret = _o1_repo(tmp_path)
+    elsewhere = tmp_path / "elsewhere" / "bugs"
+    elsewhere.mkdir(parents=True)
+    (elsewhere / f"{_O1_ITEM}.md").write_text(secret.read_text(encoding="utf-8"), encoding="utf-8")
+    if linked == ".ai_memory":
+        shutil.rmtree(repo / ".ai_memory")
+        _link_dir(repo / ".ai_memory", elsewhere.parent)
+        reason = ".ai_memory is a symbolic link or junction"
+    elif linked == "bugs":
+        (repo / ".ai_memory" / "bugs").rmdir()
+        _link_dir(repo / ".ai_memory" / "bugs", elsewhere)
+        reason = ".ai_memory/bugs is a symbolic link or junction"
+    else:
+        _link_file(repo / ".ai_memory" / "bugs" / f"{_O1_ITEM}.md", elsewhere / f"{_O1_ITEM}.md")
+        reason = "it is a symbolic link or junction"
+    with pytest.raises(UnsafePathError) as caught:
+        workflow._generated_files(repo, _O1_ITEM)
+    assert f"BugPilot will not read .ai_memory/bugs/{_O1_ITEM}.md: {reason}." in str(caught.value)
+    _o1_clean(str(caught.value), tmp_path)
+
+
+def test_o1_the_status_listing_without_or_with_real_memory_is_unchanged(tmp_path, o1_strategy):
+    repo, item, _secret = _o1_repo(tmp_path)
+    (item / "run.json").write_text("{}", encoding="utf-8")
+    shutil.rmtree(repo / ".ai_memory")
+    assert workflow._generated_files(repo, _O1_ITEM) == [f".ai/{_O1_ITEM}/run.json"]  # no memory folder
+    (repo / ".ai_memory" / "bugs").mkdir(parents=True)
+    assert workflow._generated_files(repo, _O1_ITEM) == [f".ai/{_O1_ITEM}/run.json"]  # no memory file
+    (repo / ".ai_memory" / "bugs" / f"{_O1_ITEM}.md").write_text("# memory\n", encoding="utf-8")
+    assert workflow._generated_files(repo, _O1_ITEM) == [f".ai/{_O1_ITEM}/run.json", f".ai_memory/bugs/{_O1_ITEM}.md"]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="junctions are Windows'")
+def test_o1_windows_junctions_in_attachments_are_left_out_or_refused(tmp_path):
+    import _winapi
+
+    _repo, item, outside = _o1_attachments(tmp_path)
+    (outside / "inner").mkdir()
+    folder = item / "attachments"
+    folder.mkdir()
+    (folder / "crash.log").write_text("real\n", encoding="utf-8")
+    _winapi.CreateJunction(str(outside / "inner"), str(folder / "junction.log"))
+    assert attachment_names(item) == ["crash.log"]
+    assert listed_attachments(item, ["junction.log", "crash.log"]) == ["crash.log"]
+    os.rmdir(folder / "junction.log")  # removes the junction itself, never what it points at
+    (folder / "crash.log").unlink()
+    folder.rmdir()
+    _winapi.CreateJunction(str(outside), str(folder))
+    with pytest.raises(UnsafePathError) as caught:
+        attachment_names(item)
+    assert f": .ai/{_O1_ITEM}/attachments is a symbolic link or junction." in str(caught.value)
+    _o1_clean(str(caught.value), tmp_path)
+
+
+def _o1_cli_repo(tmp_path: Path) -> tuple[Path, Path]:
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "selector.py").write_text("def remember_format():\n    pass\n", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / f"{_O1_SENTINEL}.log").write_text("outside\n", encoding="utf-8")
+    return repo, outside
+
+
+@needs_rg
+def test_o1_a_run_refuses_a_linked_attachments_folder(tmp_path, monkeypatch, capsys):
+    repo, outside = _o1_cli_repo(tmp_path)
+    (repo / ".ai" / _O1_ITEM).mkdir(parents=True)
+    _link_dir(repo / ".ai" / _O1_ITEM / "attachments", outside)
+    monkeypatch.chdir(repo)
+    assert main(["bug", _O1_ITEM, "--allow-mock", "--prepare-only", "--json"]) == 1
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["ok"] is False and payload["error"]["code"] == "INVALID_INPUT", payload
+    assert f".ai/{_O1_ITEM}/attachments is a symbolic link or junction" in payload["error"]["message"]
+    _o1_clean(captured.out + captured.err, tmp_path)
+    for name in ("task.md", "run.json", "context.md"):
+        written = repo / ".ai" / _O1_ITEM / name
+        assert not written.exists() or _O1_SENTINEL not in written.read_text(encoding="utf-8")
+
+
+@needs_rg
+def test_o1_a_run_names_its_real_attachment_and_never_a_planted_link(tmp_path, monkeypatch, capsys):
+    repo, outside = _o1_cli_repo(tmp_path)
+    crash = tmp_path / "crash.log"
+    crash.write_text("real crash\n", encoding="utf-8")
+    monkeypatch.chdir(repo)
+    assert main(["bug", _O1_ITEM, "--allow-mock", "--prepare-only", "--attach", str(crash), "--json"]) == 0
+    capsys.readouterr()
+    _link_file(repo / ".ai" / _O1_ITEM / "attachments" / "planted.log", outside / f"{_O1_SENTINEL}.log")
+    assert main(["bug", _O1_ITEM, "--allow-mock", "--prepare-only", "--json"]) == 0
+    captured = capsys.readouterr()
+    task = (repo / ".ai" / _O1_ITEM / "task.md").read_text(encoding="utf-8")
+    run = json.loads((repo / ".ai" / _O1_ITEM / "run.json").read_text(encoding="utf-8"))
+    assert "attachments/crash.log" in task and "planted.log" not in task
+    assert f".ai/{_O1_ITEM}/attachments/crash.log" in run["generated_files"]
+    assert not any("planted" in name for name in run["generated_files"])
+    assert _O1_SENTINEL not in captured.out + captured.err + task + json.dumps(run)

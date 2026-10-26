@@ -26,7 +26,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping, Sequence
 
-from .safe_paths import refuse_link
+from .safe_paths import (
+    UnsafePathError,
+    generated_file_exists,
+    generated_file_names,
+    generated_folder_exists,
+    refuse_link,
+)
 
 ATTACHMENTS_DIR = "attachments"
 
@@ -236,20 +242,43 @@ def listed_attachments(target: Path, recorded: Sequence[str] | None) -> list[str
     has (``guidance.attachment_files``); then only those are named — and only
     the ones still on disk. One prepared before the record existed, or only
     ever by an additive CLI run, falls back to reading the folder as before.
+
+    Never through a link (O-1): a link or junction at the attachments folder,
+    or on the way to it, is refused; a recorded name that is a link, a junction
+    or anything but a regular file is not named, whatever it points at, as a
+    name that is not a file never was.
     """
     if recorded is None:
         return attachment_names(target)
-    directory = target / ATTACHMENTS_DIR
-    return [name for name in recorded if is_plain_attachment_name(name) and (directory / name).is_file()]
+    base, directory = _repository_of(target), target / ATTACHMENTS_DIR
+    if not generated_folder_exists(base, directory):
+        return []
+    named = [name for name in recorded if is_plain_attachment_name(name) and _regular_file(base, directory / name)]
+    generated_folder_exists(base, directory)  # again: a folder made a link since the first look is refused
+    return named
 
 
 def attachment_names(target: Path) -> list[str]:
     """What is in the attachments directory now, sorted.
 
     Read from disk rather than remembered, so a `--resume` run lists what a
-    previous run copied.
+    previous run copied. Only regular files, and never through a link (O-1): a
+    link or junction at the folder, or on the way to it, is refused; an entry
+    that is a link, a junction or anything but a regular file is not listed,
+    whatever it points at and whether that exists.
     """
-    directory = target / ATTACHMENTS_DIR
-    if not directory.is_dir():
-        return []
-    return sorted(path.name for path in directory.iterdir() if path.is_file())
+    names = generated_file_names(_repository_of(target), target / ATTACHMENTS_DIR)
+    return [] if names is None else sorted(names)
+
+
+def _repository_of(target: Path) -> Path:
+    """The repository a work item's folder belongs to: ``target`` is two levels below it."""
+    return target.parent.parent
+
+
+def _regular_file(base: Path, path: Path) -> bool:
+    """Whether ``path`` is a regular file as it stands; a link, a junction or anything else is not, and says nothing."""
+    try:
+        return generated_file_exists(base, path)
+    except UnsafePathError:
+        return False

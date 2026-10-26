@@ -25,6 +25,7 @@ from pathlib import Path
 
 from .artifacts import FIX_REPORT_ARTIFACT
 from .config import issue_dir
+from .safe_paths import decode_text, read_generated_file
 
 # The section contract task.md asks the agent for, in this order.
 FIX_REPORT_SECTIONS: tuple[str, ...] = (
@@ -68,11 +69,13 @@ def read_fix_report(repo_root: Path, work_item_id: str) -> FixReport | None:
 
     Markdown a model wrote, read tolerantly: a missing heading is an empty
     section, never an error — the readers all render "not available" for it.
+    Never through a link, and only as a regular file (O-1): anything else at
+    its name, or on the way to it, is refused in one sentence.
     """
-    path = fix_report_path(repo_root, work_item_id)
-    if not path.exists():
+    data = read_generated_file(repo_root, fix_report_path(repo_root, work_item_id))
+    if data is None:
         return None
-    text = path.read_text(encoding="utf-8", errors="replace")
+    text = decode_text(data, "utf-8", errors="replace")
     return FixReport(
         text=text,
         summary=section_of(text, "## Summary"),

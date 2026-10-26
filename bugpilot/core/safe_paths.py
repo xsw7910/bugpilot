@@ -24,6 +24,13 @@ Windows, any reparse point whose tag is a *name surrogate* — a symbolic link, 
 directory junction, or anything else that stands in for another path. Reparse
 points that hold their own data (cloud-file placeholders, deduplicated files)
 are not links and are deleted normally.
+
+Reads follow the same rule (O-1): :func:`read_generated_file` is the one way
+BugPilot reads a file it generated in a work item's folder or in bug memory. A
+cloned repository can commit a link at any of those names, and a reader that
+followed it would hand the link's target — a file outside the repository — to
+an MCP client, a prompt or a Jira comment. So every component is judged as it
+stands, the file must be a regular file, and the read is bounded.
 """
 
 from __future__ import annotations
@@ -41,7 +48,7 @@ _FILE_ATTRIBUTE_REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x
 
 
 class UnsafePathError(ValueError):
-    """A deletion refused before anything was deleted.
+    """A deletion, a write or a read refused before anything was deleted, written or used.
 
     A ``ValueError`` so every entry point that already reports a bad argument
     as one sentence (``ERROR: …`` in a terminal, ``INVALID_INPUT`` in JSON)
@@ -217,3 +224,320 @@ def decode_text(data: bytes, encoding: str, errors: str = "strict") -> str:
     same decoding error, and the same line endings, so a JSON error names the same line and position.
     """
     return data.decode(encoding, errors).replace("\r\n", "\n").replace("\r", "\n")
+
+
+# --- reading what BugPilot generated, never through a link (O-1) -----------------------------------
+
+#: The most bytes BugPilot reads from one file it generated. Far above any real one: a larger file is
+#: refused before it is decoded or parsed, never read to its end and then cut.
+GENERATED_READ_LIMIT = 16 * 1024 * 1024
+#: Bytes asked for per read.
+_CHUNK = 64 * 1024
+_MIB = 1024 * 1024
+_CLOEXEC = getattr(os, "O_CLOEXEC", 0)
+_NOCTTY = getattr(os, "O_NOCTTY", 0)
+_BINARY = getattr(os, "O_BINARY", 0) | getattr(os, "O_NOINHERIT", 0)
+#: Whether this system opens a name relative to a folder's descriptor without following a link (POSIX).
+_BY_DESCRIPTOR = (
+    os.name == "posix"
+    and all(hasattr(os, flag) for flag in ("O_NOFOLLOW", "O_DIRECTORY", "O_NONBLOCK"))
+    and os.open in os.supports_dir_fd
+    and os.stat in os.supports_dir_fd
+    and os.stat in os.supports_follow_symlinks
+    and os.scandir in os.supports_fd
+)
+
+
+def read_generated_file(base: Path, path: Path, *, limit: int = GENERATED_READ_LIMIT) -> bytes | None:
+    """The bytes of ``path``, a file BugPilot generated below ``base``; ``None`` when it is not there (O-1).
+
+    ``base`` is the repository root, which may itself sit behind a link: that is where the developer chose to
+    work. Every component of ``path`` below it is judged as it stands, never followed. A link or junction on the
+    way or at the file, a component that is not a folder, a file that is not a regular file (a FIFO, a socket,
+    a device) and a file larger than ``limit`` are each refused with :class:`UnsafePathError`, in one sentence
+    that names the path relative to ``base`` only. Any other ``OSError`` is raised without the path. A failed
+    safe open is never retried the old way.
+
+    - **POSIX:** each folder is opened from its parent's descriptor with ``O_NOFOLLOW``, and the file with
+      ``O_NOFOLLOW`` and ``O_NONBLOCK``, so no link is gone through and a FIFO never blocks.
+    - **Windows:** each component is looked at (``lstat``) and a link refused before the file is opened; the
+      open must reach the very file the look found (device and file index), and the folders are looked at again
+      after it. That refuses every link already there. A same-account process racing those looks is outside
+      the threat model (plan §10.1), and no protection against it is claimed here.
+
+    The read stops at ``limit`` plus one byte, whatever the file's size said.
+    """
+    parts = _generated_parts(base, path)
+    display = "/".join(parts)
+    if _BY_DESCRIPTOR:
+        return _read_by_descriptor(base, parts, display, limit)
+    return _read_by_look(base, parts, display, limit)
+
+
+def generated_file_exists(base: Path, path: Path) -> bool:
+    """Whether ``path`` below ``base`` is a regular file, judged as :func:`read_generated_file` judges it.
+
+    ``False`` when nothing is there; a link or junction on the way or at the file, or anything there that is
+    not a regular file, is refused. Nothing is read.
+    """
+    parts = _generated_parts(base, path)
+    display = "/".join(parts)
+    info = _entry(base, parts, display)
+    if info is None:
+        return False
+    _refuse_unless_file(info, display)
+    return True
+
+
+def generated_folder_exists(base: Path, path: Path) -> bool:
+    """Whether ``path`` below ``base`` is a real folder, every component judged as it stands, never followed.
+
+    ``False`` when it, or a folder above it, is not there; a link, a junction or a non-folder on the way or at
+    ``path`` itself is refused. Nothing is read.
+    """
+    parts = _generated_parts(base, path)
+    display = "/".join(parts)
+    info = _entry(base, parts, display)
+    if info is None:
+        return False
+    _refuse_unless_folder(info, display, display)
+    return True
+
+
+def generated_file_names(base: Path, folder: Path) -> list[str] | None:
+    """The names of the regular files in ``folder``, a folder BugPilot generated below ``base``; ``None`` when absent.
+
+    The folder is judged as :func:`generated_folder_exists` judges it, and a link, a junction or a non-folder on
+    the way or at it is refused. An entry is named only when it is a regular file as it stands: a link or junction
+    (whatever it points at, and whether that exists), a folder, a FIFO or a device is left out, never followed.
+    Nothing is read. POSIX lists from the folder's own descriptor; Windows looks at the folders again after the
+    listing, as :func:`read_generated_file` does.
+    """
+    parts = _generated_parts(base, folder)
+    display = "/".join(parts)
+    if _BY_DESCRIPTOR:
+        handle = _folder_by_descriptor(base, parts, display)
+        if handle is None:
+            return None
+        try:
+            return _regular_names(handle)
+        finally:
+            os.close(handle)
+    info = _entry_by_look(base, parts, display)
+    if info is None:
+        return None
+    _refuse_unless_folder(info, display, display)
+    names = _regular_names(base.joinpath(*parts))
+    again = _entry_by_look(base, parts, display)  # the folders again: one made a link since the first look is refused
+    if again is not None:
+        _refuse_unless_folder(again, display, display)
+    return names
+
+
+def _regular_names(folder: int | Path) -> list[str]:
+    """The entries of ``folder`` that are regular files as they stand (never followed), in listing order."""
+    names: list[str] = []
+    try:
+        listing = os.scandir(folder)
+    except OSError as error:
+        raise _bare(error) from None
+    with listing:
+        for entry in listing:
+            try:
+                info = entry.stat(follow_symlinks=False)
+            except OSError:
+                continue  # gone since it was listed
+            if stat.S_ISREG(info.st_mode) and not is_link_stat(info):
+                names.append(entry.name)
+    return names
+
+
+def _generated_parts(base: Path, path: Path) -> tuple[str, ...]:
+    try:
+        parts = path.relative_to(base).parts
+    except ValueError:
+        raise UnsafePathError("BugPilot reads its generated files only inside the folder it works in.") from None
+    _check_parts(parts)
+    return parts
+
+
+def _refusal(display: str, reason: str) -> UnsafePathError:
+    return UnsafePathError(
+        f"BugPilot will not read {display}: {reason}. It reads the files it generated only as regular files in "
+        "real folders, never through a link, and nothing in this one was used."
+    )
+
+
+def _refuse_unless_folder(info: os.stat_result, shown: str, display: str) -> None:
+    if is_link_stat(info):
+        raise _refusal(display, f"{shown} is a symbolic link or junction")
+    if not stat.S_ISDIR(info.st_mode):
+        raise _refusal(display, f"{shown} is not a folder")
+
+
+def _refuse_unless_file(info: os.stat_result, display: str) -> None:
+    if is_link_stat(info):
+        raise _refusal(display, "it is a symbolic link or junction")
+    if not stat.S_ISREG(info.st_mode):
+        raise _refusal(display, "it is not a regular file")
+
+
+def _bare(error: OSError) -> OSError:
+    """``error`` without the path it may name: the same class (by its number) and the system's text only."""
+    if error.errno is None:
+        return OSError(error.strerror or type(error).__name__)
+    return OSError(error.errno, error.strerror)
+
+
+def _bounded(handle: int, info: os.stat_result, display: str, limit: int) -> bytes:
+    """The file's bytes from its own descriptor, refused when it is not regular or holds more than ``limit``."""
+    _refuse_unless_file(info, display)
+    too_large = f"it is larger than the {_size(limit)} BugPilot reads from one generated file"
+    if info.st_size > limit:
+        raise _refusal(display, too_large)
+    chunks: list[bytes] = []
+    total = 0
+    while total <= limit:
+        chunk = os.read(handle, min(_CHUNK, limit + 1 - total))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total += len(chunk)
+    if total > limit:
+        raise _refusal(display, too_large)
+    return b"".join(chunks)
+
+
+def _size(limit: int) -> str:
+    return f"{limit // _MIB} MiB" if limit % _MIB == 0 else f"{limit:,} bytes"
+
+
+def _entry(base: Path, parts: tuple[str, ...], display: str) -> os.stat_result | None:
+    """The last component's ``lstat``, every folder above it judged first; ``None`` when something is missing."""
+    if not _BY_DESCRIPTOR:
+        return _entry_by_look(base, parts, display)
+    folder = _folder_by_descriptor(base, parts[:-1], display)
+    if folder is None:
+        return None
+    try:
+        return _stat_at(folder, parts[-1])
+    finally:
+        os.close(folder)
+
+
+# POSIX: one component at a time, from the parent's descriptor.
+
+
+def _folder_by_descriptor(base: Path, folders: tuple[str, ...], display: str) -> int | None:
+    """A descriptor for ``base / folders``, each opened with ``O_NOFOLLOW``; ``None`` when one is missing."""
+    try:
+        folder = os.open(base, os.O_RDONLY | os.O_DIRECTORY | _CLOEXEC)
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        raise _bare(error) from None
+    for index, part in enumerate(folders):
+        try:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | _CLOEXEC, dir_fd=folder)
+        except FileNotFoundError:
+            os.close(folder)
+            return None
+        except OSError as error:
+            # Judged by what is there, never by the error alone: a link is ELOOP on one system, ENOTDIR on another.
+            try:
+                info = _stat_at(folder, part)
+            finally:
+                os.close(folder)
+            if info is not None:
+                _refuse_unless_folder(info, "/".join(folders[: index + 1]), display)
+            raise _bare(error) from None
+        os.close(folder)
+        folder = child
+    return folder
+
+
+def _stat_at(folder: int, name: str) -> os.stat_result | None:
+    try:
+        return os.stat(name, dir_fd=folder, follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        raise _bare(error) from None
+
+
+def _read_by_descriptor(base: Path, parts: tuple[str, ...], display: str, limit: int) -> bytes | None:
+    folder = _folder_by_descriptor(base, parts[:-1], display)
+    if folder is None:
+        return None
+    try:
+        try:
+            handle = os.open(
+                parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | _CLOEXEC | _NOCTTY, dir_fd=folder
+            )
+        except FileNotFoundError:
+            return None
+        except OSError as error:
+            info = _stat_at(folder, parts[-1])
+            if info is not None:
+                _refuse_unless_file(info, display)
+            raise _bare(error) from None
+        try:
+            return _bounded(handle, os.fstat(handle), display, limit)
+        finally:
+            os.close(handle)
+    finally:
+        os.close(folder)
+
+
+# Windows: look at each component, then hold the open to the file the look found.
+
+
+def _entry_by_look(base: Path, parts: tuple[str, ...], display: str) -> os.stat_result | None:
+    current = base
+    for index, part in enumerate(parts[:-1]):
+        current = current / part
+        try:
+            info = os.lstat(current)
+        except (FileNotFoundError, NotADirectoryError):
+            return None
+        except OSError as error:
+            raise _bare(error) from None
+        _refuse_unless_folder(info, "/".join(parts[: index + 1]), display)
+    try:
+        return os.lstat(current / parts[-1])
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    except OSError as error:
+        raise _bare(error) from None
+
+
+def _same_file(seen: os.stat_result, opened: os.stat_result) -> bool:
+    """Whether the open reached the file the look found (device and file index).
+
+    A file system that reports no file index proves nothing either way, and is judged by the look alone.
+    """
+    if seen.st_ino == 0 or opened.st_ino == 0:
+        return True
+    return (seen.st_dev, seen.st_ino) == (opened.st_dev, opened.st_ino)
+
+
+def _read_by_look(base: Path, parts: tuple[str, ...], display: str, limit: int) -> bytes | None:
+    seen = _entry_by_look(base, parts, display)
+    if seen is None:
+        return None
+    _refuse_unless_file(seen, display)
+    try:
+        handle = os.open(base.joinpath(*parts), os.O_RDONLY | _BINARY)
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        raise _bare(error) from None
+    try:
+        opened = os.fstat(handle)
+        if not _same_file(seen, opened):
+            raise _refusal(display, "it changed while it was being opened")
+        data = _bounded(handle, opened, display, limit)
+    finally:
+        os.close(handle)
+    _entry_by_look(base, parts, display)  # the folders again: one made a link since the first look is refused
+    return data

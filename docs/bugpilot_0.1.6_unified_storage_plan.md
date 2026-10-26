@@ -8,7 +8,7 @@ records are superseded or rewritten.
 
 | | |
 | --- | --- |
-| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED US-D32 and US-D33 for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions at the Batch 1 decision gate (2026-10-16): three with conditions and one in part (§16.1). On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract for the captured review. That approves the design, not its implementation or activation (§16.5.11). The same day the owner approved US-D14 with conditions: the protected staging rule stays unchanged (rules v2), and an informational note about legacy folders is added (§16.4.1). That is also a design approval only. It also approved US-D13 with conditions: the hybrid `task.md` and retry-prompt path contract (§9.8.1), again a design approval only. And it approved US-D30 with conditions: a fixed, reviewed prompt-budget allowance for that wording, with per-golden bounds (§9.8.2), also a design approval only. It also approved US-D10 with conditions: Option D, the agent handoff (§9.5.1). Here the owner accepted the missing real-agent probe evidence for the design approval only; no agent combination is declared supported. It also approved US-D12 with conditions: the prompt gate is kept and tightened, with exact prompt preservation and TypeScript–Python parity (§9.9.1), again a design approval only. And it approved US-D17 with conditions: the CLI as the only path resolver, with validated path consumption and a read-only extension (§8.9.1), also a design approval only. **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0 as a whole is not complete while 0B has not run. **Batch 1 is COMPLETED and CI-verified, integrated into `main` but NOT activated.** Its architecture and security review found it FAIL; the owner-authorized narrow remediation fixed it, and the owner ratified its decisions and the Q1–Q7 policies (§14.2). It was committed as `5222da7` on `verify/0.1.6-batch1` (2026-10-16, owner-approved). CI run 39003264436 on that commit passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13. The commit was then fast-forwarded into `main`, and the push to `main` ran CI again on the same commit (run 39004684594): **9/9 success** (§14.2 "Batch 1 — acceptance and CI evidence", §18, §19). No product caller uses `storage`; activation stays blocked by §14.3's preconditions, of which only the CI one is met. **Batch 2A** (the storage security foundation: G-1/G-2, G-3, cache freshness, checked global accessors) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `e78a678`, CI run 39057483843 on `verify/0.1.6-batch2a` and run 39062906366 on `main`, both 9/9 (§14.3, "Batch 2A — acceptance and CI evidence"). No product caller uses `storage` yet. **Batch 2B-1** (inactive consumer-switch preparation: C-1, C-2's storage-side invariants, checked deletion, checks that never raise, the test-only write witness) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `7b8914d`, and `40865cf`, which fixed the two test defects that failed its first CI run (run 39085417171, 3/9). CI run 39096347226 on `verify/0.1.6-batch2b1` and run 39097757625 on `main` were both 9/9 (§14.3, "Batch 2B-1 — acceptance and CI evidence"). No product caller uses `storage` yet, and the MCP per-tool-call request scope is NOT INTEGRATED. Its follow-up fix for concurrent data-root creation (`147e1bd`), made after main CI run 39194849242 failed 8/9, is CI-verified (branch run 39285763641 and main run 39305575297, each 9/9) and integrated into `main` (§14.3, "Batch 2B-1 follow-up"). **Batch 0B** has run P10, on 2026-10-18, in two parts: a narrowed run (direct shells and the Python launcher) and a VS Code `sendText` completion. It is **PASS for the tested Windows configuration**, with limitations (§14.1.B, "Batch 0B — probe P10, narrowed" and "Batch 0B — probe P10, VS Code sendText completion"). P7's first attempt was UNKNOWN, blocked before its tests by an in-progress VS Code update. Its retry after the update passed P7-A to P7-H on Windows, with `revealFileInOS` UNKNOWN. P2, the captured review, ran once and is FAIL against the owner's acceptance criteria. Its external reads under `dontAsk` worked; the model declined to echo the marker and requested Bash, which was refused (§14.1.B, "Batch 0B — probe P2, captured review"). Every other probe is NOT EXECUTED. Batch 2B-2 to 2B-6 and Batches 3–5 have **NOT STARTED**. On 2026-10-19 the owner recorded the Batch 2B-2 decision gate (D-1 to D-9): US-D2 approved with conditions, US-D29 and US-D22 approved in part, and Batch 2B-2 specified for implementation, which is not yet authorized (§14.3, "Batch 2B-2 — decision gate"). The owner then answered Q-1 to Q-6, and the contract was resolved, with choices C-1 to C-5 still open (§14.3, "Batch 2B-2 — final contract resolution"). The owner approved C-1 to C-5 the same day. Batch 2B-1 stays COMPLETED, NOT ACTIVATED, and Batch 2B-2's implementation has NOT STARTED. *(Later: Batch 2B-2 was implemented and verified locally on Windows, uncommitted, on `verify/0.1.6-storage`; not activated (§14.3, "Batch 2B-2 — implementation and local verification"). DD-1 to DD-3 approved on 2026-10-20, and the batch committed on the branch: not pushed, not CI-verified.)* *(Later on 2026-10-20: Batch 2B-2 — **IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**, by run 39486855193, 9/9, on `0b7dd6c`, after run 39463867534 failed on a test-fixture defect. Not integrated into `main` (§14.3, "Batch 2B-2 — cross-platform CI verification").)* *(Later on 2026-10-20: Batch 2B-3's decision gate recorded: a proposed split into 2B-3a and 2B-3b, and the owner decisions it needs. Nothing approved; Batch 2B-3 **NOT STARTED** (§14.3, "Batch 2B-3 — decision gate and slice design").)* *(Later on 2026-10-20: the owner's decisions G-1 to G-14 recorded. US-D9 approved, US-D4 with conditions, US-D8 in part. Batch 2B-3a is NOT READY until T-15 and F2-S are decided; 2B-3a and 2B-3b NOT STARTED (§14.3, "Batch 2B-3 — owner decisions and final contract gate").)* *(Later on 2026-10-20: B-1 to B-4 decided. US-D8 approved in full; F2-S approved and verified. Batch 2B-3a's decisions are complete; its implementation awaits the owner's authorization; 2B-3a and 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract").)* *(On 2026-10-21: `5b66ffe` pushed (documentation); Batch 2B-3a implemented and verified locally on Windows, uncommitted, not CI-verified, NOT ACTIVATED; DD-4 to DD-12 observed and awaiting the owner (§14.3, "Batch 2B-3a — implementation and local verification").)* *(Later on 2026-10-21: DD-4 to DD-12 approved after exact-value verification. Batch 2B-3a IMPLEMENTED LOCALLY; VERIFICATION COMPLETE ON WINDOWS; NOT COMMITTED; NOT ACTIVATED. Linux and macOS not verified; 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — implementation and local verification", "Owner approval of DD-4 to DD-12 and final local verification").)* *(Then, with the owner's authorization: Batch 2B-3a committed on `verify/0.1.6-storage`, parent `5b66ffe`; not pushed; not CI-verified; NOT ACTIVATED.)* *(Later on 2026-10-21: `743f542` pushed; Batch 2B-3a — **IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**, by run 39675645316, 9/9 on its second attempt, after the first attempt's macOS safety runner was not acquired. Not integrated into `main` (§14.3, "Batch 2B-3a — cross-platform CI verification").)* *(Later on 2026-10-21: Batch 2B-3b's decision gate recorded, with the owner's decisions E-1 to E-10; its implementation is NOT AUTHORIZED; 2B-3b NOT STARTED (§14.3, "Batch 2B-3b — decision gate and implementation contract").)* *(Later on 2026-10-21: the gate committed and pushed as `9311892`; Batch 2B-3b Phase A implemented and verified locally on Windows, uncommitted; Phases B1 and B2 NOT STARTED; NOT ACTIVATED (§14.3, "Batch 2B-3b — Phase A: baseline neutrality").)* *(Later on 2026-10-21: Phase A committed and pushed as `d834082`. The B1-S review found a suspected link race in the settings readers, not demonstrated. **B1-S3 OPTION A CANDIDATE IMPLEMENTED LOCALLY; ADVERSARIAL SECURITY VALIDATION PENDING; NOT COMMITTED; NOT VERIFIED.** B1-M NOT STARTED (§14.3, "Batch 2B-3b — B1-S security review and the Option A candidate").)* *(Later on 2026-10-21: the owner chose Option C, and its first milestone, M1 (the storage safe-read foundation), was implemented: **OPTION C M1 IMPLEMENTED LOCALLY; CONSUMER MIGRATION PENDING; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C M1: the storage safe-read foundation").)* *(On 2026-10-22: M1's compatibility gate, the owner's decisions, and M2, the consumer migration: **OPTION C M2 IMPLEMENTED LOCALLY; FOCUSED VERIFICATION STOPPED ON ONE EXISTING TEST AWAITING THE OWNER; FULL SUITE NOT RUN; DD-27 PROPOSED, NOT APPROVED; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C M2: consumer migration").)* *(Later on 2026-10-22: the Row 1 test repaired, DD-27 approved and recorded: **OPTION C M2 IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; DD-27 APPROVED; A SINGLE-MODE READ FINDING AWAITS THE OWNER; ADVERSARIAL VALIDATION PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C M2: Row 1 repair, DD-27 approval and verification").)* *(Later on 2026-10-22: DD-28 approved and both DD-27 and DD-28 evidenced against their literal text: **OPTION C M2 VERIFIED LOCALLY ON WINDOWS; DD-27 AND DD-28 APPROVED AND EVIDENCED; TOCTOU RISK UNRESOLVED; ADVERSARIAL VALIDATION (M3) PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C M2: DD-28 approval and exact-message evidence").)* *(Later on 2026-10-22: the POSIX Case B fix (a folder that cannot be searched is fatal) and the Python 3.10 CI coverage: **OPTION C M2 WITH THE CASE B FIX VERIFIED LOCALLY ON WINDOWS; THE POSIX PERMISSION TESTS NOT YET RUN (POSIX ONLY); PYTHON 3.10 CI COVERAGE ADDED, NOT YET RUN; TOCTOU RISK UNRESOLVED; M3 PENDING; NOT COMMITTED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C M2: POSIX Case B fix and CI coverage").)* *(Later on 2026-10-22 and 2026-10-23: committed as `e789ce2` and pushed; CI run 39892585420 failed 7/9 on two Windows exclusive-file tests; the diagnostics `c795db4` and run 39989051086 traced them to `FILE_FLAG_BACKUP_SEMANTICS` on a file's data open; the correction `14528ff` opens file data without it and leaves folders unchanged; CI run 40039289638 **SUCCESS 9/9**: **OPTION C M1/M2 — CROSS-PLATFORM FUNCTIONAL AND COMPATIBILITY CI VERIFICATION PASSED; ADVERSARIAL SECURITY VALIDATION (M3) OPEN; BATCH 2B-3b NOT COMPLETE; NOT ACTIVATED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C: Windows exclusive-file read correction (2026-10-23)", "Batch 2B-3b — Option C: cross-platform CI verification (2026-10-23)").)* *(Later on 2026-10-23: the M3-R1 static review found no demonstrated vulnerability; its F1 (the Windows final-path check, a conditional backstop) and F2 (a held folder's own query failure taken for the file's) are hardened by M3-R2A, uncommitted: **M3-R2A IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; LINUX AND MACOS CI PENDING; F1'S ANCESTOR-RACE PROOF PENDING; R3 NOT COMPLETE; M3 OPEN** (§14.3, "Batch 2B-3b — Option C: M3-R2A Windows held-folder hardening (2026-10-23)").)* *(On 2026-10-24: M3-R2A committed as `aadeefa` and pushed; CI run 40060798081 **SUCCESS 9/9**: **M3-R2A — CROSS-PLATFORM FUNCTIONAL AND REGRESSION CI VERIFICATION PASSED; F1'S ANCESTOR-RACE PROOF PENDING; R3 NOT COMPLETE; ADVERSARIAL SECURITY VALIDATION (M3) OPEN; BATCH 2B-3b NOT COMPLETE; NOT ACTIVATED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C: M3-R2A cross-platform CI verification (2026-10-24)").)* *(Later on 2026-10-24: F3 decided, F3-A APPROVED (a project Fix Mode definition on disk that cannot be loaded is refused, never resolved to the user's); **M3-R2B IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; CROSS-PLATFORM CI PENDING; R3 NOT COMPLETE; M3 OPEN** (§14.3, "Batch 2B-3b — M3-R2B: F3 Fix Mode fail-closed selection (2026-10-24)").)* *(Later on 2026-10-24: F3-A committed as `3863488` and pushed; CI run 40107435984 **SUCCESS 9/9**: **M3-R2B (F3-A) — CROSS-PLATFORM FUNCTIONAL AND COMPATIBILITY CI VERIFICATION PASSED; F1'S ANCESTOR-RACE PROOF PENDING; R3 NOT COMPLETE; ADVERSARIAL SECURITY VALIDATION (M3) OPEN; BATCH 2B-3b NOT COMPLETE; NOT ACTIVATED** (§14.3, "Batch 2B-3b — M3-R2B: F3-A cross-platform CI verification (2026-10-24)").)* *(Later on 2026-10-24: F4 decided, Option A APPROVED (the identity record read and judged on every check, superseding only D2A-1's record-verdict reuse); **M3-R2C IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; CROSS-PLATFORM CI PENDING; R3 NOT COMPLETE; M3 OPEN** (§14.3, "Batch 2B-3b — M3-R2C: F4 repository identity revalidation (2026-10-24)").)* *(On 2026-10-25: F4 committed as `9e5483c` and pushed; CI run 40219531790 **SUCCESS 9/9**: **M3-R2C (F4, OPTION A) — CROSS-PLATFORM FUNCTIONAL AND COMPATIBILITY CI VERIFICATION PASSED; F1'S ANCESTOR-RACE PROOF PENDING; R3 NOT COMPLETE; ADVERSARIAL SECURITY VALIDATION (M3) OPEN; BATCH 2B-3b NOT COMPLETE; NOT ACTIVATED** (§14.3, "Batch 2B-3b — M3-R2C: F4 cross-platform CI verification (2026-10-25)").)* |
+| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED US-D32 and US-D33 for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions at the Batch 1 decision gate (2026-10-16): three with conditions and one in part (§16.1). On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract for the captured review. That approves the design, not its implementation or activation (§16.5.11). The same day the owner approved US-D14 with conditions: the protected staging rule stays unchanged (rules v2), and an informational note about legacy folders is added (§16.4.1). That is also a design approval only. It also approved US-D13 with conditions: the hybrid `task.md` and retry-prompt path contract (§9.8.1), again a design approval only. And it approved US-D30 with conditions: a fixed, reviewed prompt-budget allowance for that wording, with per-golden bounds (§9.8.2), also a design approval only. It also approved US-D10 with conditions: Option D, the agent handoff (§9.5.1). Here the owner accepted the missing real-agent probe evidence for the design approval only; no agent combination is declared supported. It also approved US-D12 with conditions: the prompt gate is kept and tightened, with exact prompt preservation and TypeScript–Python parity (§9.9.1), again a design approval only. And it approved US-D17 with conditions: the CLI as the only path resolver, with validated path consumption and a read-only extension (§8.9.1), also a design approval only. **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0 as a whole is not complete while 0B has not run. **Batch 1 is COMPLETED and CI-verified, integrated into `main` but NOT activated.** Its architecture and security review found it FAIL; the owner-authorized narrow remediation fixed it, and the owner ratified its decisions and the Q1–Q7 policies (§14.2). It was committed as `5222da7` on `verify/0.1.6-batch1` (2026-10-16, owner-approved). CI run 39003264436 on that commit passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13. The commit was then fast-forwarded into `main`, and the push to `main` ran CI again on the same commit (run 39004684594): **9/9 success** (§14.2 "Batch 1 — acceptance and CI evidence", §18, §19). No product caller uses `storage`; activation stays blocked by §14.3's preconditions, of which only the CI one is met. **Batch 2A** (the storage security foundation: G-1/G-2, G-3, cache freshness, checked global accessors) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `e78a678`, CI run 39057483843 on `verify/0.1.6-batch2a` and run 39062906366 on `main`, both 9/9 (§14.3, "Batch 2A — acceptance and CI evidence"). No product caller uses `storage` yet. **Batch 2B-1** (inactive consumer-switch preparation: C-1, C-2's storage-side invariants, checked deletion, checks that never raise, the test-only write witness) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `7b8914d`, and `40865cf`, which fixed the two test defects that failed its first CI run (run 39085417171, 3/9). CI run 39096347226 on `verify/0.1.6-batch2b1` and run 39097757625 on `main` were both 9/9 (§14.3, "Batch 2B-1 — acceptance and CI evidence"). No product caller uses `storage` yet, and the MCP per-tool-call request scope is NOT INTEGRATED. Its follow-up fix for concurrent data-root creation (`147e1bd`), made after main CI run 39194849242 failed 8/9, is CI-verified (branch run 39285763641 and main run 39305575297, each 9/9) and integrated into `main` (§14.3, "Batch 2B-1 follow-up"). **Batch 0B** has run P10, on 2026-10-18, in two parts: a narrowed run (direct shells and the Python launcher) and a VS Code `sendText` completion. It is **PASS for the tested Windows configuration**, with limitations (§14.1.B, "Batch 0B — probe P10, narrowed" and "Batch 0B — probe P10, VS Code sendText completion"). P7's first attempt was UNKNOWN, blocked before its tests by an in-progress VS Code update. Its retry after the update passed P7-A to P7-H on Windows, with `revealFileInOS` UNKNOWN. P2, the captured review, ran once and is FAIL against the owner's acceptance criteria. Its external reads under `dontAsk` worked; the model declined to echo the marker and requested Bash, which was refused (§14.1.B, "Batch 0B — probe P2, captured review"). Every other probe is NOT EXECUTED. Batch 2B-2 to 2B-6 and Batches 3–5 have **NOT STARTED**. On 2026-10-19 the owner recorded the Batch 2B-2 decision gate (D-1 to D-9): US-D2 approved with conditions, US-D29 and US-D22 approved in part, and Batch 2B-2 specified for implementation, which is not yet authorized (§14.3, "Batch 2B-2 — decision gate"). The owner then answered Q-1 to Q-6, and the contract was resolved, with choices C-1 to C-5 still open (§14.3, "Batch 2B-2 — final contract resolution"). The owner approved C-1 to C-5 the same day. Batch 2B-1 stays COMPLETED, NOT ACTIVATED, and Batch 2B-2's implementation has NOT STARTED. *(Later: Batch 2B-2 was implemented and verified locally on Windows, uncommitted, on `verify/0.1.6-storage`; not activated (§14.3, "Batch 2B-2 — implementation and local verification"). DD-1 to DD-3 approved on 2026-10-20, and the batch committed on the branch: not pushed, not CI-verified.)* *(Later on 2026-10-20: Batch 2B-2 — **IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**, by run 39486855193, 9/9, on `0b7dd6c`, after run 39463867534 failed on a test-fixture defect. Not integrated into `main` (§14.3, "Batch 2B-2 — cross-platform CI verification").)* *(Later on 2026-10-20: Batch 2B-3's decision gate recorded: a proposed split into 2B-3a and 2B-3b, and the owner decisions it needs. Nothing approved; Batch 2B-3 **NOT STARTED** (§14.3, "Batch 2B-3 — decision gate and slice design").)* *(Later on 2026-10-20: the owner's decisions G-1 to G-14 recorded. US-D9 approved, US-D4 with conditions, US-D8 in part. Batch 2B-3a is NOT READY until T-15 and F2-S are decided; 2B-3a and 2B-3b NOT STARTED (§14.3, "Batch 2B-3 — owner decisions and final contract gate").)* *(Later on 2026-10-20: B-1 to B-4 decided. US-D8 approved in full; F2-S approved and verified. Batch 2B-3a's decisions are complete; its implementation awaits the owner's authorization; 2B-3a and 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract").)* *(On 2026-10-21: `5b66ffe` pushed (documentation); Batch 2B-3a implemented and verified locally on Windows, uncommitted, not CI-verified, NOT ACTIVATED; DD-4 to DD-12 observed and awaiting the owner (§14.3, "Batch 2B-3a — implementation and local verification").)* *(Later on 2026-10-21: DD-4 to DD-12 approved after exact-value verification. Batch 2B-3a IMPLEMENTED LOCALLY; VERIFICATION COMPLETE ON WINDOWS; NOT COMMITTED; NOT ACTIVATED. Linux and macOS not verified; 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — implementation and local verification", "Owner approval of DD-4 to DD-12 and final local verification").)* *(Then, with the owner's authorization: Batch 2B-3a committed on `verify/0.1.6-storage`, parent `5b66ffe`; not pushed; not CI-verified; NOT ACTIVATED.)* *(Later on 2026-10-21: `743f542` pushed; Batch 2B-3a — **IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**, by run 39675645316, 9/9 on its second attempt, after the first attempt's macOS safety runner was not acquired. Not integrated into `main` (§14.3, "Batch 2B-3a — cross-platform CI verification").)* *(Later on 2026-10-21: Batch 2B-3b's decision gate recorded, with the owner's decisions E-1 to E-10; its implementation is NOT AUTHORIZED; 2B-3b NOT STARTED (§14.3, "Batch 2B-3b — decision gate and implementation contract").)* *(Later on 2026-10-21: the gate committed and pushed as `9311892`; Batch 2B-3b Phase A implemented and verified locally on Windows, uncommitted; Phases B1 and B2 NOT STARTED; NOT ACTIVATED (§14.3, "Batch 2B-3b — Phase A: baseline neutrality").)* *(Later on 2026-10-21: Phase A committed and pushed as `d834082`. The B1-S review found a suspected link race in the settings readers, not demonstrated. **B1-S3 OPTION A CANDIDATE IMPLEMENTED LOCALLY; ADVERSARIAL SECURITY VALIDATION PENDING; NOT COMMITTED; NOT VERIFIED.** B1-M NOT STARTED (§14.3, "Batch 2B-3b — B1-S security review and the Option A candidate").)* *(Later on 2026-10-21: the owner chose Option C, and its first milestone, M1 (the storage safe-read foundation), was implemented: **OPTION C M1 IMPLEMENTED LOCALLY; CONSUMER MIGRATION PENDING; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C M1: the storage safe-read foundation").)* *(On 2026-10-22: M1's compatibility gate, the owner's decisions, and M2, the consumer migration: **OPTION C M2 IMPLEMENTED LOCALLY; FOCUSED VERIFICATION STOPPED ON ONE EXISTING TEST AWAITING THE OWNER; FULL SUITE NOT RUN; DD-27 PROPOSED, NOT APPROVED; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C M2: consumer migration").)* *(Later on 2026-10-22: the Row 1 test repaired, DD-27 approved and recorded: **OPTION C M2 IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; DD-27 APPROVED; A SINGLE-MODE READ FINDING AWAITS THE OWNER; ADVERSARIAL VALIDATION PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C M2: Row 1 repair, DD-27 approval and verification").)* *(Later on 2026-10-22: DD-28 approved and both DD-27 and DD-28 evidenced against their literal text: **OPTION C M2 VERIFIED LOCALLY ON WINDOWS; DD-27 AND DD-28 APPROVED AND EVIDENCED; TOCTOU RISK UNRESOLVED; ADVERSARIAL VALIDATION (M3) PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C M2: DD-28 approval and exact-message evidence").)* *(Later on 2026-10-22: the POSIX Case B fix (a folder that cannot be searched is fatal) and the Python 3.10 CI coverage: **OPTION C M2 WITH THE CASE B FIX VERIFIED LOCALLY ON WINDOWS; THE POSIX PERMISSION TESTS NOT YET RUN (POSIX ONLY); PYTHON 3.10 CI COVERAGE ADDED, NOT YET RUN; TOCTOU RISK UNRESOLVED; M3 PENDING; NOT COMMITTED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C M2: POSIX Case B fix and CI coverage").)* *(Later on 2026-10-22 and 2026-10-23: committed as `e789ce2` and pushed; CI run 39892585420 failed 7/9 on two Windows exclusive-file tests; the diagnostics `c795db4` and run 39989051086 traced them to `FILE_FLAG_BACKUP_SEMANTICS` on a file's data open; the correction `14528ff` opens file data without it and leaves folders unchanged; CI run 40039289638 **SUCCESS 9/9**: **OPTION C M1/M2 — CROSS-PLATFORM FUNCTIONAL AND COMPATIBILITY CI VERIFICATION PASSED; ADVERSARIAL SECURITY VALIDATION (M3) OPEN; BATCH 2B-3b NOT COMPLETE; NOT ACTIVATED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C: Windows exclusive-file read correction (2026-10-23)", "Batch 2B-3b — Option C: cross-platform CI verification (2026-10-23)").)* *(Later on 2026-10-23: the M3-R1 static review found no demonstrated vulnerability; its F1 (the Windows final-path check, a conditional backstop) and F2 (a held folder's own query failure taken for the file's) are hardened by M3-R2A, uncommitted: **M3-R2A IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; LINUX AND MACOS CI PENDING; F1'S ANCESTOR-RACE PROOF PENDING; R3 NOT COMPLETE; M3 OPEN** (§14.3, "Batch 2B-3b — Option C: M3-R2A Windows held-folder hardening (2026-10-23)").)* *(On 2026-10-24: M3-R2A committed as `aadeefa` and pushed; CI run 40060798081 **SUCCESS 9/9**: **M3-R2A — CROSS-PLATFORM FUNCTIONAL AND REGRESSION CI VERIFICATION PASSED; F1'S ANCESTOR-RACE PROOF PENDING; R3 NOT COMPLETE; ADVERSARIAL SECURITY VALIDATION (M3) OPEN; BATCH 2B-3b NOT COMPLETE; NOT ACTIVATED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C: M3-R2A cross-platform CI verification (2026-10-24)").)* *(Later on 2026-10-24: F3 decided, F3-A APPROVED (a project Fix Mode definition on disk that cannot be loaded is refused, never resolved to the user's); **M3-R2B IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; CROSS-PLATFORM CI PENDING; R3 NOT COMPLETE; M3 OPEN** (§14.3, "Batch 2B-3b — M3-R2B: F3 Fix Mode fail-closed selection (2026-10-24)").)* *(Later on 2026-10-24: F3-A committed as `3863488` and pushed; CI run 40107435984 **SUCCESS 9/9**: **M3-R2B (F3-A) — CROSS-PLATFORM FUNCTIONAL AND COMPATIBILITY CI VERIFICATION PASSED; F1'S ANCESTOR-RACE PROOF PENDING; R3 NOT COMPLETE; ADVERSARIAL SECURITY VALIDATION (M3) OPEN; BATCH 2B-3b NOT COMPLETE; NOT ACTIVATED** (§14.3, "Batch 2B-3b — M3-R2B: F3-A cross-platform CI verification (2026-10-24)").)* *(Later on 2026-10-24: F4 decided, Option A APPROVED (the identity record read and judged on every check, superseding only D2A-1's record-verdict reuse); **M3-R2C IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; CROSS-PLATFORM CI PENDING; R3 NOT COMPLETE; M3 OPEN** (§14.3, "Batch 2B-3b — M3-R2C: F4 repository identity revalidation (2026-10-24)").)* *(On 2026-10-25: F4 committed as `9e5483c` and pushed; CI run 40219531790 **SUCCESS 9/9**: **M3-R2C (F4, OPTION A) — CROSS-PLATFORM FUNCTIONAL AND COMPATIBILITY CI VERIFICATION PASSED; F1'S ANCESTOR-RACE PROOF PENDING; R3 NOT COMPLETE; ADVERSARIAL SECURITY VALIDATION (M3) OPEN; BATCH 2B-3b NOT COMPLETE; NOT ACTIVATED** (§14.3, "Batch 2B-3b — M3-R2C: F4 cross-platform CI verification (2026-10-25)").)* *(On 2026-10-25: **O-1, A MEDIUM SECURITY FINDING (OWNER-APPROVED)** in the 0.1.5 layout's readers of work-item files and bug memory, which follow repository links; remediation Option B selected (one safe-read chokepoint); a 0.1.5.x maintenance patch approved for preparation; an additional security gate for M3, 2B-4, 2B-5 and activation; **NOT IMPLEMENTED** (§14.3, "Batch 2B-3b — M3-R2E: O-1 repository-link reads, decision and remediation plan (2026-10-25)").)* *(Later on 2026-10-25: **THE O-1 FIX IS IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS, NOT COMMITTED**: one safe reader for the work-item and bug memory files, used by MCP, the CLI and the pipeline; cross-platform CI, independent security validation and the 0.1.5.x release decision pending; US-D40 PROPOSED (§14.3, "Batch 2B-3b — M3-R2E: O-1 implementation and local verification (2026-10-25)").)* *(On 2026-10-26: **THE O-1 PYTHON FIX IS EXTENDED TO THE ATTACHMENTS LISTING AND THE MEMORY-EXISTENCE CHECK, VERIFIED LOCALLY ON WINDOWS, NOT COMMITTED**; the owner approved `retrieval.py`, the run's order, P-6, P-4 and US-D40 (implementation and validation pending); four release gates recorded, the extension's readers and `bugpilot list` among them; O-1 is not resolved (§14.3, "Batch 2B-3b — M3-R2E: O-1 Python coverage completion and owner approvals (2026-10-26)").)* |
 | **Created** | 2026-10-15, by a read-only audit of the working tree at `ee3fb00` (`main`, released 0.1.5) |
 | **Revisions** | **r1** (2026-10-15): created from the read-only audit. **r2** (2026-10-15): architecture review. It changed: <ul><li>the decision recommendations (§16.1);</li><li>the test-isolation redesign (§11.1);</li><li>Batch 0 split into 0A and 0B (§14.1);</li><li>the repository scope and its diagnostic (§7.1);</li><li>the exact JSON contract (§8.10);</li><li>the safer-launch evaluation (§9.9) and the handoff acceptance (§9.10);</li><li>the integration gates (§15.4) and the US-D14 options (§16.4).</li></ul> |
 | **Target version** | 0.1.6 (the version in the tree stays 0.1.5 until Batch 5's bump) |
@@ -405,13 +405,13 @@ Abbreviations: R = read, W = write, D = delete, O = opened in an editor, L = nam
 
 | Id | (1) Current location | (2) Responsible module / function | (3) R/W/D | (4) Consumers | (5) Secrets | (6) User / model data | (7) Security expectation today | (8) Ownership and lifecycle |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **F01** | `<repo>/.ai/<id>/` (the folder) | `config.issue_dir` / `writable_issue_dir`, `safe_paths.writable_dir` / `owned_path`, `workflow._prepare_issue_dir`; extension `sessionReset.ts`, `ports.ts`, `controller.ts #itemFile` | R W D | every step; `list`, `status`, previews; MCP; extension (History, Results, Reset Session, watchers) | no | yes, both | id validated (`identity.WORK_ITEM_ID_RE`); every component checked for links (`.ai`, `<id>`); refused rather than followed; the repo root may be a link | created by the first step; kept by default; removed by `clean`, `--fresh` and Reset Session |
+| **F01** | `<repo>/.ai/<id>/` (the folder) | `config.issue_dir` / `writable_issue_dir`, `safe_paths.writable_dir` / `owned_path`, `workflow._prepare_issue_dir`; extension `sessionReset.ts`, `ports.ts`, `controller.ts #itemFile` | R W D | every step; `list`, `status`, previews; MCP; extension (History, Results, Reset Session, watchers) | no | yes, both | id validated (`identity.WORK_ITEM_ID_RE`); every component checked for links (`.ai`, `<id>`); refused rather than followed; the repo root may be a link | created by the first step; kept by default; removed by `clean`, `--fresh` and Reset Session *(Corrected on 2026-10-25 (O-1): the link checks in this row hold for writes, deletes and the previews (F13). The readers of the files in `.ai/<id>/` (MCP, the CLI, the fix report, run, issue and retrieval records, the review and verification reports, the Jira draft) open them by path and follow a link at the file; MCP's `check_results`, `get_status` and `_existing` follow one at `.ai` or `.ai/<id>` too. §14.3, "Batch 2B-3b — M3-R2E: O-1 repository-link reads, decision and remediation plan (2026-10-25)".)* *(2026-10-25, later: fixed locally, not committed. Those readers now go through `safe_paths.read_generated_file` and refuse a link on the way or at the file; see §14.3, "Batch 2B-3b — M3-R2E: O-1 implementation and local verification (2026-10-25)".)* |
 | **F02** | `<id>/issue.json`, `retrieval.json` (with Git History's `git_history` section), `context.md`, `task.md`, `run.json` | `issue.save_issue`, `retrieval.save_retrieval`, `workflow` context and prompt steps, `run.py` | R W | the pipeline, `task-preview`, `context-preview`, MCP, extension (direct reads), the agent (task, context, retrieval) | no | Jira and hand-written evidence; BugPilot's prompts | atomic writer (`artifact_io.atomic_write_text`): temp in the same folder, `_check_temp`, rename; new files `600`; a link at the file refused | rewritten per run; `run.json` holds runtime state only |
 | **F03** | `<id>/fix_report.md`, `review_report.md`, `verification_report.md` | the agent; `manual_result_step`; `review_report.record_review_report`; `verification_report.record` | R W | check/summarize/memory update/Jira draft/email; MCP; extension; retry prompt; captured review | no | model output; developer-recorded results | atomic writer for BugPilot's writes; the agent writes with its own tools | the agent's report is replaced per attempt; review and verification records refuse overwrite without `--replace` |
 | **F04** | `<id>/user_feedback.md`, `agent_retry_prompt.md` | `retry_prompt_step`; `_build_retry_prompt`; **extension `writeWorkItemFile`** (writes feedback directly, non-atomically) | R W O | the retry agent; the developer (edits feedback) | no | developer text; BugPilot prompt | Python: atomic, link-checked. TS: lstat checks, plain `writeFile` (SF-2) | per retry |
 | **F05** | `<id>/jira_field_report.md`, `jira_comment_draft.md`, `jira_comment_post_result.json`, `jira_comment_on.flag`, `email_draft.md`, `notification.eml` | `jira_validate_step`, `jira_comment_draft_step`, `jira_comment_step`, `notify_step`, the `--jira-comment` marker; `scripts/send-via-outlook.ps1` (reads the draft) | R W | the developer; `jira-comment --execute`; Outlook script | no (sanitized) | derived from artifacts | atomic writer | on demand |
-| **F06** | `<id>/attachments/<name>` | `attachments.copy_attachments`, `remove_attachments`, `listed_attachments`, `attachment_names`; ownership in `issue.json` `guidance.attachment_files` | R W D | `task.md` (by path); the agent (opens the files) | possibly (the developer's files) | developer files | `refuse_link`; byte copy; 10 files of at most 10 MB; names written with visible escapes (N3) | replaced with `--replace-attachments`; removed with the folder |
-| **F07** | `<repo>/.ai_memory/bugs/<id>.md` | `memory.add_memory_entry`, `search_memory`; `config.memory_dir` / `writable_memory_file`; `memory_update_step`; `cleanup` (`--include-memory`); MCP `search_memory` | R W D | the Similar Fixes step (scores every entry); MCP; `delivery-check` | no | earlier AI and run output | link-checked at `.ai_memory` and `bugs`; atomic writer | outlives the work item; removed only by `clean --include-memory` |
+| **F06** | `<id>/attachments/<name>` | `attachments.copy_attachments`, `remove_attachments`, `listed_attachments`, `attachment_names`; ownership in `issue.json` `guidance.attachment_files` | R W D | `task.md` (by path); the agent (opens the files) | possibly (the developer's files) | developer files | `refuse_link`; byte copy; 10 files of at most 10 MB; names written with visible escapes (N3) | replaced with `--replace-attachments`; removed with the folder *(Corrected on 2026-10-26 (O-1): `refuse_link` guards the copy only; the listing for `task.md` and `run.json` followed a link at the folder or at an entry. Fixed locally, not committed: a linked folder is refused and a linked entry left out; see §14.3, "Batch 2B-3b — M3-R2E: O-1 Python coverage completion and owner approvals (2026-10-26)".)* |
+| **F07** | `<repo>/.ai_memory/bugs/<id>.md` | `memory.add_memory_entry`, `search_memory`; `config.memory_dir` / `writable_memory_file`; `memory_update_step`; `cleanup` (`--include-memory`); MCP `search_memory` | R W D | the Similar Fixes step (scores every entry); MCP; `delivery-check` | no | earlier AI and run output | link-checked at `.ai_memory` and `bugs`; atomic writer | outlives the work item; removed only by `clean --include-memory` *(Corrected on 2026-10-25 (O-1): the link checks hold for the memory writer and `clean`. `search_memory` lists and reads by path, and follows a link at `.ai_memory`, `bugs` or a memory file. §14.3, "Batch 2B-3b — M3-R2E: O-1 repository-link reads, decision and remediation plan (2026-10-25)".)* *(2026-10-25, later: fixed locally, not committed. `search_memory` refuses a link at the memory folders and skips a linked memory file unread; see §14.3, "Batch 2B-3b — M3-R2E: O-1 implementation and local verification (2026-10-25)".)* |
 | **F08** | `<repo>/.bugpilot/instructions.md` (Project Instructions) | `instructions.project_instructions_path`, `read_instructions`, `save_instructions`; CLI `instructions` | R W D | every `task.md`; `task-preview`; extension (through the CLI) | no | team- or developer-written | `link_problem` refuses a link at the folder or the file; 20,000-character cap; atomic writer | **designed to be committed** (`instructions.py:7-8`) |
 | **F09** | `<repo>/.bugpilot/verification.md` | `verification.verification_path`, `save_verification`, `remove_verification`; CLI `verification` | R W D O | `task.md`; extension (stat, lstat and **editor open** at `controller.ts:4252`, `:4296`; watcher) | no | team-written | as F08, plus a strict front-matter parser and lint | committed by design |
 | **F10** | `<repo>/.bugpilot/ai_behavior.md` | `ai_behavior.ai_behavior_path`, `save_ai_behavior`, `remove_ai_behavior`; CLI `ai-behavior` | R W D O | `task.md`; extension (editor open at `controller.ts:3846`, `:3887`) | no | team-written | as F09 | committed by design |
@@ -2338,6 +2338,7 @@ A combination with FAIL, FALLBACK or UNKNOWN on a required aspect is either fixe
 | T-S27 | **BugPilot's data inside a Git working tree** (a `BUGPILOT_HOME` in a checkout while BugPilot runs from a subfolder; a home folder that is a Git repository; global configuration) | the data root, and every folder above it, may hold no `.git` entry, and `GIT_WORK_TREE` may not hold it; refused for reads and writes, failing closed. Unmarked work trees and other version-control systems are a stated gap | prevention + detection | `test_storage_safety.py`, G-1/G-2 cases (Batch 2A) |
 | T-S28 | **A stale verdict in a long-running process** (a retargeted link reusing an old namespace; a `.git` made later) | identities re-checked by file identity on every use; verdicts live one request scope | prevention | the retarget regressions (symbolic link, junction); the scope tests |
 | T-S29 | **Credentials written where other accounts can read them** (an inherited or widened access list, a shared `BUGPILOT_HOME`, Python 3.10/3.11 on Windows) | `config.toml` is written only after the data root, `config/` and the file are proven private (owner and access list on Windows, owner and bits on POSIX); an unverifiable place is refused; no permission is ever changed | prevention | `test_private_folder.py`; the gate cases in `test_storage_safety.py` |
+| T-S30 | **Repository links at work-item and memory files** (O-1, Medium; 2026-10-25): a cloned repository commits a symbolic link at a file in `.ai/<id>/` or `.ai_memory/bugs/`, or at `.ai`, `.ai/<id>`, `.ai_memory` or `bugs` | until fixed: none at the file, and none at the folders for MCP's `check_results`, `get_status`, `search_memory` and `_existing`. Selected (Option B, owner, 2026-10-25): one chokepoint that judges each component and the file without following, opens without following, takes regular files only and bounds the read; on the 0.1.5 line by a maintenance patch, and on this line before 2B-4, 2B-5 and activation. After activation no reader names `.ai/` (T-S22) | prevention (selected; NOT IMPLEMENTED) | R-1 to R-8 (§14.3, "Batch 2B-3b — M3-R2E: O-1 repository-link reads, decision and remediation plan (2026-10-25)") *(2026-10-25, later: implemented locally, not committed; R-1 to R-8 pass on Windows; CI pending; "Batch 2B-3b — M3-R2E: O-1 implementation and local verification (2026-10-25)")* *(2026-10-26: the attachments folder and its entries, and the memory-existence check, covered too; locally, not committed; "Batch 2B-3b — M3-R2E: O-1 Python coverage completion and owner approvals (2026-10-26)")* |
 
 ### 10.3 Guarantees and limits, stated
 
@@ -2356,6 +2357,8 @@ A combination with FAIL, FALLBACK or UNKNOWN on a required aspect is either fixe
 - that a same-user process cannot race a write;
 - that a developer will not approve a wider folder than the work folder in the agent's own prompt;
 - that system error messages never contain a path.
+
+*(2026-10-25, O-1: until the O-1 remediation ships, the 0.1.5 layout's readers of `.ai/<id>/` and `.ai_memory/bugs/` follow a symbolic link at a file, and some at a folder, so a cloned repository can make them read a file outside it (T-S30). §14.3, "Batch 2B-3b — M3-R2E: O-1 repository-link reads, decision and remediation plan (2026-10-25)".)*
 
 **Not claimed:** any protection against an attacker who controls the user's account or the data root.
 
@@ -2781,7 +2784,7 @@ Either must avoid becoming a legacy reader (R4).
 | 0A | Automated isolation, inventory and baselines | **COMPLETED**: committed and CI-verified. Review findings H-1, M-1, M-2, N-1, L-1, L-2, L-3 and L-8 remediated | `8b6c567` (2026-10-16) | run 38942462918: **9/9 success** | approved 2026-10-15 with US-D32 and US-D33; as built in §14.1.A; Batch 0 is not complete while 0B has not run |
 | 0B | Live agent capability probes | **IN PROGRESS** (2026-10-18). P10: direct shells and the Python launcher PASS (narrowed run), then VS Code `sendText` PASS (completion run): **PASS for the tested Windows configuration**, with limitations. P7 attempted the same day: UNKNOWN, blocked before its tests by an in-progress VS Code update. P7 retry after the update (VS Code 1.142.0, Windows): P7-A to P7-H PASS, `revealFileInOS` UNKNOWN. P2 (one run, Claude Code 2.1.214): FAIL against the owner's criteria; external reads under `dontAsk` worked, the marker was declined, and a Bash request was refused. P1, P3–P6, P8, P9 and P11 NOT EXECUTED (§14.1.B) | — | — | each further probe awaits a separate approval naming the agents and accounts; no commit except plan records |
 | 1 | Storage foundation | **COMPLETED**: committed, CI-verified and integrated into `main`; **NOT activated** (no caller uses `storage`). Architecture review FAIL, then remediated (H1, M1–M3, L2, L3, L6–L9; H2 investigated); decisions and Q1–Q7 ratified 2026-10-16 (§14.2). Activation blockers in §14.3: only the CI one is met | `5222da7` (2026-10-16), fast-forwarded into `main` | run 39003264436 (verification branch): **9/9 success**; run 39004684594 (push to `main`): **9/9 success** | after 0A, plus its decisions; independent of 0B |
-| 2 | Python CLI, MCP and prompts on the new layout | **2A COMPLETED**: committed `e78a678`, CI-verified (run 39057483843 on the verification branch and run 39062906366 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2A — acceptance and CI evidence"). **2B-1 COMPLETED**: `7b8914d` and the corrective `40865cf`, CI-verified (run 39085417171 failed 3/9; run 39096347226 on the verification branch and run 39097757625 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2B-1 — acceptance and CI evidence"). **2B-1 follow-up** (concurrent data-root creation): `147e1bd`, branch CI 39285763641 and main CI 39305575297, each 9/9; integrated by fast-forward `7a2a1f4..147e1bd`. **2B-2 to 2B-6 NOT STARTED** (the switch of callers); 2B-2's decision gate recorded and the slice specified on 2026-10-19 (§14.3, "Batch 2B-2 — decision gate"), implementation not authorized; Q-1 to Q-6 answered and the contract resolved the same day, with C-1 to C-5 open (§14.3, "Batch 2B-2 — final contract resolution"); C-1 to C-5 approved later that day, and implementation NOT STARTED *(then implemented and verified locally on Windows, 2026-10-19/20: uncommitted, not pushed, not activated; Linux and macOS not verified; §14.3, "Batch 2B-2 — implementation and local verification"; DD-1 to DD-3 approved on 2026-10-20; committed on `verify/0.1.6-storage`, not pushed, no CI)*. *(Then: run 39463867534 on `7a1c891` FAILED on a test-fixture defect; remediation `0b7dd6c`; run 39486855193 SUCCESS 9/9. **2B-2: IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**; not integrated; §14.3, "Batch 2B-2 — cross-platform CI verification")*. *(2B-3's records committed on `verify/0.1.6-storage` on 2026-10-20, not pushed; §19)* *(2B-3: decision gate recorded on 2026-10-20, with a proposed split into 2B-3a and 2B-3b; **2B-3 NOT STARTED**; §14.3, "Batch 2B-3 — decision gate and slice design")* *(Owner decisions G-1 to G-14 recorded the same day; **2B-3a NOT READY**: T-15 and F2-S are open; §14.3, "Batch 2B-3 — owner decisions and final contract gate")* *(Then B-1 to B-4 decided: 2B-3a's decisions complete; **2B-3a implementation NOT STARTED** and not yet authorized; §14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract")* *(2026-10-21: 2B-3a implemented and verified locally on Windows; uncommitted; not CI-verified; not activated; DD-4 to DD-12 await the owner; §14.3, "Batch 2B-3a — implementation and local verification")* *(2026-10-21, later: DD-4 to DD-12 approved; final local Windows verification passed; still uncommitted, not CI-verified, not activated; "Owner approval of DD-4 to DD-12 and final local verification")* *(2026-10-21, then: committed on `verify/0.1.6-storage`, parent `5b66ffe`; not pushed; not CI-verified; not activated)* *(Then: `743f542` pushed; run 39675645316 SUCCESS 9/9 on attempt 2 (attempt 1: the macOS safety runner not acquired). **2B-3a: IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**; not integrated; §14.3, "Batch 2B-3a — cross-platform CI verification")* *(2B-3b: decision gate recorded on 2026-10-21, E-1 to E-10; implementation not authorized; NOT STARTED; §14.3, "Batch 2B-3b — decision gate and implementation contract")* *(2B-3b Phase A: implemented and verified locally on 2026-10-21, uncommitted; B1 and B2 NOT STARTED; §14.3, "Batch 2B-3b — Phase A: baseline neutrality")* *(Then: Phase A committed and pushed as `d834082`; B1-S3: B1-S3 OPTION A CANDIDATE IMPLEMENTED LOCALLY; ADVERSARIAL SECURITY VALIDATION PENDING; NOT COMMITTED; NOT VERIFIED; the suspected race unresolved; B1-M NOT STARTED; §14.3, "Batch 2B-3b — B1-S security review and the Option A candidate")* *(Then: Option C chosen; M1: OPTION C M1 IMPLEMENTED LOCALLY; CONSUMER MIGRATION PENDING; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED; the race unresolved; §14.3, "Batch 2B-3b — Option C M1: the storage safe-read foundation")* *(2026-10-22: M2: OPTION C M2 IMPLEMENTED LOCALLY; FOCUSED VERIFICATION STOPPED ON ONE EXISTING TEST AWAITING THE OWNER; FULL SUITE NOT RUN; DD-27 PROPOSED, NOT APPROVED; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED; the race unresolved; §14.3, "Batch 2B-3b — Option C M2: consumer migration")* *(Then: Row 1 repaired, DD-27 approved; OPTION C M2 IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; DD-27 APPROVED; A SINGLE-MODE READ FINDING AWAITS THE OWNER; ADVERSARIAL VALIDATION PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED; the race unresolved; §14.3, "Batch 2B-3b — Option C M2: Row 1 repair, DD-27 approval and verification")* *(Then: DD-28 approved; exact-message evidence; OPTION C M2 VERIFIED LOCALLY ON WINDOWS; DD-27 AND DD-28 APPROVED AND EVIDENCED; TOCTOU RISK UNRESOLVED; ADVERSARIAL VALIDATION (M3) PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED; the race unresolved; §14.3, "Batch 2B-3b — Option C M2: DD-28 approval and exact-message evidence")* *(Then: the POSIX Case B fix and CI coverage; OPTION C M2 WITH THE CASE B FIX VERIFIED LOCALLY ON WINDOWS; THE POSIX PERMISSION TESTS NOT YET RUN (POSIX ONLY); PYTHON 3.10 CI COVERAGE ADDED, NOT YET RUN; TOCTOU RISK UNRESOLVED; M3 PENDING; NOT COMMITTED; the race unresolved; §14.3, "Batch 2B-3b — Option C M2: POSIX Case B fix and CI coverage")* *(2026-10-23: committed as `e789ce2`; the Windows correction `14528ff`; CI run 40039289638 SUCCESS 9/9; OPTION C M1/M2 CROSS-PLATFORM CI VERIFICATION PASSED; M3 OPEN; 2B-3b NOT COMPLETE; B1-M and B2 NOT STARTED; the race unresolved; §14.3, "Batch 2B-3b — Option C: cross-platform CI verification (2026-10-23)")* *(2026-10-23: M3-R1 review; M3-R2A hardening of F1 and F2 implemented locally, uncommitted; Linux and macOS CI pending; F1's proof pending; M3 OPEN; 2B-3b NOT COMPLETE; §14.3, "Batch 2B-3b — Option C: M3-R2A Windows held-folder hardening (2026-10-23)")* *(2026-10-24: M3-R2A committed as `aadeefa`; CI run 40060798081 SUCCESS 9/9; M3-R2A CROSS-PLATFORM FUNCTIONAL AND REGRESSION CI VERIFICATION PASSED; F1's proof pending; R3 not complete; M3 OPEN; 2B-3b NOT COMPLETE; B1-M and B2 NOT STARTED; the race unresolved; §14.3, "Batch 2B-3b — Option C: M3-R2A cross-platform CI verification (2026-10-24)")* *(2026-10-24: F3-A approved; M3-R2B implemented locally, uncommitted; CI pending; M3 OPEN; 2B-3b NOT COMPLETE; §14.3, "Batch 2B-3b — M3-R2B: F3 Fix Mode fail-closed selection (2026-10-24)")* *(2026-10-24: F3-A committed as `3863488`; CI run 40107435984 SUCCESS 9/9; F3-A CROSS-PLATFORM CI VERIFICATION PASSED; F1's proof pending; M3 OPEN; 2B-3b NOT COMPLETE; §14.3, "Batch 2B-3b — M3-R2B: F3-A cross-platform CI verification (2026-10-24)")* *(2026-10-24: F4 Option A approved; M3-R2C implemented locally, uncommitted; CI pending; M3 OPEN; 2B-3b NOT COMPLETE; §14.3, "Batch 2B-3b — M3-R2C: F4 repository identity revalidation (2026-10-24)")* *(2026-10-25: F4 committed as `9e5483c`; CI run 40219531790 SUCCESS 9/9; F4 CROSS-PLATFORM CI VERIFICATION PASSED; F1's proof pending; M3 OPEN; 2B-3b NOT COMPLETE; §14.3, "Batch 2B-3b — M3-R2C: F4 cross-platform CI verification (2026-10-25)")* | — | — | implementation paths only; **no user data is migrated**; blocked until §8.10 is approved (US-D28, US-D14 and US-D10: APPROVED with conditions on 2026-10-18, §16.5.11, §16.4.1 and §9.5.1) |
+| 2 | Python CLI, MCP and prompts on the new layout | **2A COMPLETED**: committed `e78a678`, CI-verified (run 39057483843 on the verification branch and run 39062906366 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2A — acceptance and CI evidence"). **2B-1 COMPLETED**: `7b8914d` and the corrective `40865cf`, CI-verified (run 39085417171 failed 3/9; run 39096347226 on the verification branch and run 39097757625 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2B-1 — acceptance and CI evidence"). **2B-1 follow-up** (concurrent data-root creation): `147e1bd`, branch CI 39285763641 and main CI 39305575297, each 9/9; integrated by fast-forward `7a2a1f4..147e1bd`. **2B-2 to 2B-6 NOT STARTED** (the switch of callers); 2B-2's decision gate recorded and the slice specified on 2026-10-19 (§14.3, "Batch 2B-2 — decision gate"), implementation not authorized; Q-1 to Q-6 answered and the contract resolved the same day, with C-1 to C-5 open (§14.3, "Batch 2B-2 — final contract resolution"); C-1 to C-5 approved later that day, and implementation NOT STARTED *(then implemented and verified locally on Windows, 2026-10-19/20: uncommitted, not pushed, not activated; Linux and macOS not verified; §14.3, "Batch 2B-2 — implementation and local verification"; DD-1 to DD-3 approved on 2026-10-20; committed on `verify/0.1.6-storage`, not pushed, no CI)*. *(Then: run 39463867534 on `7a1c891` FAILED on a test-fixture defect; remediation `0b7dd6c`; run 39486855193 SUCCESS 9/9. **2B-2: IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**; not integrated; §14.3, "Batch 2B-2 — cross-platform CI verification")*. *(2B-3's records committed on `verify/0.1.6-storage` on 2026-10-20, not pushed; §19)* *(2B-3: decision gate recorded on 2026-10-20, with a proposed split into 2B-3a and 2B-3b; **2B-3 NOT STARTED**; §14.3, "Batch 2B-3 — decision gate and slice design")* *(Owner decisions G-1 to G-14 recorded the same day; **2B-3a NOT READY**: T-15 and F2-S are open; §14.3, "Batch 2B-3 — owner decisions and final contract gate")* *(Then B-1 to B-4 decided: 2B-3a's decisions complete; **2B-3a implementation NOT STARTED** and not yet authorized; §14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract")* *(2026-10-21: 2B-3a implemented and verified locally on Windows; uncommitted; not CI-verified; not activated; DD-4 to DD-12 await the owner; §14.3, "Batch 2B-3a — implementation and local verification")* *(2026-10-21, later: DD-4 to DD-12 approved; final local Windows verification passed; still uncommitted, not CI-verified, not activated; "Owner approval of DD-4 to DD-12 and final local verification")* *(2026-10-21, then: committed on `verify/0.1.6-storage`, parent `5b66ffe`; not pushed; not CI-verified; not activated)* *(Then: `743f542` pushed; run 39675645316 SUCCESS 9/9 on attempt 2 (attempt 1: the macOS safety runner not acquired). **2B-3a: IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**; not integrated; §14.3, "Batch 2B-3a — cross-platform CI verification")* *(2B-3b: decision gate recorded on 2026-10-21, E-1 to E-10; implementation not authorized; NOT STARTED; §14.3, "Batch 2B-3b — decision gate and implementation contract")* *(2B-3b Phase A: implemented and verified locally on 2026-10-21, uncommitted; B1 and B2 NOT STARTED; §14.3, "Batch 2B-3b — Phase A: baseline neutrality")* *(Then: Phase A committed and pushed as `d834082`; B1-S3: B1-S3 OPTION A CANDIDATE IMPLEMENTED LOCALLY; ADVERSARIAL SECURITY VALIDATION PENDING; NOT COMMITTED; NOT VERIFIED; the suspected race unresolved; B1-M NOT STARTED; §14.3, "Batch 2B-3b — B1-S security review and the Option A candidate")* *(Then: Option C chosen; M1: OPTION C M1 IMPLEMENTED LOCALLY; CONSUMER MIGRATION PENDING; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED; the race unresolved; §14.3, "Batch 2B-3b — Option C M1: the storage safe-read foundation")* *(2026-10-22: M2: OPTION C M2 IMPLEMENTED LOCALLY; FOCUSED VERIFICATION STOPPED ON ONE EXISTING TEST AWAITING THE OWNER; FULL SUITE NOT RUN; DD-27 PROPOSED, NOT APPROVED; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED; the race unresolved; §14.3, "Batch 2B-3b — Option C M2: consumer migration")* *(Then: Row 1 repaired, DD-27 approved; OPTION C M2 IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; DD-27 APPROVED; A SINGLE-MODE READ FINDING AWAITS THE OWNER; ADVERSARIAL VALIDATION PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED; the race unresolved; §14.3, "Batch 2B-3b — Option C M2: Row 1 repair, DD-27 approval and verification")* *(Then: DD-28 approved; exact-message evidence; OPTION C M2 VERIFIED LOCALLY ON WINDOWS; DD-27 AND DD-28 APPROVED AND EVIDENCED; TOCTOU RISK UNRESOLVED; ADVERSARIAL VALIDATION (M3) PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED; the race unresolved; §14.3, "Batch 2B-3b — Option C M2: DD-28 approval and exact-message evidence")* *(Then: the POSIX Case B fix and CI coverage; OPTION C M2 WITH THE CASE B FIX VERIFIED LOCALLY ON WINDOWS; THE POSIX PERMISSION TESTS NOT YET RUN (POSIX ONLY); PYTHON 3.10 CI COVERAGE ADDED, NOT YET RUN; TOCTOU RISK UNRESOLVED; M3 PENDING; NOT COMMITTED; the race unresolved; §14.3, "Batch 2B-3b — Option C M2: POSIX Case B fix and CI coverage")* *(2026-10-23: committed as `e789ce2`; the Windows correction `14528ff`; CI run 40039289638 SUCCESS 9/9; OPTION C M1/M2 CROSS-PLATFORM CI VERIFICATION PASSED; M3 OPEN; 2B-3b NOT COMPLETE; B1-M and B2 NOT STARTED; the race unresolved; §14.3, "Batch 2B-3b — Option C: cross-platform CI verification (2026-10-23)")* *(2026-10-23: M3-R1 review; M3-R2A hardening of F1 and F2 implemented locally, uncommitted; Linux and macOS CI pending; F1's proof pending; M3 OPEN; 2B-3b NOT COMPLETE; §14.3, "Batch 2B-3b — Option C: M3-R2A Windows held-folder hardening (2026-10-23)")* *(2026-10-24: M3-R2A committed as `aadeefa`; CI run 40060798081 SUCCESS 9/9; M3-R2A CROSS-PLATFORM FUNCTIONAL AND REGRESSION CI VERIFICATION PASSED; F1's proof pending; R3 not complete; M3 OPEN; 2B-3b NOT COMPLETE; B1-M and B2 NOT STARTED; the race unresolved; §14.3, "Batch 2B-3b — Option C: M3-R2A cross-platform CI verification (2026-10-24)")* *(2026-10-24: F3-A approved; M3-R2B implemented locally, uncommitted; CI pending; M3 OPEN; 2B-3b NOT COMPLETE; §14.3, "Batch 2B-3b — M3-R2B: F3 Fix Mode fail-closed selection (2026-10-24)")* *(2026-10-24: F3-A committed as `3863488`; CI run 40107435984 SUCCESS 9/9; F3-A CROSS-PLATFORM CI VERIFICATION PASSED; F1's proof pending; M3 OPEN; 2B-3b NOT COMPLETE; §14.3, "Batch 2B-3b — M3-R2B: F3-A cross-platform CI verification (2026-10-24)")* *(2026-10-24: F4 Option A approved; M3-R2C implemented locally, uncommitted; CI pending; M3 OPEN; 2B-3b NOT COMPLETE; §14.3, "Batch 2B-3b — M3-R2C: F4 repository identity revalidation (2026-10-24)")* *(2026-10-25: F4 committed as `9e5483c`; CI run 40219531790 SUCCESS 9/9; F4 CROSS-PLATFORM CI VERIFICATION PASSED; F1's proof pending; M3 OPEN; 2B-3b NOT COMPLETE; §14.3, "Batch 2B-3b — M3-R2C: F4 cross-platform CI verification (2026-10-25)")* *(2026-10-25: O-1 (Medium, owner-approved) gates 2B-4, 2B-5 and activation; Option B selected, not implemented; §14.3, "Batch 2B-3b — M3-R2E: O-1 repository-link reads, decision and remediation plan (2026-10-25)")* *(2026-10-25, later: the O-1 fix implemented locally, not committed; CI and independent validation pending; §14.3, "Batch 2B-3b — M3-R2E: O-1 implementation and local verification (2026-10-25)")* *(2026-10-26: the O-1 Python fix extended (attachments, memory existence), not committed; release gates recorded; §14.3, "Batch 2B-3b — M3-R2E: O-1 Python coverage completion and owner approvals (2026-10-26)")* | — | — | implementation paths only; **no user data is migrated**; blocked until §8.10 is approved (US-D28, US-D14 and US-D10: APPROVED with conditions on 2026-10-18, §16.5.11, §16.4.1 and §9.5.1) |
 | 3 | Extension and Agent Handoff | **NOT STARTED** | — | — | — |
 | 4 | Security and cross-platform validation | **NOT STARTED** | — | — | — |
 | 5 | Final UX, packaging and release readiness | **NOT STARTED** | — | — | — |
@@ -4169,6 +4172,7 @@ This batch moves implementation paths, **not user data**: nothing is copied, imp
   7. **Source and behavioural tests** fail on any unguarded write under the data root (G-4). *(The static half is committed and CI-verified (Batch 2A). Still open: the end-to-end write witness (Batch 2B).)*
   8. **0.1.5 behaviour is preserved** until the authorized integration batch.
   *(2026-10-21, Batch 2B-3b decision gate, E-6 and E-7; recorded beside the eight blockers, which are not renumbered: the activation review restates RK-20 as widened to the Verification Policy and AI Behavior, and Batch 3's compatibility verification of those two files is required before integration or activation. §14.3, "Batch 2B-3b — decision gate and implementation contract".)*
+  *(2026-10-25, the O-1 security gate (owner decision): recorded beside the eight blockers, which are not renumbered. While O-1 is open on this line, M3 is not accepted, 2B-4 and 2B-5 do not start, and Unified Storage is not activated; B1-M is not gated. §14.3, "Batch 2B-3b — M3-R2E: O-1 repository-link reads, decision and remediation plan (2026-10-25)".)*
 - Batch 0B is complete for the probes this batch depends on: P1, P2, P3 and P8, each recorded as PASS, FAIL or UNKNOWN (§9.7).
   - *(2026-10-19, D-7: the global-configuration slice, 2B-2, needs no live-agent probe. This waives nothing else: P1, P3 and P8 stay NOT EXECUTED, and P2 stays FAIL. Whether this precondition applies per slice is Q-3.)*
   - *(Q-3, approved with conditions on 2026-10-19: the precondition applies per slice, but missing evidence is never a pass. P1, P2, P3 and P8 stay gates for the slices that depend on them, and for activation.)*
@@ -5374,9 +5378,9 @@ Indirect imports through these modules, such as `workflow` → `config` → `use
 
 - **2B-3:** repository settings (US-D9).
 - **2B-4:**
-  - work items, memory, `clean` (through the delete methods) and `list` (`work_items()`);
+  - work items, memory, `clean` (through the delete methods) and `list` (`work_items()`); *(2026-10-25, the O-1 gate: not before the O-1 fix is on this line. The moved readers keep its guarantees, no reader names `.ai/` or `.ai_memory/` (T-S22), and the canary suite covers the MCP and CLI readers. §14.3, "Batch 2B-3b — M3-R2E: O-1 repository-link reads, decision and remediation plan (2026-10-25)".)*
   - the task, retry and review text and the goldens (US-D13, D14, D25, D30, and US-D10's wording).
-- **2B-5:** the MCP values, INSTRUCTIONS and descriptions (US-D27, D31), plus the 2B-5 gate's remaining items.
+- **2B-5:** the MCP values, INSTRUCTIONS and descriptions (US-D27, D31), plus the 2B-5 gate's remaining items. *(2026-10-25, the O-1 gate: MCP's work-item paths move only with the chokepoint's guarantees. §14.3, "Batch 2B-3b — M3-R2E: O-1 repository-link reads, decision and remediation plan (2026-10-25)".)*
 - **2B-6:**
   - `doctor`'s `storage` object and capability, and the contract fields (US-D21, US-D26);
   - `--feedback-file` (US-D18);
@@ -9654,10 +9658,472 @@ CI publishes test durations only per job, and those vary between runs, so they a
 
 **Still required:**
 
-- F1's proof, and M3, the adversarial suite, which stays OPEN; R3 is not complete;
+- F1's proof, and M3, the adversarial suite, which stays OPEN; R3 is not complete; *(2026-10-25: O-1 joins M3's scope and gates; see "Batch 2B-3b — M3-R2E: O-1 repository-link reads, decision and remediation plan (2026-10-25)".)*
 - the owner's decisions on F5 to F8, A2, defect 5.6, the macOS case-insensitive volume behaviour, and any extension of F3-A to `duplicate`;
 - B1-M, B2 and Phase C, each on the owner's authorization, then the Batch 2B-3b completion gate;
 - the eight activation blockers, and US-D29's integration restrictions.
+
+#### Batch 2B-3b — M3-R2E: O-1 repository-link reads, decision and remediation plan (2026-10-25)
+
+**Status: O-1 — MEDIUM SECURITY FINDING (OWNER-APPROVED, 2026-10-25); REMEDIATION OPTION B SELECTED (ONE SAFE-READ CHOKEPOINT); NOT IMPLEMENTED; 0.1.5.x MAINTENANCE PATCH APPROVED FOR PREPARATION, NOT STARTED; AN ADDITIONAL SECURITY GATE FOR M3, 2B-4, 2B-5 AND ACTIVATION; NOT ACTIVATED.** *(Later on 2026-10-25: implemented and verified locally on Windows, not committed; see "Batch 2B-3b — M3-R2E: O-1 implementation and local verification (2026-10-25)".)*
+
+- **Where it came from:**
+  - the read-only F5/F6 review (M3-R2D, 2026-10-25, on `ce04705`);
+  - then a read-only triage (M3-R2E).
+  - Both read code and existing tests only. Nothing was executed, and no reproduction was built.
+  - The F5 to F8 decisions are unchanged and still open.
+- **Not part of the storage work:**
+  - O-1 is in the 0.1.5 layout's readers, on `main` (`ea9659c`) and in the 0.1.5 release commit (`ee3fb00`);
+  - MCP's reader dates from 0.1.0 (`c16d796`);
+  - Option C's held readers are not involved.
+
+**The finding.**
+
+- **The readers:** those of a work item's files (`<repo>/.ai/<id>/`) and of bug memory (`<repo>/.ai_memory/bugs/`) open them by path.
+- **What is followed:** a symbolic link at the file, and for some readers one at a folder.
+- **Why it matters:** a cloned repository can commit such links. A file outside the repository is then read, and handed on to an MCP client, a prompt, a preview or a Jira comment.
+
+| Reader | Reached by | A link at `.ai` or `.ai/<id>` | A link at the file | What leaves the reader |
+| --- | --- | --- | --- | --- |
+| `mcp_server._read_artifact`, `fix_report.read_fix_report` | MCP `summarize_results`; CLI `summarize-results`, `status`, review and retry flows | refused first, by `writable_issue_dir` in `summarize_results_step` | followed | MCP: the first 4,000 characters (`report_excerpt`), and the overview's Summary (up to 1,200 characters) and Review Notes lines |
+| `workflow._build_jira_comment_draft` (`read_fix_report`), `workflow._prepared_jira_comment_text` | CLI `jira-comment-draft`, then `jira-comment` (a preview, or `--execute`); `summarize-results --jira-comment` or `BUGPILOT_AUTO_JIRA_COMMENT`, which post without a preview | refused first | followed (the report); the draft is rewritten first on the automatic path, and read through a link on `jira-comment` | the report's Analysis and Changes sections, redacted, in a Jira comment on the work item's own issue |
+| `memory.search_memory` | MCP `search_memory`; the pipeline's Similar Fixes step | followed (`.ai_memory`, `bugs`) | followed | each file's first `# ` heading, and which query words it contains |
+| `run.load_run`, `issue.load_issue` | MCP `get_status`, the prepare tools' titles; most CLI commands | followed | followed | only the fields of a valid BugPilot run or issue record |
+| `workflow.check_result_files`, MCP `_existing` | MCP `check_results`; every MCP tool's "is it prepared" check | followed | followed | existence only |
+| `workflow._feedback_text`, `workflow._read_artifact`, and the `retrieval`, `review_report` and `verification_report` readers | CLI retry, review and verification flows | refused first, where the step prepares the folder | followed | text built into later prompts and reports |
+| the `context.md` excerpt | MCP prepare and refine | refused | refused: the same call rewrites the file first | BugPilot's own context |
+| `task_preview`, `context_preview` (F13, 0.1.4) | CLI previews | refused | refused | nothing through a link |
+
+**The threat model (§10.1).**
+
+- **Both conditions are in scope:**
+  - a hostile *repository layout*: the committed link;
+  - hostile *text*: an MCP client model, or repository content steering it, calling a tool with the planted id.
+- **Why the user's own account does not settle it:**
+  - the MCP server reads with the user's rights, for a client whose own reads may be confined to the workspace or approved file by file;
+  - BugPilot's tools are approved tool by tool.
+  - `_read_artifact`'s comment, "the agent can open the same file with its own tools", holds for real files in the workspace, not for a link's target outside it.
+
+| Case | Prerequisites | Platforms | Exposure | In scope |
+| --- | --- | --- | --- | --- |
+| A. A link at the file | a committed symbolic link; a tool call or command naming its id | Linux and macOS (Git makes links by default); Windows only with Git's symbolic links enabled | up to 4,000 characters per id per MCP call; CLI previews and prompts; a Jira comment, as in the table above | yes |
+| B. A link at a folder | a committed link at `.ai`, `.ai/<id>`, `.ai_memory` or `bugs` | as A | headings and word presence (memory); existence; valid BugPilot records | yes |
+| C. A Windows junction | it cannot be committed; only the same account makes one | Windows | as B | no (§10.1) |
+| D. A regular file | committed text | all | nothing beyond hostile text, which is fenced (0.1.5, N5); its size is not bounded | as hostile text |
+
+- **Availability:** a link to a FIFO or a device file can block a read, or make it endless. This is inferred from Python's I/O, not executed.
+- **Integrity:** no effect was found. Writes refuse a link at the file and at the folders, including `run.json`, which `summarize_results` writes.
+- **Confirmed, by reading the code (not executed):**
+  - that the reads follow links;
+  - what each one returns;
+  - where the folder checks are.
+- **Hypothetical:**
+  - that a model is steered into calling a tool with a planted id;
+  - that the developer approves the tool;
+  - that the repository's author can predict a target's path;
+  - whether a given client could read the target itself.
+- **The Jira route** needs all of the following:
+  - the work item to be a Jira issue the developer can comment on;
+  - an explicit flag or the variable;
+  - a target with the report's headings.
+
+**Severity: Medium (owner decision, 2026-10-25).**
+
+- **Confidentiality, Medium:** any file the user can read, if its path can be predicted, can reach the model's context. That includes BugPilot's own credentials file.
+- **Integrity:** none.
+- **Availability:** Low.
+
+**The owner's decisions (2026-10-25):**
+
+- O-1 is a Medium security finding.
+- The remediation is Option B: one safe-read chokepoint covering MCP, the CLI, work-item files and bug memory.
+- A maintenance patch for the 0.1.5 release line is approved for preparation.
+- Nothing is implemented, committed, released or published. Coding waits for the owner's approval of this plan.
+
+**The remediation (Option B): the proposed contract.** Each point is PROPOSED, for the owner's approval before coding.
+
+- **P-1, one chokepoint.** A small reader in `bugpilot/core/safe_paths.py` gives each caller a file's bytes, never a path to open. It reads:
+  - a work-item file, `.ai/<id>/<name>`, with `<name>` one of BugPilot's fixed artifact names;
+  - a bug memory file, `.ai_memory/bugs/<name>.md`;
+  - the list of memory files.
+- **P-2, what it refuses.**
+  - **What is judged:** each component below the repository root (`.ai` and `<id>`; `.ai_memory` and `bugs`), and the file itself, as it stands, never followed.
+  - **What is refused:** a link, a junction, a non-folder on the way, or a file that is not regular.
+  - **How:** one sentence in F13's words ("`.ai/<id>/<name>` is behind a link or junction, so nothing in it was read."), with no absolute path, reported as `INVALID_INPUT` by the CLI's JSON and by MCP.
+  - **Unchanged:** the repository root itself may still be a link.
+- **P-3, how it opens.**
+  - **POSIX:** `O_NOFOLLOW` and `O_NONBLOCK`. Then `fstat` must show a regular file, and the same file (device and inode) that the look found.
+  - **Windows:** the look, then the same identity check after the open, so a link made in between is refused.
+  - **A file system that reports no file identity** is judged by the look alone.
+  - **No `_held_folders`:** it is not on `main` or in 0.1.5, and M3 has not validated it.
+- **P-4, bounded.**
+  - Every read stops at the limit plus one byte. A larger file is refused ("is larger than BugPilot reads").
+  - Proposed limits: 16 MiB for a work-item file, 1 MiB for a memory file.
+- **P-5, existence.** These checks use the same look:
+  - MCP `_existing`;
+  - `check_results`;
+  - `summarize_results`' `fix_report` field;
+  - `_package`'s `agent_task`;
+  - `workflow._generated_files`.
+  - A link is a refusal, never "present" or "missing".
+- **P-6, bug memory.**
+  - **A link at `.ai_memory` or `bugs`:** MCP `search_memory` is refused. The pipeline's Similar Fixes step reads nothing, warns, and the run continues.
+  - **A link or a non-regular file among the memory files:** it is skipped unread, and counted in one warning line.
+- **P-7, unchanged for real files.**
+  - Regular files read exactly as today: the same text, decoding, excerpts and fences.
+  - No golden, baseline, prompt-boundary record or task text changes.
+- **The residual, outside §10.1's scope and recorded:**
+  - a same-account process swapping a folder between its look and the open (T-S8's class);
+  - the in-scope attacker, a cloned layout, cannot race.
+
+**The implementation plan (NOT STARTED).**
+
+1. The chokepoint and its unit tests.
+2. The readers re-pointed, in the same commit:
+   - **MCP:** `mcp_server._read_artifact`, `_existing` and the existence fields;
+   - **record readers:** `fix_report.read_fix_report`, `issue.load_issue`, `run.load_run`, and `retrieval`'s reader;
+   - **report readers:** `review_report.read_review_report` and `verification_report.read_verification_report`;
+   - **bug memory:** `memory.search_memory` (the list and the reads), and `memory_update_step`'s read;
+   - **workflow:** `check_result_files`, `_generated_files`, `_read_artifact`, `_feedback_text` and `_prepared_jira_comment_text`;
+   - **previews:** `task_preview` and `context_preview`, through the chokepoint, with their F13 wording.
+3. Regression tests R-1 to R-8 (below).
+4. Validation:
+   - the full Python suite and the safety list;
+   - the goldens, and the prompt-boundary and file-safety baselines;
+   - `storage_baseline.py --check`, on the verification branch;
+   - the extension suites;
+   - then CI, 9/9.
+
+**The proposed allowlist** (the patch's code commit):
+
+- **Code:**
+  - `bugpilot/core/safe_paths.py`;
+  - `bugpilot/mcp_server.py`;
+  - `bugpilot/core/fix_report.py`, `issue.py`, `run.py`, `retrieval.py`, `review_report.py`, `verification_report.py`, `memory.py`, `workflow.py`, `task_preview.py` and `context_preview.py`.
+- **Tests:** `tests/test_work_item_read_safety.py` (new) and `tests/test_mcp_server.py`.
+- **Nothing else:** no extension code, and no frozen record, golden or baseline script.
+
+**The regression tests (synthetic fixtures only).**
+
+- **Fixtures:** each test makes a repository and an "outside" folder in its own temporary directory, and writes a sentinel string into a synthetic file there.
+- **The check:** the sentinel must appear in no output.
+- **Never used:** the real home folder, credentials or any user file.
+
+| Test | Layout | Expected |
+| --- | --- | --- |
+| R-1 | a link at each file that is read: `fix_report.md`, `context.md`, `run.json`, `issue.json`, `retrieval.json`, `review_report.md`, `verification_report.md`, `user_feedback.md`, `jira_comment_draft.md` | every MCP tool and CLI command that reads it refuses, with `INVALID_INPUT`; the sentinel is in no result, message, prompt, preview or draft; no absolute path; the Jira client's stand-in is never called |
+| R-2 | a link at `.ai`, and at `.ai/<id>` | every MCP tool, and the CLI's `status`, `check-results` and `summarize-results`, refuse; no existence answer |
+| R-3 | a link at `.ai_memory`, at `bugs`, and at one memory file | `search_memory` refuses (the folders) or skips (the file); no heading or keyword of the sentinel; real entries still found; the Similar Fixes step warns and continues |
+| R-4 | Windows junctions at `.ai`, `.ai/<id>`, `.ai_memory` and `bugs` | refused as links (a junction needs no privilege) |
+| R-5 | a FIFO at `fix_report.md`, and a link to one (POSIX) | refused as not a regular file, without blocking; a timeout guards the test |
+| R-6 | regular files only | results byte-identical to today's, for every tool and command; goldens and baselines unchanged |
+| R-7 | a regular file one byte over the limit (sparse) | refused; no more than the limit plus one byte read, counted through a wrapper |
+| R-8 | R-1's and R-2's layouts, through the CLI | the same refusals, exit code 1, and JSON `INVALID_INPUT` |
+
+- **One more unit case:** an identity mismatch between the look and the open, injected through a stand-in `fstat`, is refused. No race tooling is used.
+- **Symbolic-link cases** are skipped where the account cannot make links, as the existing tests do.
+
+**Independent security validation** (for the security team, with M3):
+
+- **Real clones** carrying committed links, through real MCP clients, to confirm that no outside content reaches the client:
+  - on Linux and macOS;
+  - on Windows, with Git's symbolic links enabled.
+- **The residual same-account race** of P-3.
+- **The extension's own readers** of `.ai/<id>/` (TypeScript), which O-1's triage did not review.
+
+**The two tracks.**
+
+| | The maintenance patch (the 0.1.5 line) | The 0.1.6 storage line |
+| --- | --- | --- |
+| Base | `main` (`ea9659c`). The release workflow runs only from `main` ("Refuse any ref but main"), and changing that would weaken a release boundary | `verify/0.1.6-storage` |
+| Content | the chokepoint, the re-pointed readers and R-1 to R-8; then a separate version and release commit | the same fix, carried over once it is on `main`: a cherry-pick, or `main` merged under US-D29 (the owner's choice) |
+| Afterwards | released to PyPI, then the Marketplace | 2B-4 and 2B-5 move work items and MCP's paths into the data root. The reads keep the chokepoint's guarantees there, no reader names `.ai/` or `.ai_memory/` (T-S22), and the canary suite covers the MCP and CLI readers |
+| Not included | any storage, settings or Fix Mode change; activation; F5 to F8 | — |
+
+**Release decisions still open (the owner's):** *(2026-10-26: four release gates are recorded, the extension's readers and `bugpilot list` among them; see "Batch 2B-3b — M3-R2E: O-1 Python coverage completion and owner approvals (2026-10-26)".)*
+
+- **REL-1, the version.**
+  - **The constraint:** the managed runtime installs exactly `bugpilot==<extension version>` (`extension/src/managedRuntime.ts`), and a Marketplace version has three numeric parts. A `0.1.5.1` on PyPI alone would not reach managed-runtime users.
+  - **Option (a):** release the patch as `0.1.6` on PyPI and the Marketplace. The storage release then takes the next version; this plan keeps its name.
+  - **Option (b):** `0.1.5.1` on PyPI only. Managed-runtime users stay unpatched, so this is not recommended.
+- **REL-2, licence and release text.** `LICENSE` names "Version 0.1.5" as the Licensed Work. The new version's licence parameters, the changelogs and any security note are the owner's, with qualified review.
+- **REL-3, disclosure timing.** The repository is public, and this record describes an unpatched issue in released versions. The proposal: do not push it before the maintenance release is published, unless the owner decides otherwise.
+- **REL-4, the release record.** The 0.1.5 line's release records are in the historical development plan, which is the owner's and was not changed. Where the maintenance release is recorded is the owner's decision.
+- **Main's inactive storage code.**
+  - `main` holds 14 commits after `ee3fb00`: the inactive storage foundation, kept by activation blocker 8.
+  - A release from `main` ships that code inactive.
+  - The patch's review confirms it stays uncalled.
+
+**The O-1 security gate** (recorded beside the eight activation blockers, which are not renumbered):
+
+- M3 is not accepted while O-1 is unresolved on this line, or before its independent validation.
+- 2B-4 and 2B-5 do not start before the fix is on `verify/0.1.6-storage`, and each keeps the chokepoint's guarantees for the data-root work folder.
+- Unified Storage is not activated while O-1 is open on this line.
+- B1-M is not gated by O-1: it relocates the Verification Policy and AI Behavior.
+
+**Corrected: §5.2, F01 and F07.**
+
+- **What the inventory said:** `.ai`, `.ai/<id>`, `.ai_memory` and `bugs` are "checked for links" and "refused rather than followed".
+- **Where that holds:** for writes, deletes and the previews, not for the readers above.
+- **The correction:** a dated note on each of the two rows records it; the rows are not rewritten.
+
+**Still required:**
+
+- the owner's approval of P-1 to P-7 and of REL-1 to REL-4, then the implementation authorization;
+- the maintenance patch, its CI, its release and its publication, each owner-authorized;
+- the fix carried over to this line, and its CI;
+- M3, with O-1's independent validation; F1's proof; R3;
+- F5 to F8, A2, defect 5.6, the macOS follow-up and the `duplicate` boundary;
+- US-D29, the eight activation blockers and the O-1 gate.
+
+#### Batch 2B-3b — M3-R2E: O-1 implementation and local verification (2026-10-25)
+
+**Status: O-1 FIX IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; CROSS-PLATFORM CI PENDING; INDEPENDENT SECURITY VALIDATION PENDING; THE 0.1.5.x RELEASE AND BACKPORT DECISION PENDING; F1, R3 AND M3 OPEN; NOT ACTIVATED.** *(Later, 2026-10-26: extended to the attachments listing and the memory-existence check; see "Batch 2B-3b — M3-R2E: O-1 Python coverage completion and owner approvals (2026-10-26)".)*
+
+**The owner's authorization (2026-10-25):**
+
+- **The task:** implement and verify locally the O-1 fix, provisionally Medium.
+- **Its nature:** a security correction, not a storage refactor.
+- **Not allowed:** a commit, push, merge, tag or publication.
+- **The allowlist:**
+  - `bugpilot/mcp_server.py` and `bugpilot/core/safe_paths.py`;
+  - `fix_report.py`, `memory.py`, `workflow.py`, `run.py` and `issue.py`;
+  - `tests/test_mcp_server.py` and `tests/test_batch4_file_safety.py`;
+  - this plan.
+- **Added during the work, on the owner's approval:** `bugpilot/core/retrieval.py`.
+  - `retrieval.json` is read by MCP `summarize_results` (its checklist), by `search_memory` with a work item's id, by `refine_investigation`, and by most CLI steps.
+  - Its reader followed a link at the file.
+- **Not changed:**
+  - `_held_folders.py`, `task_preview.py`, `context_preview.py`, `attachments.py`, `review_report.py`, `verification_report.py` and `cli.py`;
+  - the extension and the workflows;
+  - the baseline-tool scripts, goldens and frozen records;
+  - F1's, F2's, F3-A's and F4's code, DD-27 and DD-28.
+
+**Which batch moves what.** The triage's first report said "B2" here; that was imprecise.
+
+- **2B-3b's B1-M, B2 and Phase C:** relocate the Verification Policy and AI Behavior, and settle their wording and goldens. None touches a reader of a work item or of bug memory.
+- **2B-4:** moves work items, memory, `clean` and `list` into the data root.
+- **2B-5:** moves MCP's work-item paths.
+- **When the repository route goes:** only after those two, and only if no reader of the old folders remains (T-S22).
+- **So** O-1 is fixed in the readers 0.1.5 ships, independent of the migration.
+
+**The fix.**
+
+- **One reader, in `safe_paths.py`:** `read_generated_file(base, path, *, limit)` returns a file's bytes, or `None` when it is not there.
+  - The components come from `path.relative_to(base)`, so no caller spells a layout name; the inventory ratchet counts none new.
+  - **POSIX:** each folder is opened from its parent's descriptor with `O_NOFOLLOW`. The file is opened with `O_NOFOLLOW` and `O_NONBLOCK`, and `fstat` must show a regular file.
+  - **Windows, and any system without descriptor-relative opens:** each component is looked at (`lstat`) and refused as a link before the open. The open must reach the file the look found (device and file index), and the folders are looked at again afterwards. A same-account race against those looks is not claimed to be refused (§10.1); F1 stays open.
+  - **Bounded:** one limit, `GENERATED_READ_LIMIT` (16 MiB). A file whose size says more is refused before it is read. Every read stops at the limit plus one byte, whatever the size said.
+  - **A refusal:** `UnsafePathError`, in one sentence that names the path relative to the repository only ("BugPilot will not read `<path>`: `<reason>`. …, and nothing in this one was used."). Other `OSError`s are raised without the path. A failed safe open is never retried by path.
+- **Two companions:** `generated_file_exists` and `generated_folder_exists` apply the same judgement and read nothing.
+
+**The readers re-pointed:**
+
+| Reader | Reads | A refusal becomes |
+| --- | --- | --- |
+| `fix_report.read_fix_report` | `fix_report.md` | `UnsafePathError` (`INVALID_INPUT`) |
+| `issue.load_issue` | `issue.json` | `IssueArtifactError`, with the refusal's sentence (`INVALID_INPUT`); `read_issue_quietly` gives `None` |
+| `run.load_run` | `run.json` | `RunArtifactError`, with the sentence (`ARTIFACT_NOT_FOUND`, that error's existing code); `read_run_quietly` gives `None` |
+| `retrieval.load_retrieval` | `retrieval.json` | `RetrievalArtifactError`, with the sentence (`INVALID_INPUT`); `read_retrieval_quietly` gives `None` |
+| `memory.search_memory` | the memory files | a link at the memory folders refuses the search; a memory file that is a link or not a regular file is skipped unread and counted in one report line |
+| `workflow.check_result_files`, `jira_comment_step` and `_prepared_jira_comment_text`, `_feedback_text`, `_read_artifact`, `memory_update_step` | the result files, the Jira draft, `user_feedback.md`, the fix report, the memory file | `UnsafePathError` |
+| `workflow._generated_files` | names only | a linked work item folder is refused; a link, a linked attachments folder and a linked memory file are left out of the list |
+| `mcp_server._existing`, `_read_artifact` and `_present` | the work item's folder and files | a tool error; `_read_artifact` and `_present` say `[INVALID_INPUT]` |
+
+**The run's order.**
+
+- **The change:** a run that is not fresh now applies its existing write check to the work item's folder before it reads the persisted Fix Mode. It does this through `_prepare_issue_dir(..., create=False)`, which creates nothing.
+- **The effect:** a linked `.ai` or work item folder is refused in the write refusal's own words ("BugPilot cannot write … Nothing was written.") before anything in it is read.
+- **Why:** the first full run showed the new read refusal arriving first, wrapped in Fix Mode advice that does not apply. Four `tests/test_write_boundaries.py` cases failed.
+- **No expectation was changed.** Before the fix, that persisted-mode read had gone through the link.
+- **Unchanged for a fresh run:** it reads nothing there first, and its cleanup refuses the link in its own words.
+
+**The entry points protected:**
+
+- **MCP:** `summarize_results`, `check_results`, `get_status`, `search_memory`, `refine_investigation`, the prepare tools' excerpt and title, and every tool's "is it prepared" check.
+- **CLI:** `summarize-results` (with `--jira-comment` or `BUGPILOT_AUTO_JIRA_COMMENT`), `check-results`, `status`, `retry-prompt`, `jira-comment`, `review-package` and the memory search.
+- **The pipeline:** Similar Fixes, the memory update, and every step that reads the issue, run or retrieval record.
+- **The previews:** through the issue, run and retrieval readers; their own F13 checks are unchanged.
+
+**What changes for the developer.** Nothing for regular files: the same text, decoding, line endings, excerpts and fences. Only these cases differ:
+
+- a link anywhere on the way, or at the file: refused, where it was followed. A dangling link was "missing";
+- a regular file at `.ai` or at a work item's folder name: refused ("is not a folder"), where it was "missing" or "not prepared";
+- a folder at a file's name: refused ("is not a regular file"), where it was an `OSError` or an unusable record;
+- **memory:**
+  - a linked memory folder refuses the search, so the Similar Fixes step fails, as the memory writer already refuses such a folder;
+  - a linked or non-regular memory file is skipped, with one line in the report;
+- a file over 16 MiB: refused;
+- **POSIX:** a folder on the way must now be readable as well as searchable. One with search permission alone was readable before, and now gives an `OSError`.
+- **Departures from the proposal:** *(Approved by the owner on 2026-10-26: P-6 and P-4; see "Batch 2B-3b — M3-R2E: O-1 Python coverage completion and owner approvals (2026-10-26)".)*
+  - P-6 had the Similar Fixes step warn and continue on a linked memory folder; the search is refused instead (fail closed);
+  - P-4 proposed 1 MiB for memory files; one 16 MiB limit is used for every generated file.
+  - Both are for the owner's review.
+- **No public contract change:**
+  - no golden, baseline, prompt-boundary record or JSON key changes;
+  - the new sentence appears only in a refusal;
+  - the memory report gains a line only when a file was skipped.
+
+**The regression tests** (synthetic and isolated; a sentinel in a file outside the repository must appear in no output, and no message may hold an absolute path):
+
+- **`tests/test_batch4_file_safety.py`:** 16 test functions (41 cases). Most run under both read strategies; the descriptor strategy runs where the system has it.
+- **`tests/test_mcp_server.py`:** 5 test functions (9 cases).
+- **O-1's test labels:** R-1 to R-8 are O-1's own, not 2B-3b's "R-1 (the removal helper)". The owner's fourteen required checks map onto them:
+
+| Required check | Covered by |
+| --- | --- |
+| 1, 2: a link at the fix report; no sentinel in an MCP result | R-1: the fix-report test; MCP `summarize_results` |
+| 3, 6: links on the way; `check_results` follows none | R-2: the on-the-way test; MCP's linked-folder test for four tools; `check_results` in both suites |
+| 4: memory folder and file links | R-3: the memory-folder, memory-file and MCP `search_memory` tests |
+| 5: `run.json` and `issue.json` (and `retrieval.json`) | R-1: the record test (and quiet readers); MCP `get_status` |
+| 7: a non-regular file, no hang | R-5: a folder at a file's name (every system); FIFOs, guarded by a timeout (POSIX) |
+| 8: oversized | R-7: refused by size; the read stops at the limit when the size understates it |
+| 9, 10: regular output unchanged; missing files | R-6: byte-identical text, the same error words, missing answers; MCP's regular-and-missing test; every existing suite |
+| 11: no absolute path | every refusal test |
+| 12: the CLI | R-8: `check-results`, `summarize-results`, `status`, `retry-prompt`, `jira-comment` |
+| 13: Windows reparse points | R-4: junctions at `.ai` and `.ai_memory`; the link-on-the-way tests use a junction where symbolic links are refused |
+| 14: F1, F2, F3-A and F4 unchanged | their suites, in the full run |
+
+- **Plus:** an identity mismatch after the look, injected through a stand-in `fstat`, is refused (the Windows strategy). No race tooling was built.
+
+**Local verification** (Windows, Python 3.14.6, on `ce04705`, uncommitted):
+
+- the full Python suite: 4,090 passed and 81 skipped, none failed (against the last full Windows run, 4,058 and 63: the 50 new cases, 32 run and 18 POSIX-only skipped). The first full run, before the run's order was fixed, gave 4 failed, 4,086 passed and 81 skipped: the four `test_write_boundaries.py` cases above;
+- the focused suites (MCP, workflow, Similar Fixes, file safety, boundaries, previews, cleanup): 252 passed and 36 skipped after the last change (write boundaries, file safety, MCP, CLI JSON, cleanup, inventory, import boundary);
+- the O-1 tests: file safety 23 passed, 18 skipped (the POSIX descriptor strategy and the FIFOs); MCP 9 passed;
+- the approval gate, baselines and goldens: 308 passed, 17 skipped;
+- `storage_baseline.py --check`: baselines match;
+- the inventory ratchet and import boundary: 15 passed; no count increased;
+- the plan checker: 0 problems; one decision row more (US-D40, PROPOSED);
+- plan parsing and publishability: 150 passed, 3 skipped;
+- `git diff --check`: clean.
+
+**Evidence limits:**
+
+- **Not run here:** the POSIX descriptor strategy and the FIFO tests are skipped on Windows. Linux, macOS and Python 3.10 need CI.
+- **Not run anywhere:** real clones, real MCP clients and same-account races (independent validation).
+
+**Still required:**
+
+- the owner's review of this change and of US-D40, then a commit authorization;
+- CI on all nine jobs;
+- independent security validation:
+  - real clones carrying committed links, through real MCP clients;
+  - Windows with Git's symbolic links enabled;
+  - the residual race;
+  - the extension's TypeScript readers;
+  - `attachments.attachment_names` and `listed_attachments`, which still look through a linked attachments folder (names and existence only; outside this allowlist);
+- the 0.1.5.x release and backport decision (REL-1 to REL-4);
+- F1's proof, R3 and M3;
+- F5 to F8, A2, defect 5.6, the macOS follow-up and the `duplicate` boundary;
+- US-D29, the eight activation blockers and the O-1 gate.
+
+#### Batch 2B-3b — M3-R2E: O-1 Python coverage completion and owner approvals (2026-10-26)
+
+**Status: O-1 PYTHON FIX EXTENDED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; THE POSIX CASES NOT YET RUN (CI PENDING); INDEPENDENT SECURITY VALIDATION PENDING; RELEASE-BLOCKING FOLLOW-UPS OPEN (THE EXTENSION'S READERS AND `bugpilot list`); THE 0.1.5.x RELEASE AND BACKPORT DECISIONS PENDING; F1, R3 AND M3 OPEN; NOT ACTIVATED. O-1 IS NOT RESOLVED, AND NO PATCH RELEASE IS READY.**
+
+**The owner's decisions** (recorded 2026-10-26; given during the pre-commit review and this authorization):
+
+- **`bugpilot/core/retrieval.py`:** its inclusion as an affected reader is approved.
+- **The run's order:** the correction is approved. A run that is not fresh applies its write check to the work item's folder before reading anything in it, which keeps the write refusal's words.
+- **P-6, approved:** a linked memory folder fails closed; the search is refused.
+- **P-4, approved:** one 16 MiB limit for the current O-1 readers of generated files.
+- **US-D40, approved as the requirement:** its implementation, cross-platform CI and independent security validation remain pending.
+- **The authorization:**
+  - **in scope:** close the Python read-boundary gaps the pre-commit review confirmed, before the first public push;
+  - **added to the allowlist:** `bugpilot/core/attachments.py`;
+  - **not in this slice:** the extension's TypeScript readers and `bugpilot list`. They are release-blocking follow-ups below, not accepted vulnerabilities.
+
+**What the pre-commit review found** (read-only, 2026-10-25):
+
+- **The patch:** sound, with no regression.
+- **Gaps outside it:**
+  - `attachments.attachment_names` and `listed_attachments` followed a link at the attachments folder or at an entry. An outside folder's file names, or an outside file's existence, could reach `task.md`, which tells the agent to read those paths, and `run.json`.
+  - `workflow._generated_files` asked about the memory file without judging `.ai_memory` and `bugs`, so a link there answered whether an outside file exists.
+
+**The attachments correction** (`attachments.py`, `safe_paths.py`):
+
+- **A new listing in `safe_paths.py`:** `generated_file_names(base, folder)` judges the folder as `generated_folder_exists` does. It names only entries that are regular files as they stand, never following one.
+  - **POSIX:** lists from the folder's own descriptor; descriptor-relative listing (`os.scandir` on a descriptor) is now part of what selects that strategy.
+  - **Windows:** looks at the folders again after listing.
+- **`attachment_names(target)`:** lists through it. A link or junction at the attachments folder, at the work item's folder or at `.ai` is refused (`UnsafePathError`, `INVALID_INPUT`).
+- **`listed_attachments(target, recorded)`:** judges the folder the same way, then names a recorded file only when it is a regular file as it stands; the folder is judged again afterwards.
+- **The choice for one unsafe entry** (a link, a junction, or anything but a regular file): it is left out, never named and never followed.
+  - That is the existing attachments contract, under which a name that is not a regular file was never listed.
+  - The answer is the same whether a link's target exists or not, so nothing is said about it.
+  - The whole listing is not refused for one entry, because a regular attachment must still reach the agent.
+- **Unchanged:**
+  - both signatures (the frozen file-safety baseline calls them as before);
+  - sorting, recorded order, names and plain-name rules;
+  - a missing or empty folder gives no attachments;
+  - the copy and `remove_attachments`.
+- **No write was added.**
+- **A compatibility difference:** a regular file where the attachments folder should be is refused ("is not a folder"), where it used to list nothing.
+
+**The memory-existence correction** (`workflow._generated_files`):
+
+- **The memory file:** its existence is answered by `generated_file_exists`. A link or junction at `.ai_memory`, `bugs` or the file is refused, as the memory writer already refuses them, and is never reported as "missing".
+- **The work item's folder:** listed through `generated_file_names`.
+- **Attachments:** through `attachment_names`.
+- **Unchanged:** genuine absence still lists nothing, and real files list as before.
+- **A refusal here fails the status write** that asked; the run was already refusing such a layout before writing anything.
+
+**The release gates** (owner, 2026-10-26). Each blocks the 0.1.5.x maintenance release; none is an accepted vulnerability:
+
+1. **The extension's TypeScript readers of repository-controlled artifacts.**
+   - `files.readFile` is a plain read of `<root>/.ai/<id>/<name>`.
+   - These follow a link at the file: `copyContext` (to the clipboard), `useFeedbackHelper` (into the feedback and the retry prompt), the verification editor, and `#readStatus`.
+   - `listDirectory` leaves linked files out, but a linked `.ai` or work item folder is followed.
+2. **`bugpilot list`** (`cli.py`, `_list_work_items`): a linked `.ai` lists an outside folder's work-item-shaped names, and whether each holds a `run.json`. Titles already go through the safe reader.
+3. **Independent security validation**, on Windows and on POSIX.
+4. **The 0.1.5.x backport and release decisions** (REL-1 to REL-4).
+
+**The regression tests** (synthetic and isolated):
+
+- **Added to `tests/test_batch4_file_safety.py`:** 8 test functions (21 cases) on top of O-1's 16 (41 cases). They cover:
+  - a linked attachments folder, work item folder or `.ai`, refused by every reader and by the status listing;
+  - linked entries (an existing and a dangling target) and a folder entry, left out with identical answers;
+  - regular attachments unchanged (sorting, recorded order, plain names), and missing and empty folders;
+  - a linked `.ai_memory`, `bugs` or memory file, refused by the status listing;
+  - the listing without memory, and with a real memory file, unchanged;
+  - Windows junctions as an entry and as the folder;
+  - two CLI runs: one refuses a linked attachments folder with `INVALID_INPUT` and no outside name; one names its real `--attach` file and never a planted link.
+- **Added to `tests/test_mcp_server.py`:** 1 (`prepare_jira_bug` refuses a linked attachments folder; no outside name in the answer or the task).
+- **The test files touched:** only these two; `tests/test_attachments.py` needed no change.
+
+**Local verification** (Windows, Python 3.14.6, on `ce04705`, uncommitted):
+
+- the full Python suite: 4,103 passed and 90 skipped, none failed (against the previous full run, 4,090 and 81: the 22 new cases, 13 run and 9 POSIX-only skipped);
+- the O-1 tests: file safety 35 passed, 27 skipped (the POSIX descriptor strategy and the FIFOs); MCP 10 passed;
+- the focused suites (attachments, Similar Fixes, MCP, request scope, workflow, CLI JSON, file safety, write boundaries, cleanup, the previews, the file-safety baseline, inventory, import boundary): 607 passed, 62 skipped;
+- the approval gate, baselines and goldens: 308 passed, 17 skipped;
+- `storage_baseline.py --check`: baselines match;
+- the inventory ratchet and import boundary: 15 passed; no count increased;
+- unused symbols (`pyflakes`, against HEAD): no new finding in any changed file;
+- the plan checker: 0 problems (US-D40 now APPROVED with conditions);
+- plan parsing and publishability: 150 passed, 3 skipped;
+- `git diff --check`: clean.
+
+**Not verified here:**
+
+- **The POSIX cases:** 27 O-1 cases are skipped on Windows (the descriptor strategy and FIFOs). They first run in CI on Linux and macOS, including Python 3.10 (the safety jobs run the file-safety suite).
+- **Not run anywhere:** real clones, real MCP clients and same-account races.
+
+**Unchanged:**
+
+- the eight activation blockers, with the O-1 gate beside them;
+- US-D29 and every earlier decision;
+- DD-27, DD-28, F1 to F4;
+- the task goldens, frozen records and baseline-tool scripts.
+
+**Still required:**
+
+- the owner's commit authorization; *(Given on 2026-10-26: exactly one local commit of the O-1 Python patch, the original fix and this completion with their tests and this record, 12 files; no push and no CI; the disclosure and release sequencing stay separate. The patch carries 72 new O-1 cases (41 and 21 in the file-safety suite, 9 and 1 in the MCP suite), 27 of them skipped on Windows and pending POSIX CI.)*
+- CI on all nine jobs;
+- the release gates above;
+- F1's proof, R3 and M3;
+- F5 to F8, A2, defect 5.6, the macOS follow-up and the `duplicate` boundary;
+- US-D29, the eight activation blockers and the O-1 gate.
 
 ### 14.4 Batch 3 — Extension and Agent Handoff
 
@@ -10044,6 +10510,7 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D37 | XDG or platform-native data folders | DEFERRED | Defer | — | — | — |
 | US-D38 | Retention and pruning of orphaned namespaces | DEFERRED | Defer | — | — | — |
 | US-D39 | SF-1: route the project-settings and repository-profile payloads through `scratchFile.ts` | OPEN | **Accept**: include in Batch 4 | the same class 0.1.5 fixed; alt: leave as is | 4 | — |
+| US-D40 | Repository work-item and memory read boundary (O-1): BugPilot reads a file it generated in a work item's folder or in bug memory only through one reader that judges every component and the file as they stand, never following a link or junction, takes a regular file only and bounds the read. A refusal returns nothing of the file and names no absolute path. No other reader of those folders exists, and after activation none of the data-root work folder either (T-S22, T-S30) | **APPROVED** — with conditions | **Accept** (proposed with the O-1 fix on 2026-10-25; the 2026-10-15 review did not cover it) | §14.3, "Batch 2B-3b — M3-R2E: O-1 implementation and local verification (2026-10-25)"; alt: per-reader checks (0.1.4's F13 pattern), which left these readers out | the 0.1.5.x maintenance release; 2B-4, 2B-5 and activation | 2026-10-26: approved by the owner as the requirement; its implementation, cross-platform CI and independent security validation are pending (§14.3, "Batch 2B-3b — M3-R2E: O-1 Python coverage completion and owner approvals (2026-10-26)") |
 
 **Open parts of approved decisions** (Batch 1 decision gate, 2026-10-16; US-D28, US-D14, US-D13, US-D30, US-D10, US-D12 and US-D17, 2026-10-18; US-D2, US-D29 and US-D22, 2026-10-19; US-D4, US-D8 and US-D22, 2026-10-20):
 
@@ -10814,6 +11281,9 @@ These add to the gates that already apply; they do not replace them:
 | 2026-10-24 | 2B-3b | **M3-R2B (F3-A) — CROSS-PLATFORM FUNCTIONAL AND COMPATIBILITY CI VERIFICATION PASSED; F1'S ANCESTOR-RACE PROOF PENDING; R3 NOT COMPLETE; ADVERSARIAL SECURITY VALIDATION (M3) OPEN; BATCH 2B-3b NOT COMPLETE; NOT ACTIVATED.** <ul><li>**The commit:** `3863488` (parent `08a6c37`, 5 files), owner-approved with the `duplicate` exception; pushed by fast-forward.</li><li>**Run 40107435984** (`workflow_dispatch`, attempt 1, head `3863488`): 9/9. Full suites: Windows 4,047 passed (65 skipped), Ubuntu 3,965 (97), macOS 3,969 (93); safety jobs unchanged (Windows 2,065, Ubuntu 1,991 on 3.13 and 3.10, macOS 1,995); no failure; the extension's two jobs passed.</li><li>**Against run 40060798081:** Windows +23 passes; Ubuntu and macOS +21 passes and +1 skip (the Windows-only exclusive-hold test), by arithmetic. Every Python skip list is cut.</li><li>**Unchanged:** the genuine-absence fallback, `duplicate` under DD-28, DD-27 and DD-28 wording, A2, defect 5.6 and the macOS follow-up, F4 to F8, US-D29, the eight activation blockers; B1-M, B2 and Phase C NOT STARTED; Unified Storage inactive.</li></ul> |
 | 2026-10-24 | 2B-3b | **M3-R2C (F4, OPTION A) IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; CROSS-PLATFORM CI PENDING; R3 NOT COMPLETE; M3 OPEN.** <ul><li>**F4:** within one request scope, a `repository.json` rewritten in place with its size and modification time kept was not read again on Windows (the signature had no change time); reproduced in isolation.</li><li>**Option A (owner-approved):** every identity check reads and judges the record, on every system; only D2A-1's record-verdict reuse is superseded; containment and Git verdicts stay scope-bound.</li><li>**The change:** `storage.py` only (`_record_state`, `_held_record_state`; `_record_signature` removed). Three approved test updates and 8 new cases; 9 of the 11 fail against `HEAD`'s `storage.py`.</li><li>**Cost:** 3 to 6 checks per command; held re-reads unmeasurable, path re-reads +0.6 ms each.</li><li>**Local:** the full Windows suite 4,058 passed, 63 skipped, 0 failed (exit 0); baselines match; goldens and records unchanged; plan checker 0 problems.</li><li>**Unchanged:** identity words and codes, missing-record policy, retries, DD-27, DD-28, US-D29, the eight activation blockers, the version 0.1.5; B1-M, B2 and Phase C NOT STARTED.</li></ul> |
 | 2026-10-25 | 2B-3b | **M3-R2C (F4, OPTION A) — CROSS-PLATFORM FUNCTIONAL AND COMPATIBILITY CI VERIFICATION PASSED; F1'S ANCESTOR-RACE PROOF PENDING; R3 NOT COMPLETE; ADVERSARIAL SECURITY VALIDATION (M3) OPEN; BATCH 2B-3b NOT COMPLETE; NOT ACTIVATED.** <ul><li>**The commit:** `9e5483c` (parent `0641b72`, 5 files), owner-approved; pushed by fast-forward.</li><li>**Run 40219531790** (`workflow_dispatch`, attempt 1, head `9e5483c`): 9/9. Safety: Windows 2,073, Ubuntu 1,999 on 3.13 and 3.10, macOS 2,003 passed. Full: Windows 4,055, Ubuntu 3,973, macOS 3,977 passed. No failure; the extension's two jobs unchanged.</li><li>**Against run 40107435984:** +8 passes and unchanged skips in every Python job (arithmetic; every skip list is cut).</li><li>**Unchanged:** no atomic identity across operations; containment and Git verdicts scope-bound; F1, R3, M3, F5 to F8, A2, defect 5.6, the macOS follow-up, the `duplicate` boundary, DD-27, DD-28, US-D29, the eight activation blockers; B1-M, B2 and Phase C NOT STARTED.</li></ul> |
+| 2026-10-25 | 2B-3b | **O-1 RECORDED: A MEDIUM SECURITY FINDING (OWNER-APPROVED); REMEDIATION OPTION B SELECTED; 0.1.5.x MAINTENANCE PATCH APPROVED FOR PREPARATION; NOT IMPLEMENTED; AN ADDITIONAL GATE FOR M3, 2B-4, 2B-5 AND ACTIVATION.** <ul><li>**Found:** in the read-only F5/F6 review (M3-R2D), triaged read-only (M3-R2E); nothing executed.</li><li>**The finding:** the 0.1.5 layout's readers of `.ai/<id>/` and `.ai_memory/bugs/` follow a repository link at the file (and some at a folder); on `main`, in 0.1.5, and in MCP since 0.1.0.</li><li>**Recorded:** the section, T-S30, a §10.3 note, the F01 and F07 corrections, the O-1 gate beside the eight blockers, and the 2B-4 and 2B-5 notes.</li><li>**Open:** P-1 to P-7 and REL-1 to REL-4 (the owner's), then implementation; F1, R3, M3; F5 to F8.</li></ul> |
+| 2026-10-25 | 2B-3b | **O-1 FIX IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; CI AND INDEPENDENT SECURITY VALIDATION PENDING; THE 0.1.5.x RELEASE DECISION PENDING.** <ul><li>**The fix:** one safe reader in `safe_paths.py`; the readers in `fix_report`, `issue`, `run`, `retrieval` (added with the owner's approval), `memory`, `workflow` and `mcp_server` re-pointed.</li><li>**Tests:** 16 functions (41 cases) in the file-safety suite, 5 (9 cases) in the MCP suite.</li><li>**Results:** the full Windows suite 4,090 passed and 81 skipped, none failed (against the last full Windows run, 4,058 and 63: the 50 new cases, 32 run and 18 POSIX-only skipped); the gate 308 passed, 17 skipped; baselines match; the inventory ratchet and import boundary green.</li><li>**Proposed:** US-D40. **Open:** CI, independent validation, REL-1 to REL-4; F1, R3, M3.</li></ul> |
+| 2026-10-26 | 2B-3b | **O-1 PYTHON FIX EXTENDED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; POSIX CASES, CI AND INDEPENDENT VALIDATION PENDING; RELEASE GATES OPEN; O-1 NOT RESOLVED.** <ul><li>**Approved by the owner:** `retrieval.py`, the run's order, P-6, P-4, and US-D40 as the requirement.</li><li>**Extended:** `attachments.py` (a linked attachments folder refused, a linked entry left out), `safe_paths.generated_file_names`, and the memory-existence check in `workflow._generated_files`.</li><li>**Tests:** 8 file-safety functions (21 cases) and 1 MCP case more.</li><li>**Results:** the full Windows suite 4,103 passed and 90 skipped, none failed (against the previous full run, 4,090 and 81: the 22 new cases, 13 run and 9 POSIX-only skipped); the gate 308 passed, 17 skipped.</li><li>**Release gates:** the extension's readers, `bugpilot list`, independent validation, the 0.1.5.x decisions.</li></ul> |
 
 ---
 
@@ -10900,6 +11370,10 @@ These add to the gates that already apply; they do not replace them:
 | 2026-10-24 | 2B-3b M3-R2C (F4) | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `0641b72` | — (no CI) | — | F4 Option A: the identity record read on every check; local Windows verification only; cross-platform CI pending |
 | 2026-10-25 | 2B-3b M3-R2C (F4) | `verify/0.1.6-storage` | `9e5483c6cf000600ef6e2d2c40fb06703060d215` (`fix(storage): revalidate repository identity on every check`, parent `0641b72`, 5 files, carrying the row above), pushed by fast-forward (`0641b72..9e5483c`), owner-authorized | 40219531790, attempt 1 (`CI`, `workflow_dispatch`, owner-dispatched) | **success: 9/9** | F4 Option A cross-platform functional and compatibility CI verification PASSED; F1's proof pending; M3 OPEN |
 | 2026-10-25 | 2B-3b F4 CI record | `verify/0.1.6-storage` (working tree) | none: this documentation record, uncommitted, on `9e5483c` | — | — | documentation only |
+| 2026-10-25 | 2B-3b F4 CI record | `verify/0.1.6-storage` | `ce047054c250fbb4d980973c45ca29a7e8a1f9e7` (`docs(storage): record F4 cross-platform CI verification`, parent `9e5483c`, the plan only, carrying the row above), pushed by fast-forward (`9e5483c..ce04705`), owner-authorized | — (documentation only; no CI dispatched) | — | the row above is committed and pushed |
+| 2026-10-25 | 2B-3b O-1 record | `verify/0.1.6-storage` (working tree) | none: this documentation record, uncommitted, on `ce04705`; REL-3 proposes not pushing it before the maintenance release | — | — | documentation only |
+| 2026-10-25 | 2B-3b O-1 fix | `verify/0.1.6-storage` (working tree) | none: the O-1 fix, its tests and this record, uncommitted, on `ce04705` | — | — | not committed; CI pending |
+| 2026-10-26 | 2B-3b O-1 completion | `verify/0.1.6-storage` (working tree) | none: the extended O-1 fix, its tests and this record, uncommitted, on `ce04705` | — | — | not committed; CI pending |
 
 ---
 

@@ -1055,3 +1055,118 @@ def test_with_the_sdk_the_server_is_built_as_before(tmp_path):
     assert mcp_server._MCP_MISSING is False
     assert build_server(tmp_path) is not None
     assert build_server.__doc__, "the missing-SDK guard displaced the docstring"
+
+
+# --- O-1: a work item's files reach a client only as regular files, never through a link ----------------------
+#
+# A cloned repository can commit a link in a work item's folder, or as the folder. The tools refuse it in one
+# sentence, and nothing of the synthetic outside file below, nor an absolute path, is in what the client gets.
+
+_O1_ITEM = "JR-12345"
+_O1_SENTINEL = "o1-mcp-outside-sentinel-5d1f9c"
+
+
+def _o1_work_item(tmp_path):
+    repo = tmp_path / "repo"
+    item = repo / ".ai" / _O1_ITEM
+    item.mkdir(parents=True)
+    (repo / ".ai_memory" / "bugs").mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    secret = outside / "notes.md"
+    secret.write_text(f"# {_O1_SENTINEL}\n\n## Summary\n\n{_O1_SENTINEL}\n", encoding="utf-8")
+    return repo, item, secret
+
+
+def _o1_link(link, target, *, folder=False):
+    try:
+        link.symlink_to(target, target_is_directory=folder)
+        return
+    except OSError:
+        if not folder:
+            pytest.skip("symbolic links to files need a privilege this account does not have")
+    import _winapi  # Windows only: a junction needs no privilege
+
+    _winapi.CreateJunction(str(target), str(link))
+
+
+def _o1_clean(message, tmp_path):
+    assert _O1_SENTINEL not in message
+    assert str(tmp_path) not in message
+
+
+def test_o1_summarize_results_never_reads_a_report_through_a_link(tmp_path):
+    repo, item, secret = _o1_work_item(tmp_path)
+    _o1_link(item / "fix_report.md", secret)
+    message = _expect_tool_error(build_server(repo), "summarize_results", {"work_item_id": _O1_ITEM})
+    assert "[INVALID_INPUT]" in message
+    assert f"BugPilot will not read .ai/{_O1_ITEM}/fix_report.md: it is a symbolic link or junction" in message
+    _o1_clean(message, tmp_path)
+
+
+@pytest.mark.parametrize(("tool", "linked"), [("check_results", "fix_report.md"), ("get_status", "run.json")])
+def test_o1_check_results_and_get_status_follow_no_link(tmp_path, tool, linked):
+    repo, item, secret = _o1_work_item(tmp_path)
+    _o1_link(item / linked, secret)
+    message = _expect_tool_error(build_server(repo), tool, {"work_item_id": _O1_ITEM})
+    assert f".ai/{_O1_ITEM}/{linked}: it is a symbolic link or junction" in message
+    _o1_clean(message, tmp_path)
+
+
+@pytest.mark.parametrize("tool", ["check_results", "summarize_results", "get_status", "refine_investigation"])
+def test_o1_a_linked_work_item_folder_is_refused_by_every_tool(tmp_path, tool):
+    repo, item, secret = _o1_work_item(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "fix_report.md").write_text(secret.read_text(encoding="utf-8"), encoding="utf-8")
+    item.rmdir()
+    _o1_link(item, elsewhere, folder=True)
+    message = _expect_tool_error(build_server(repo), tool, {"work_item_id": _O1_ITEM})
+    assert f".ai/{_O1_ITEM} is a symbolic link or junction" in message
+    _o1_clean(message, tmp_path)
+
+
+def test_o1_search_memory_reads_no_memory_through_a_link(tmp_path):
+    repo, _item, secret = _o1_work_item(tmp_path)
+    bugs = repo / ".ai_memory" / "bugs"
+    (bugs / f"{_O1_ITEM}.md").write_text("# A real memory\n\nselector format lost\n", encoding="utf-8")
+    _o1_link(bugs / "notes.md", secret)
+    server = build_server(repo)
+    result = _call(server, "search_memory", {"query": "selector summary"})
+    assert [match["file"] for match in result["matches"]] == [f".ai_memory/bugs/{_O1_ITEM}.md"]
+    assert "1 memory file(s) were not read" in result["report"]
+    _o1_clean(json.dumps(result), tmp_path)
+    (bugs / "notes.md").unlink()
+    (bugs / f"{_O1_ITEM}.md").unlink()
+    bugs.rmdir()
+    _o1_link(bugs, secret.parent, folder=True)
+    message = _expect_tool_error(server, "search_memory", {"query": "selector summary"})
+    assert "Memory search failed: BugPilot will not read .ai_memory/bugs: .ai_memory/bugs is a symbolic link" in message
+    _o1_clean(message, tmp_path)
+
+
+def test_o1_regular_and_missing_work_item_files_answer_as_before(tmp_path):
+    repo, item, _secret = _o1_work_item(tmp_path)
+    server = build_server(repo)
+    missing = _call(server, "check_results", {"work_item_id": _O1_ITEM})
+    assert missing["missing"] == [f".ai/{_O1_ITEM}/fix_report.md"] and missing["complete"] is False
+    summary = _call(server, "summarize_results", {"work_item_id": _O1_ITEM})
+    assert summary["fix_report"] is None and summary["report_excerpt"] is None
+    (item / "fix_report.md").write_text("## Summary\n\nfixed the selector\n", encoding="utf-8")
+    assert _call(server, "check_results", {"work_item_id": _O1_ITEM})["complete"] is True
+    summary = _call(server, "summarize_results", {"work_item_id": _O1_ITEM})
+    assert summary["fix_report"] == f".ai/{_O1_ITEM}/fix_report.md"
+    assert "fixed the selector" in summary["report_excerpt"]
+
+
+def test_o1_prepare_refuses_a_linked_attachments_folder(tmp_path, mock_jira):
+    """No outside file name reaches the task the client is pointed at, or the tool's answer."""
+    repo, item, secret = _o1_work_item(tmp_path)
+    (secret.parent / f"{_O1_SENTINEL}.log").write_text("outside\n", encoding="utf-8")
+    _o1_link(item / "attachments", secret.parent, folder=True)
+    message = _expect_tool_error(build_server(repo), "prepare_jira_bug", {"issue_key": _O1_ITEM})
+    assert "[INVALID_INPUT]" in message
+    assert f".ai/{_O1_ITEM}/attachments is a symbolic link or junction" in message
+    _o1_clean(message, tmp_path)
+    task = item / "task.md"
+    assert not task.exists() or _O1_SENTINEL not in task.read_text(encoding="utf-8")
