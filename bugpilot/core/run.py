@@ -21,6 +21,7 @@ from pathlib import Path
 from .artifact_io import atomic_write_text
 from .artifacts import ARTIFACT_SCHEMA_VERSION, RUN_ARTIFACT
 from .config import WORKFLOW_STEPS, issue_dir, writable_issue_dir
+from .safe_paths import UnsafePathError, decode_text, read_generated_file
 
 # The one authoritative overall state. The product's own words: `bugpilot list`
 # and the extension's history both call a finished package "prepared".
@@ -161,13 +162,16 @@ def load_run(repo_root: Path, work_item_id: str) -> RunArtifact | None:
 
     Raises :class:`RunArtifactError` when the file exists but cannot be used,
     including one from before this schema. There is deliberately no reader for
-    the old ``workflow_status.json`` layout.
+    the old ``workflow_status.json`` layout. Never read through a link, and
+    only as a regular file (O-1): a refusal is a :class:`RunArtifactError` too.
     """
-    path = run_path(repo_root, work_item_id)
-    if not path.exists():
-        return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        raw = read_generated_file(repo_root, run_path(repo_root, work_item_id))
+        if raw is None:
+            return None
+        data = json.loads(decode_text(raw, "utf-8"))
+    except UnsafePathError as exc:
+        raise RunArtifactError(str(exc)) from exc
     except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
         raise RunArtifactError(f".ai/{work_item_id}/{RUN_ARTIFACT} could not be read ({exc}).") from exc
     return run_from_dict(data, work_item_id)

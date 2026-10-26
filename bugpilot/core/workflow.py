@@ -21,7 +21,14 @@ from .config import (
     writable_issue_dir,
     writable_memory_file,
 )
-from .safe_paths import refuse_link, writable_dir
+from .safe_paths import (
+    decode_text,
+    generated_file_exists,
+    generated_file_names,
+    read_generated_file,
+    refuse_link,
+    writable_dir,
+)
 from .email_notify import EmailSendError, EmailSendResult, build_email_draft, render_eml, send_notification, send_via_graph
 from .context import CONTEXT_FORMAT, build_context
 from .branch_policy import (
@@ -372,6 +379,11 @@ def run_investigation(
     skipped = set(request.skipped_steps())
     jira_result = None
     clean_result = None
+    # A run writes into the work item's folder, so a link there, or at its parent, refuses the run before anything
+    # in it is read, the persisted selection included (O-1), in the write refusal's own words; nothing is created.
+    # A fresh run reads nothing there first, and its cleanup refuses such a link in its own words.
+    if not fresh:
+        _prepare_issue_dir(repo_root, issue_key, create=False)
     # Resolved before anything is deleted, and before the persisted selection is
     # read: a fresh run is about to discard the package that recorded a mode, so
     # only an explicit choice can apply to it, and a mistyped one must cost the
@@ -1473,11 +1485,12 @@ def copilot_instructions_step(repo_root: Path, issue_key: str) -> str:
 
 
 def check_result_files(repo_root: Path, issue_key: str) -> list[str]:
+    """The required result files not there yet; a link at one, or on the way to it, is refused (O-1)."""
     target = issue_dir(repo_root, issue_key)
     return [
         f".ai/{issue_key}/{file_name}"
         for file_name in REQUIRED_COPILOT_RESULT_FILES
-        if not (target / file_name).exists()
+        if not generated_file_exists(repo_root, target / file_name)
     ]
 
 
@@ -1729,7 +1742,8 @@ def memory_update_step(repo_root: Path, issue_key: str) -> bool:
         return False
 
     memory_path = writable_memory_file(repo_root, issue_key)
-    existing = memory_path.read_text(encoding="utf-8") if memory_path.exists() else f"# {issue_key} AI Bug Workflow Memory\n"
+    stored = read_generated_file(repo_root, memory_path)  # never through a link (O-1)
+    existing = decode_text(stored, "utf-8") if stored is not None else f"# {issue_key} AI Bug Workflow Memory\n"
     final_result = _build_final_result_section(report)
     updated = _replace_section(existing, "## Final Result", final_result)
     atomic_write_text(memory_path, updated)
@@ -1786,13 +1800,13 @@ def jira_comment_step(repo_root: Path, issue_key: str, execute: bool = False) ->
     if not target.exists():
         raise FileNotFoundError(f"No workflow package found for {issue_key}. Run: bugpilot bug {issue_key}")
     draft_path = target / "jira_comment_draft.md"
-    if not draft_path.exists():
+    if not generated_file_exists(repo_root, draft_path):
         raise FileNotFoundError(f"Missing .ai/{issue_key}/jira_comment_draft.md. Run: bugpilot jira-comment-draft {issue_key}")
 
     mode = "execute" if execute else "preview"
     log(target, f"[START] jira_comment {mode}")
     try:
-        comment_text = _prepared_jira_comment_text(draft_path, issue_key)
+        comment_text = _prepared_jira_comment_text(repo_root, draft_path, issue_key)
         if not execute:
             _mark_step(repo_root, issue_key, "jira_comment", "skipped")
             log(target, "[INFO] jira_comment preview only; no Jira POST was made")
@@ -1888,9 +1902,9 @@ def manual_result_step(repo_root: Path, issue_key: str, overwrite: bool = False)
         raise
 
 
-def _prepare_issue_dir(repo_root: Path, issue_key: str) -> Path:
-    """``.ai/<id>/``, validated and checked for links before any step writes there."""
-    return writable_issue_dir(repo_root, issue_key)
+def _prepare_issue_dir(repo_root: Path, issue_key: str, *, create: bool = True) -> Path:
+    """``.ai/<id>/``, validated and checked for links before any step writes there; ``create=False`` creates nothing."""
+    return writable_issue_dir(repo_root, issue_key, create=create)
 
 
 def _effective_hint(*candidates: str | None) -> str | None:
@@ -1984,8 +1998,8 @@ def _build_retry_prompt(repo_root: Path, issue_key: str, fix_mode: FixMode | Non
     if f"- .ai/{issue_key}/user_feedback.md" not in reading:
         reading.append(f"- .ai/{issue_key}/user_feedback.md")
     reading.append("- current git diff")
-    feedback = _developer_feedback(target)
-    previous = _previous_attempt_summary(target)
+    feedback = _developer_feedback(repo_root, target)
+    previous = _previous_attempt_summary(repo_root, target)
     investigating = mode.is_investigation
     purpose = (
         "The previous investigation did not answer the question, or the developer wants a "
@@ -2075,7 +2089,7 @@ _PREVIOUS_REPORT_LIMIT = 2400
 _TRUNCATED = "[truncated by bugpilot]"
 
 
-def _developer_feedback(target: Path) -> str:
+def _developer_feedback(repo_root: Path, target: Path) -> str:
     """``user_feedback.md``, contained as the developer's guidance (class 2, D8; 0.1.5).
 
     Held inside the retry prompt's Developer Feedback section as a hint or the
@@ -2085,7 +2099,7 @@ def _developer_feedback(target: Path) -> str:
     one of the prompt's sections. Cut first, contained second, so a cut cannot
     leave a fence open; the cut is said outside it.
     """
-    text = _feedback_text(target)
+    text = _feedback_text(repo_root, target)
     if not text:
         return "No user feedback file found."
     cut = text[:_FEEDBACK_LIMIT].rstrip()
@@ -2093,7 +2107,7 @@ def _developer_feedback(target: Path) -> str:
     return f"{contained}\n\n{_TRUNCATED}" if len(text) > _FEEDBACK_LIMIT else contained
 
 
-def _feedback_text(target: Path) -> str:
+def _feedback_text(repo_root: Path, target: Path) -> str:
     """``user_feedback.md`` from the start of its first line with text; trailing whitespace dropped.
 
     Not `_read_artifact`'s ``strip()``: that also takes the first line's
@@ -2101,10 +2115,10 @@ def _feedback_text(target: Path) -> str:
     indented code would become a fence or a heading. The hint and the
     instruction layers keep that indentation, and so does the feedback.
     """
-    path = target / "user_feedback.md"
-    if not path.exists():
+    data = read_generated_file(repo_root, target / "user_feedback.md")  # never through a link (O-1)
+    if data is None:
         return ""
-    body = path.read_text(encoding="utf-8", errors="replace").rstrip()
+    body = decode_text(data, "utf-8", errors="replace").rstrip()
     first = len(body) - len(body.lstrip())
     return body[body.rfind("\n", 0, first) + 1 :]
 
@@ -2115,14 +2129,14 @@ PREVIOUS_ATTEMPT_NOTE = (
 )
 
 
-def _previous_attempt_summary(target: Path) -> str:
+def _previous_attempt_summary(repo_root: Path, target: Path) -> str:
     """``fix_report.md``, quoted as earlier AI output (class 4; 0.1.5).
 
     Verbatim in a fenced block nothing in it can close, cut before it is
     fenced so a cut can never leave a fence open, under one sentence saying
     what it is.
     """
-    text = _read_artifact(target, FIX_REPORT_ARTIFACT)
+    text = _read_artifact(repo_root, target, FIX_REPORT_ARTIFACT)
     if not text:
         return f"### {FIX_REPORT_ARTIFACT}\n\nmissing — the previous attempt left no report."
     block = evidence_block(text[:_PREVIOUS_REPORT_LIMIT].rstrip(), info="text earlier-ai-output fix-report")
@@ -2134,8 +2148,12 @@ def _manual_result_templates(issue_key: str) -> dict[str, str]:
     """The developer-manual-fix skeleton: one report, agent-shaped."""
     return {FIX_REPORT_ARTIFACT: manual_fix_report_template(issue_key)}
 
-def _prepared_jira_comment_text(draft_path: Path, issue_key: str) -> str:
-    raw = draft_path.read_text(encoding="utf-8", errors="replace")
+def _prepared_jira_comment_text(repo_root: Path, draft_path: Path, issue_key: str) -> str:
+    # Never through a link (O-1): what is posted is the draft's own text, never a file a link points at.
+    data = read_generated_file(repo_root, draft_path)
+    if data is None:
+        raise FileNotFoundError(f"The Jira comment draft is gone. Run: bugpilot jira-comment-draft {issue_key}")
+    raw = decode_text(data, "utf-8", errors="replace")
     _validate_comment_issue_key(raw, issue_key)
     prepared = prepare_jira_comment_text(raw)
     if not prepared:
@@ -2168,11 +2186,11 @@ def _jira_comment_result_json(result: JiraCommentPostResult) -> dict[str, object
     }
 
 
-def _read_artifact(target: Path, file_name: str) -> str:
-    path = target / file_name
-    if not path.exists():
+def _read_artifact(repo_root: Path, target: Path, file_name: str) -> str:
+    data = read_generated_file(repo_root, target / file_name)  # never through a link (O-1)
+    if data is None:
         return ""
-    return path.read_text(encoding="utf-8", errors="replace").strip()
+    return decode_text(data, "utf-8", errors="replace").strip()
 
 
 # Presence of this marker enables the "Report Status to Jira (before commit)"
@@ -2205,11 +2223,9 @@ def _fetch_message(result: JiraFetchResult) -> str:
 
 def _generated_files(repo_root: Path, issue_key: str) -> list[str]:
     target = issue_dir(repo_root, issue_key)
-    generated = [
-        f".ai/{issue_key}/{path.name}"
-        for path in target.iterdir()
-        if path.is_file()
-    ]
+    # Names only, and never through a link (O-1): a link or junction at the work item's folder, its attachments
+    # folder or the memory folders is refused, and an entry that is a link or not a regular file is not listed.
+    generated = [f".ai/{issue_key}/{name}" for name in generated_file_names(repo_root, target) or ()]
     # One level into `attachments/`, because this listing was files-only and a
     # developer's screenshot would otherwise be absent from the status file and
     # from every view built on it.
@@ -2217,7 +2233,7 @@ def _generated_files(repo_root: Path, issue_key: str) -> list[str]:
         f".ai/{issue_key}/{ATTACHMENTS_DIR}/{name}" for name in attachment_names(target)
     ]
     memory_path = repo_root / ".ai_memory" / "bugs" / f"{issue_key}.md"
-    if memory_path.exists():
+    if generated_file_exists(repo_root, memory_path):
         generated.append(f".ai_memory/bugs/{issue_key}.md")
     return sorted(generated)
 

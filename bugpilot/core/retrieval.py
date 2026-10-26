@@ -42,6 +42,7 @@ from .artifact_io import atomic_write_text
 from .artifacts import ARTIFACT_SCHEMA_VERSION, RETRIEVAL_ARTIFACT
 from .config import issue_dir, writable_issue_dir
 from .models import DEFAULT_MAX_RELATED_COMMITS
+from .safe_paths import UnsafePathError, decode_text, read_generated_file
 
 
 class RetrievalArtifactError(ValueError):
@@ -280,13 +281,16 @@ def load_retrieval(repo_root: Path, work_item_id: str) -> RetrievalArtifact | No
     """The persisted retrieval, or ``None`` when the search has not run.
 
     Raises :class:`RetrievalArtifactError` when the file exists but cannot be
-    used, including one from before this schema.
+    used, including one from before this schema. Never read through a link,
+    and only as a regular file (O-1): a refusal is a :class:`RetrievalArtifactError` too.
     """
-    path = retrieval_path(repo_root, work_item_id)
-    if not path.exists():
-        return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        raw = read_generated_file(repo_root, retrieval_path(repo_root, work_item_id))
+        if raw is None:
+            return None
+        data = json.loads(decode_text(raw, "utf-8"))
+    except UnsafePathError as exc:
+        raise RetrievalArtifactError(str(exc)) from exc
     except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
         raise RetrievalArtifactError(
             f".ai/{work_item_id}/{RETRIEVAL_ARTIFACT} could not be read ({exc})."

@@ -12,7 +12,7 @@ from bugpilot import __version__, cli_json
 from bugpilot.core import agent_runner, copilot, doctor, errors, setup, workflow
 from bugpilot.core.branch_policy import BRANCH_POLICIES
 from bugpilot.core.cleanup import clean_issue_artifacts
-from bugpilot.core.safe_paths import UnsafePathError
+from bugpilot.core.safe_paths import UnsafePathError, generated_file_exists, generated_folder_names
 from bugpilot.core.terminal import terminal_safe_output
 from bugpilot.core.context import build_context
 from bugpilot.core.email_notify import EmailSendError
@@ -1898,14 +1898,22 @@ def _list_work_items(repo_root: Path, json_output: bool) -> int:
     # this tool made, and listing it would hand its name to every consumer of
     # this list — the extension's History, and from there a handoff's command
     # line (§37.70). Skipped, not touched: nothing here deletes or renames.
-    directories = (
-        sorted(path for path in ai_root.iterdir() if path.is_dir() and is_work_item_id(path.name))
-        if ai_root.is_dir()
-        else []
-    )
+    # Never through a link (O-1): a link at the work items' folder is refused,
+    # and a work item folder that is a link is not listed, so no outside
+    # folder's names reach the list, and nothing outside is asked about its
+    # files.
+    try:
+        names = generated_folder_names(repo_root, ai_root)
+    except UnsafePathError as exc:
+        if json_output:
+            cli_json.emit_failure("list", errors.INVALID_INPUT, str(exc))
+        else:
+            print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    directories = sorted(ai_root / name for name in names or () if is_work_item_id(name))
     for path in directories:
         issue = read_issue_quietly(repo_root, path.name)
-        prepared = (path / RUN_ARTIFACT).exists()
+        prepared = _prepared(repo_root, path / RUN_ARTIFACT)
         entries.append(
             {
                 "work_item_id": path.name,
@@ -1927,6 +1935,14 @@ def _list_work_items(repo_root: Path, json_output: bool) -> int:
         state = "prepared" if entry["prepared"] else "incomplete"
         print(f"{str(entry['work_item_id']).ljust(width)}  {source:<7} {state:<10} {title}")
     return 0
+
+
+def _prepared(repo_root: Path, run_file: Path) -> bool:
+    """Whether a work item's ``run.json`` is a regular file; a link there is not, whatever it points at (O-1)."""
+    try:
+        return generated_file_exists(repo_root, run_file)
+    except UnsafePathError:
+        return False
 
 
 def _report_fix_mode_failure(exc: FixModeError) -> int:

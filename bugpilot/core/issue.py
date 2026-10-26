@@ -31,6 +31,7 @@ from .input_adapters import manual_issue_payload
 from .jira import parse_issue
 from .jira_parse import free_description
 from .models import SOURCE_JIRA, SOURCE_MANUAL, BugSpec
+from .safe_paths import UnsafePathError, decode_text, read_generated_file
 from .search_terms import SECONDARY_ORIGINS
 
 
@@ -318,13 +319,16 @@ def load_issue(repo_root: Path, work_item_id: str) -> IssueArtifact | None:
 
     Raises :class:`IssueArtifactError` when the file exists but cannot be used,
     including a file from before this schema. Callers that only label a listing
-    use :func:`read_issue_quietly` instead.
+    use :func:`read_issue_quietly` instead. Never read through a link, and only
+    as a regular file (O-1): a refusal is an :class:`IssueArtifactError` too.
     """
-    path = issue_path(repo_root, work_item_id)
-    if not path.exists():
-        return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        raw = read_generated_file(repo_root, issue_path(repo_root, work_item_id))
+        if raw is None:
+            return None
+        data = json.loads(decode_text(raw, "utf-8"))
+    except UnsafePathError as exc:
+        raise IssueArtifactError(str(exc)) from exc
     except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
         raise IssueArtifactError(f".ai/{work_item_id}/{ISSUE_ARTIFACT} could not be read ({exc}).") from exc
     return issue_from_dict(data, work_item_id)

@@ -19,6 +19,7 @@ from .evidence import one_line
 from .identity import is_known_work_item_id
 from .issue import IssueArtifact
 from .models import DEFAULT_MAX_SIMILAR_FIXES
+from .safe_paths import UnsafePathError, decode_text, generated_folder_exists, read_generated_file
 
 
 def build_memory_entry(issue_key: str, issue: IssueArtifact, context_path: str) -> str:
@@ -80,14 +81,26 @@ def search_memory(
     if isinstance(max_results, bool) or not isinstance(max_results, int) or max_results < 1:
         max_results = DEFAULT_MAX_SIMILAR_FIXES
     # No memory folder, or an empty one: nothing to read and nothing to say
-    # beyond the report's own "none found" — no error, no file.
-    memories = sorted(memory_dir(repo_root).glob("*.md")) if memory_dir(repo_root).exists() else []
+    # beyond the report's own "none found" — no error, no file. Never through a
+    # link (O-1): a link or junction at the memory folders refuses the search,
+    # and a memory file that is a link or not a regular file is skipped unread,
+    # counted in the report.
+    folder = memory_dir(repo_root)
+    memories = sorted(folder.glob("*.md")) if generated_folder_exists(repo_root, folder) else []
     results = []
+    skipped = 0
 
     for path in memories:
         if issue_key and path.stem == issue_key:
             continue
-        text = path.read_text(encoding="utf-8", errors="replace")
+        try:
+            data = read_generated_file(repo_root, path)
+        except UnsafePathError:
+            skipped += 1
+            continue
+        if data is None:
+            continue  # gone since the folder was listed
+        text = decode_text(data, "utf-8", errors="replace")
         score = _score_memory(text, keywords)
         if score <= 0:
             continue
@@ -101,7 +114,7 @@ def search_memory(
         )
 
     results = sorted(results, key=lambda item: (-int(item["score"]), str(item["file"])))[:max_results]
-    markdown = _render_memory_search(issue_key or query, keywords, results)
+    markdown = _render_memory_search(issue_key or query, keywords, results, skipped=skipped)
     return issue_key, markdown, results
 
 
@@ -137,7 +150,9 @@ def _first_heading(text: str) -> str | None:
     return None
 
 
-def _render_memory_search(query_label: str, keywords: list[str], results: list[dict[str, object]]) -> str:
+def _render_memory_search(
+    query_label: str, keywords: list[str], results: list[dict[str, object]], *, skipped: int = 0
+) -> str:
     lines = [
         f"# Memory Search: {one_line(query_label)}",
         "",
@@ -155,4 +170,6 @@ def _render_memory_search(query_label: str, keywords: list[str], results: list[d
             keywords_text = ", ".join(one_line(str(keyword)) for keyword in result["matched_keywords"])
             lines.append(f"- `{one_line(str(result['file']))}` score={result['score']} keywords={keywords_text}")
             lines.append(f"  - {one_line(str(result['title']))}")
+    if skipped:
+        lines += ["", f"_{skipped} memory file(s) were not read: a link, a junction or not a regular file._"]
     return "\n".join(lines).rstrip() + "\n"
