@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.6 — unreleased (release candidate)
+## 0.1.6
 
 - **Safer reading of BugPilot's project files.** BugPilot is stricter about
   the work-item and bug-memory files it reads, lists and opens, and does not
