@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.6 — unreleased (release candidate)
+
+- **Safer reading of BugPilot's project files.** BugPilot is stricter about
+  the work-item and bug-memory files it reads, lists and opens, and does not
+  use one it cannot read safely.
+- **Clearer errors for invalid project files.** The panel, `bugpilot list` and
+  the MCP tools report such a file in one sentence, instead of failing later
+  or showing part of it. Files BugPilot created itself work as before.
+
 ## 0.1.5 — 2026-10-15
 
 - **Evidence is quoted, not taken for instructions.** `context.md` quotes the
