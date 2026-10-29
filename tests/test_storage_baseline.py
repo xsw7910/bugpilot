@@ -425,6 +425,30 @@ def test_a_session_labels_its_own_repository_id_computed_by_bugpilots_identity(t
     assert session.normalize({"a": [shown, own]}) == {"a": ["<repository-id>", shown.replace(own, "<repository-id>")]}
 
 
+def test_a_canonical_spelling_that_contains_the_plain_one_is_labelled_whole(tmp_path: Path, monkeypatch):
+    # macOS: a temporary folder `/var/folders/...` is canonically `/private/var/folders/...`, and storage prints the
+    # canonical one (its data root is a realpath). Replacing the plain spelling first left `/private<data>/...`, and
+    # the order of the spellings changed with the hash seed (0.1.7, CI run 40936578232). Windows' `\\?\` form nests
+    # the same way, so this runs everywhere. The order also changed with the folder's name, so many names are tried:
+    # the old normalizer got each one right about half the time, and all sixteen almost never.
+    session = baseline.Session(tmp_path / "s")
+    prefix = "\\\\?\\" if os.name == "nt" else "/private"
+    real_resolve = type(session.data).resolve
+
+    def resolve(self, strict=False):
+        return type(self)(prefix + str(self)) if str(self).startswith(str(tmp_path)) else real_resolve(self, strict=strict)
+
+    monkeypatch.setattr(type(session.data), "resolve", resolve)
+    for index in range(16):
+        session.data = tmp_path / "s" / f"data-{index}"
+        canonical = f"{prefix}{session.data}"
+        assert str(session.data) in canonical and canonical != str(session.data)
+        task = f"Read {canonical}/repositories/{session.repository_id}/work/JR-12345/task.md and complete the workflow."
+        assert session.normalize(task) == (
+            "Read <data>/repositories/<repository-id>/work/JR-12345/task.md and complete the workflow.")
+        assert session.normalize(f"{session.data}/memory/JR-12345.md") == "<data>/memory/JR-12345.md"
+
+
 @pytest.mark.parametrize("folder", ["subfolder", "elsewhere"])
 def test_another_folders_repository_id_in_a_record_is_an_error_never_normalized_away(tmp_path: Path, folder):
     """The identity-collision guard: a namespace computed from the wrong folder fails the generator."""

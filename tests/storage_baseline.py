@@ -193,7 +193,10 @@ class Session:
         if isinstance(value, str):
             text = value
             for path, label in self.labels():
-                for spelling in {str(path), path.as_posix(), str(path.resolve()), path.resolve().as_posix()}:
+                # Longest first: a canonical spelling can contain the plain one (macOS's `/private/var/...` for
+                # `/var/...`, which storage prints), and a set's order changes with the hash seed (0.1.7).
+                spellings = {str(path), path.as_posix(), str(path.resolve()), path.resolve().as_posix()}
+                for spelling in sorted(spellings, key=lambda spelling: (-len(spelling), spelling)):
                     text = text.replace(spelling, label)
             home = os.environ.get("HOME")
             if home:
