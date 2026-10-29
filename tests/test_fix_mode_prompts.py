@@ -83,7 +83,7 @@ REQUIRED_REPORT_SECTIONS: tuple[str, ...] = (
 
 
 def _assert_report_contract(text: str) -> None:
-    assert "Write one report: `.ai/JR-1/fix_report.md`" in text
+    assert "Write one report: `/data/work/fix_report.md`" in text
     for heading in REQUIRED_REPORT_SECTIONS:
         assert heading in text, heading
 
@@ -117,7 +117,7 @@ COMMIT_OFFER = "Do you want me to commit and push this branch to origin?"
 def task(mode_id: str | None = None, **kwargs) -> str:
     """Render task.md the way a caller will: resolve the ID, pass the mode."""
     fix_mode = None if mode_id is None else REGISTRY.resolve(mode_id)
-    return generate_task("JR-1", "Stale search results", fix_mode=fix_mode, **kwargs)
+    return generate_task("JR-1", "Stale search results", fix_mode=fix_mode, **kwargs, work_folder="/data/work")
 
 
 # --- the default stays the default ------------------------------------------
@@ -164,10 +164,10 @@ def test_a_mode_id_string_is_refused_with_a_pointer_to_the_registry():
     built-ins and quietly ignore custom modes later.
     """
     with pytest.raises(FixModeError, match="resolved FixMode object"):
-        generate_task("JR-1", "Stale", fix_mode="conservative")
+        generate_task("JR-1", "Stale", fix_mode="conservative", work_folder="/data/work")
 
     with pytest.raises(FixModeError, match="FixModeRegistry.resolve"):
-        generate_task("JR-1", "Stale", fix_mode="standard")
+        generate_task("JR-1", "Stale", fix_mode="standard", work_folder="/data/work")
 
 
 def test_unknown_ids_still_fail_at_the_registry_not_by_falling_back():
@@ -473,7 +473,7 @@ def custom_mode(**overrides):
 
 
 def task_for(mode, **kwargs) -> str:
-    return generate_task("JR-1", "Stale search results", fix_mode=mode, **kwargs)
+    return generate_task("JR-1", "Stale search results", fix_mode=mode, **kwargs, work_folder="/data/work")
 
 
 def test_a_custom_mode_object_renders_without_being_registered():

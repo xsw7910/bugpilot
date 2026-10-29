@@ -130,36 +130,36 @@
  "approved_residue": {},
  "totals": {
   "ai-dir": {
-   "occurrences": 245,
-   "files": 47
+   "occurrences": 22,
+   "files": 11
   },
   "ai-memory": {
-   "occurrences": 39,
-   "files": 16
+   "occurrences": 15,
+   "files": 8
   },
   "bugpilot-dir": {
-   "occurrences": 103,
-   "files": 28
+   "occurrences": 8,
+   "files": 8
   },
   "home-bugpilot": {
-   "occurrences": 30,
-   "files": 15
+   "occurrences": 38,
+   "files": 18
   },
   "config-dir-env": {
    "occurrences": 4,
    "files": 2
   },
   "agent-instruction": {
-   "occurrences": 17,
-   "files": 11
+   "occurrences": 1,
+   "files": 1
   },
   "path-helper": {
-   "occurrences": 102,
-   "files": 25
+   "occurrences": 111,
+   "files": 27
   },
   "path-constant": {
-   "occurrences": 83,
-   "files": 18
+   "occurrences": 73,
+   "files": 14
   },
   "home-lookup": {
    "occurrences": 3,
@@ -168,59 +168,32 @@
  },
  "counts": {
   "bugpilot/cli.py": {
-   "ai-dir": 44,
-   "ai-memory": 1,
-   "bugpilot-dir": 9,
-   "home-bugpilot": 7,
-   "agent-instruction": 1,
-   "path-helper": 2
+   "ai-dir": 1,
+   "home-bugpilot": 9,
+   "path-helper": 12
   },
   "bugpilot/core/agent_runner.py": {
-   "ai-dir": 1
+   "path-helper": 1
   },
   "bugpilot/core/ai_behavior.py": {
-   "bugpilot-dir": 4,
-   "path-helper": 4,
-   "path-constant": 3
-  },
-  "bugpilot/core/artifact_io.py": {
-   "ai-dir": 1
+   "home-bugpilot": 2,
+   "path-helper": 3
   },
   "bugpilot/core/attachments.py": {
-   "ai-dir": 2,
    "path-constant": 6,
    "home-lookup": 1
   },
   "bugpilot/core/cleanup.py": {
-   "ai-dir": 5,
-   "ai-memory": 5,
+   "ai-dir": 1,
+   "ai-memory": 1,
    "path-helper": 2
   },
   "bugpilot/core/config.py": {
-   "ai-dir": 5,
-   "ai-memory": 3,
-   "home-bugpilot": 1,
-   "path-helper": 6
-  },
-  "bugpilot/core/context.py": {
-   "ai-dir": 1
+   "home-bugpilot": 2,
+   "path-helper": 8
   },
   "bugpilot/core/context_preview.py": {
-   "ai-dir": 3,
    "path-helper": 1
-  },
-  "bugpilot/core/delivery_instructions.py": {
-   "ai-dir": 1
-  },
-  "bugpilot/core/doctor.py": {
-   "bugpilot-dir": 3
-  },
-  "bugpilot/core/email_notify.py": {
-   "ai-dir": 1
-  },
-  "bugpilot/core/fix_mode_state.py": {
-   "ai-dir": 2,
-   "bugpilot-dir": 1
   },
   "bugpilot/core/fix_mode_store.py": {
    "bugpilot-dir": 1,
@@ -234,56 +207,32 @@
    "path-helper": 2,
    "path-constant": 2
   },
-  "bugpilot/core/git_ops.py": {
-   "ai-dir": 7,
-   "ai-memory": 3,
-   "path-constant": 2
-  },
   "bugpilot/core/handoff.py": {
-   "ai-dir": 2,
-   "agent-instruction": 1
-  },
-  "bugpilot/core/identity.py": {
-   "ai-dir": 2
+   "path-helper": 1
   },
   "bugpilot/core/input_adapters.py": {
    "path-helper": 1
   },
   "bugpilot/core/instructions.py": {
-   "bugpilot-dir": 3,
+   "bugpilot-dir": 1,
    "home-bugpilot": 3,
-   "path-helper": 8,
-   "path-constant": 1
+   "path-helper": 7
   },
   "bugpilot/core/issue.py": {
-   "ai-dir": 2,
    "path-helper": 4
   },
   "bugpilot/core/jira.py": {
    "home-bugpilot": 1
   },
-  "bugpilot/core/logging_utils.py": {
-   "ai-dir": 1
-  },
   "bugpilot/core/memory.py": {
-   "ai-dir": 2,
-   "ai-memory": 1,
-   "path-helper": 3
-  },
-  "bugpilot/core/models.py": {
-   "ai-memory": 1,
-   "bugpilot-dir": 1
+   "path-helper": 2
   },
   "bugpilot/core/project_settings.py": {
-   "bugpilot-dir": 3,
+   "bugpilot-dir": 1,
    "home-bugpilot": 2,
-   "path-helper": 4
+   "path-helper": 2
   },
   "bugpilot/core/prompts.py": {
-   "ai-dir": 7,
-   "ai-memory": 1,
-   "bugpilot-dir": 2,
-   "agent-instruction": 5,
    "path-constant": 2
   },
   "bugpilot/core/protected_rules.py": {
@@ -293,14 +242,13 @@
   "bugpilot/core/repository_profile.py": {
    "bugpilot-dir": 1,
    "home-bugpilot": 2,
-   "path-helper": 3
+   "path-helper": 2
   },
   "bugpilot/core/repository_settings.py": {
    "bugpilot-dir": 1,
    "home-bugpilot": 1
   },
   "bugpilot/core/retrieval.py": {
-   "ai-dir": 2,
    "path-helper": 4
   },
   "bugpilot/core/review_changes.py": {
@@ -310,16 +258,12 @@
    "path-constant": 3
   },
   "bugpilot/core/review_report.py": {
-   "ai-dir": 2,
    "path-helper": 2
   },
   "bugpilot/core/run.py": {
-   "ai-dir": 3,
    "path-helper": 4
   },
   "bugpilot/core/safe_paths.py": {
-   "ai-dir": 6,
-   "ai-memory": 4,
    "path-helper": 2
   },
   "bugpilot/core/search.py": {
@@ -334,7 +278,6 @@
    "home-lookup": 1
   },
   "bugpilot/core/task_preview.py": {
-   "ai-dir": 10,
    "path-helper": 3
   },
   "bugpilot/core/user_config.py": {
@@ -346,54 +289,32 @@
   "bugpilot/core/verification.py": {
    "ai-dir": 2,
    "ai-memory": 1,
-   "bugpilot-dir": 5,
-   "path-helper": 4,
-   "path-constant": 3
+   "home-bugpilot": 2,
+   "path-helper": 3
   },
   "bugpilot/core/verification_report.py": {
-   "ai-dir": 2,
    "path-helper": 2
   },
   "bugpilot/core/workflow.py": {
-   "ai-dir": 32,
-   "ai-memory": 6,
-   "agent-instruction": 1,
-   "path-helper": 19,
+   "home-bugpilot": 1,
+   "path-helper": 23,
    "path-constant": 3
   },
   "bugpilot/mcp_server.py": {
-   "ai-dir": 6,
-   "agent-instruction": 1,
-   "path-helper": 5
-  },
-  "extension/src/app/agents.ts": {
-   "ai-dir": 2,
-   "agent-instruction": 2
+   "path-helper": 6
   },
   "extension/src/app/aiBehaviorPolicy.ts": {
-   "bugpilot-dir": 6,
    "path-constant": 7
   },
-  "extension/src/app/artifacts.ts": {
-   "ai-dir": 5
-  },
   "extension/src/app/controller.ts": {
-   "ai-dir": 26,
+   "ai-dir": 5,
    "ai-memory": 5,
-   "bugpilot-dir": 21,
-   "agent-instruction": 2,
-   "path-helper": 9,
+   "path-helper": 6,
    "path-constant": 25
   },
-  "extension/src/app/environment.ts": {
-   "ai-dir": 1
-  },
-  "extension/src/app/fixModeTransport.ts": {
+  "extension/src/app/dataFolder.ts": {
+   "ai-dir": 1,
    "bugpilot-dir": 1
-  },
-  "extension/src/app/form.ts": {
-   "ai-dir": 3,
-   "bugpilot-dir": 4
   },
   "extension/src/app/gitignore.ts": {
    "ai-dir": 6,
@@ -401,7 +322,6 @@
    "path-constant": 3
   },
   "extension/src/app/instructions.ts": {
-   "bugpilot-dir": 1,
    "home-bugpilot": 1
   },
   "extension/src/app/jiraConnection.ts": {
@@ -410,73 +330,32 @@
   "extension/src/app/jiraSite.ts": {
    "home-bugpilot": 1
   },
-  "extension/src/app/nextAction.ts": {
-   "ai-dir": 1,
-   "agent-instruction": 1
-  },
-  "extension/src/app/projectSettings.ts": {
-   "bugpilot-dir": 2
-  },
-  "extension/src/app/repositoryProfile.ts": {
-   "bugpilot-dir": 1
-  },
-  "extension/src/app/results.ts": {
-   "ai-dir": 3
-  },
   "extension/src/app/sessionReset.ts": {
-   "ai-dir": 20,
-   "bugpilot-dir": 1,
-   "agent-instruction": 1,
-   "path-constant": 4
+   "path-constant": 3
   },
   "extension/src/app/verificationPolicy.ts": {
-   "bugpilot-dir": 7,
    "path-constant": 7
   },
-  "extension/src/app/workflow.ts": {
-   "ai-dir": 1
-  },
-  "extension/src/commands.ts": {
+  "extension/src/executable.ts": {
    "ai-dir": 1
   },
   "extension/src/extension.ts": {
-   "ai-dir": 2,
-   "bugpilot-dir": 1,
    "home-lookup": 1
   },
-  "extension/src/host/bugpilotFiles.ts": {
-   "bugpilot-dir": 4
-  },
-  "extension/src/host/ports.ts": {
-   "ai-dir": 6,
-   "bugpilot-dir": 8
-  },
   "extension/src/panel/html.ts": {
-   "bugpilot-dir": 9,
    "home-bugpilot": 1,
    "path-constant": 4
   },
   "extension/src/panel/messages.ts": {
-   "ai-dir": 2,
-   "ai-memory": 1,
-   "bugpilot-dir": 1
+   "ai-dir": 1,
+   "ai-memory": 1
   },
   "extension/src/secrets.ts": {
    "home-bugpilot": 1
   },
-  "extension/src/workspace.ts": {
-   "ai-dir": 1
-  },
   "scripts/check_cli_contract.py": {
    "bugpilot-dir": 1,
    "config-dir-env": 1
-  },
-  "scripts/send-via-outlook.ps1": {
-   "ai-dir": 2
-  },
-  "skills/bugpilot-investigate/SKILL.md": {
-   "ai-dir": 5,
-   "agent-instruction": 1
   }
  }
 }

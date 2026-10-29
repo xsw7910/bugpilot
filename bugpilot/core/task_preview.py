@@ -17,7 +17,7 @@ so the preview is the task, never a description of it. Two kinds:
   Every other layer is the repository's and the user's own, as a run would
   read them. Nothing about an issue is made up.
 
-Reading only. It writes nothing — no ``.ai/`` folder, no ``issue.json``
+Reading only. It writes nothing — no work item folder, no ``issue.json``
 (where writing a task records a branch name, a preview does not), no policy
 file — talks to no Jira and runs no Git command. Policy texts reach the
 preview only as the task carries them; the metadata says where each came from,
@@ -32,7 +32,7 @@ from pathlib import Path
 from .ai_behavior import DEFAULT_AI_BEHAVIOR_VERSION, resolve_ai_behavior
 from .artifacts import CONTEXT_ARTIFACT, ISSUE_ARTIFACT, TASK_ARTIFACT
 from .branch_policy import resolve_branch_policy
-from .config import issue_dir
+from .config import data_dir, issue_dir, prompt_path, readable_data_dir
 from .fix_mode_state import select_fix_mode
 from .identity import validate_work_item_id
 from .evidence import section_starts
@@ -42,7 +42,7 @@ from .project_settings import ResolvedProjectSettings, resolve_project_settings
 from .prompts import TASK_SECTION_CLASSES
 from .protected_rules import PROTECTED_RULES_VERSION
 from .repository_profile import resolve_repository_context
-from .safe_paths import is_link_or_junction
+from .safe_paths import UnsafePathError, is_link_or_junction, read_generated_file
 from .verification import DEFAULT_POLICY_VERSION
 from .workflow import TaskInputs, work_item_task_inputs
 
@@ -117,19 +117,21 @@ def preview_work_item(repo_root: Path, work_item_id: str) -> TaskPreview:
         validate_work_item_id(work_item_id)
     except ValueError as exc:
         raise TaskPreviewError(str(exc)) from exc
-    # Never through a link or junction (0.1.5, F13): at `.ai`, the work item's folder or
+    # Never through a link or junction (0.1.5, F13): at `work`, the work item's folder or
     # `issue.json` itself, nothing is read — as `context-preview` and the prepared task's
     # own read (`read_work_item_text`) already refuse.
+    # Storage's checks of the data folder down to the namespace come first (0.1.7): a refused one fails here.
+    readable_data_dir(repo_root)
     folder = issue_dir(repo_root, work_item_id)
-    if any(is_link_or_junction(item) for item in (repo_root / ".ai", folder, folder / ISSUE_ARTIFACT)):
+    if any(is_link_or_junction(item) for item in (folder.parent, folder, folder / ISSUE_ARTIFACT)):
         raise TaskPreviewError(
-            f".ai/{work_item_id} is behind a link or junction, so nothing in it was read. "
-            "BugPilot reads a work item only from its real folder in this repository."
+            f"work/{work_item_id} is behind a link or junction, so nothing in it was read. "
+            "BugPilot reads a work item only from its real folder in its data folder."
         )
     issue = load_issue(repo_root, work_item_id)
     if issue is None:
         raise TaskPreviewError(
-            f"There is no prepared work item {work_item_id} here (.ai/{work_item_id}/issue.json). "
+            f"There is no prepared work item {work_item_id} here (work/{work_item_id}/issue.json). "
             "Prepare it first, or run `bugpilot task-preview` without an id for the template.",
             code="WORK_ITEM_NOT_FOUND",
         )
@@ -174,6 +176,7 @@ def preview_template(
         fix_mode=selection.mode,
         branch_policy=resolve_branch_policy(branch_policy, None),
         branch=template.replace("{issue}", WORK_ITEM_PLACEHOLDER).replace("{slug}", TITLE_SLUG_PLACEHOLDER),
+        work_folder=prompt_path(data_dir(repo_root) / "work" / WORK_ITEM_PLACEHOLDER),
         **layers,  # type: ignore[arg-type]
     )
     return TaskPreview(
@@ -211,21 +214,34 @@ def _layer_warnings(inputs: TaskInputs) -> tuple[str, ...]:
 
 
 def read_work_item_text(repo_root: Path, work_item_id: str, name: str) -> tuple[bool, str | None, str | None]:
-    """``(exists, text, problem)`` for a generated text file in ``.ai/<id>/``, read for showing only.
+    """``(exists, text, problem)`` for a generated text file in ``work/<id>/``, read for showing only.
 
-    Never through a link or junction — at ``.ai``, the work item's folder or
-    the file — and only as UTF-8; CRLF reads as LF. Writes nothing.
+    Never through a link or junction — at ``work``, the work item's folder or
+    the file — and only as UTF-8; CRLF reads as LF. Writes nothing. Storage
+    checks the data folder down to the namespace first, and a refusal there
+    is raised; the file is then read as every generated file is (O-1).
     """
+    base = readable_data_dir(repo_root)
     folder = issue_dir(repo_root, work_item_id)
     path = folder / name
     if not path.exists() and not is_link_or_junction(path):
         return False, None, None
-    if any(is_link_or_junction(item) for item in (repo_root / ".ai", folder, path)):
-        return True, None, f".ai/{work_item_id}/{name} is behind a link or junction, so it was not read."
+    if any(is_link_or_junction(item) for item in (folder.parent, folder, path)):
+        return True, None, f"work/{work_item_id}/{name} is behind a link or junction, so it was not read."
     try:
-        return True, path.read_bytes().decode("utf-8").replace("\r\n", "\n"), None
-    except (OSError, UnicodeDecodeError):
-        return True, None, f".ai/{work_item_id}/{name} could not be read as UTF-8 text."
+        data = read_generated_file(base, path)
+    except UnsafePathError:
+        return True, None, (
+            f"work/{work_item_id}/{name} is behind a link or junction, or is not a regular file, so it was not read."
+        )
+    except OSError:
+        return True, None, f"work/{work_item_id}/{name} could not be read as UTF-8 text."
+    if data is None:
+        return False, None, None  # gone since the look
+    try:
+        return True, data.decode("utf-8").replace("\r\n", "\n"), None
+    except UnicodeDecodeError:
+        return True, None, f"work/{work_item_id}/{name} could not be read as UTF-8 text."
 
 
 def _prepared(repo_root: Path, work_item_id: str, text: str) -> PreparedTask:

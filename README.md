@@ -7,7 +7,7 @@ It comes as a command-line tool (`bugpilot`), an MCP server (`bugpilot-mcp`) and
 ## Key features
 
 - **Two ways in.** A Jira issue key (`JR-12345`) or a plain description of the bug. Jira is optional.
-- **Focused context.** Code search with ranked files and matched lines, related git history, similar past fixes from shared memory, and the issue's own details, collected into `.ai/<issue>/context.md`.
+- **Focused context.** Code search with ranked files and matched lines, related git history, similar past fixes from shared memory, and the issue's own details, collected into the work item's `context.md`.
 - **One task for the agent.** `task.md` carries BugPilot's safety rules, what the repository is, your team's and your own instructions, the verification the project expects, the branch rules and the AI Fix Mode for this attempt.
 - **Repository-neutral.** Nothing is assumed about languages or frameworks: a Repository Profile describes the repository, auto-detected from its build files or written by you.
 - **Safe by default.** Preparing never launches an agent, never deletes your earlier artifacts, never commits, pushes or merges, and never edits a protected branch.
@@ -70,20 +70,31 @@ bugpilot doctor                                   # Python, git, ripgrep, Jira, 
 bugpilot bug --description "Saving a record with no selection crashes"
 ```
 
-That prepares `.ai/<work item>/` and prints the line to hand to your agent:
+That prepares the work item's folder and prints the line to hand to your agent:
 
 ```text
-Read .ai/<work item>/task.md and complete the workflow.
+Read /home/you/.bugpilot/repositories/your-repo-0123456789abcdef/work/<work item>/task.md and complete the workflow.
 ```
 
-Add BugPilot's two folders to the repository's `.gitignore` before the first run — they hold generated files and fetched issue text:
+## Where BugPilot keeps its files
 
-```gitignore
-.ai/
-.ai_memory/
+BugPilot writes nothing into your repository. What it generates, and every setting, is in its data folder, `~/.bugpilot/` (set `BUGPILOT_HOME` to an absolute path to use another folder, outside every repository):
+
+```text
+~/.bugpilot/
+├── config/                         your Jira site and credentials, User Instructions, your Fix Modes
+└── repositories/<repository-id>/   one folder per repository, named from its path
+    ├── settings/                   Project Instructions, Verification Policy, AI Behavior, project settings,
+    │                               Repository Profile, project Fix Modes
+    ├── work/<work item>/           task.md, context.md, retrieval.json, fix_report.md, attachments/, …
+    └── memory/<work item>.md       similar-fix memory
 ```
 
-`bugpilot doctor` reports whether git ignores them (`ai_artifacts_ignored`).
+- `bugpilot doctor` shows the repository's folder (`storage.repository_dir` in `doctor --json`).
+- Your agent still works in the repository. The handoff names the task file by its full path, and an agent that asks before reading or writing outside its working folder asks for this one.
+- A repository's settings are yours, kept for that repository on your machine; they are not shared through the repository.
+
+**Upgrading from 0.1.6 or earlier.** Nothing is migrated. BugPilot no longer reads a repository's `.ai/`, `.ai_memory/` or `.bugpilot/`, or `~/.bugpilot/config.toml`, `~/.bugpilot/instructions.md` and `~/.bugpilot/fix_modes/`, and it never deletes them. Run `bugpilot setup` again, prepare work items again, and set again the settings you want to keep: each command writes the new place. Delete the old folders yourself once you no longer need them. Update the CLI and the VS Code extension together: an extension older than 0.1.7 looks for work items in the repository, and does not find the ones a 0.1.7 CLI prepares. A 0.1.7 CLI started by such an extension says so instead of preparing anything (error code `EXTENSION_OUTDATED`, shown by the extension as its environment check failing), and a 0.1.7 extension with an older CLI reports the CLI as out of date. The CLI tells the old extension apart by the VS Code extension host's environment (`VSCODE_CRASH_REPORTER_PROCESS_TYPE=extensionHost`) without the `BUGPILOT_CLIENT_STORAGE=unified` that 0.1.7 and later extensions set; another tool that runs `bugpilot doctor --json`, `bug --json` or `bug --json-lines` from inside a VS Code extension, and reads BugPilot's data folder, sets that variable too. A terminal, a script, CI and the MCP server are not affected.
 
 ## Manual issue workflow
 
@@ -96,7 +107,7 @@ bugpilot bug --description "..." --attach .\crash.log --attach .\screenshot.png
 ```
 
 - `--hint` points the agent at where you think the fix belongs; it is guidance, checked against the evidence.
-- `--attach` copies files into `.ai/<work item>/attachments/` and names them in the task.
+- `--attach` copies files into the work item's `attachments/` and names them in the task.
 - Each hand-written bug gets its own `local_<timestamp>` work item.
 
 ## Jira setup
@@ -107,7 +118,7 @@ bugpilot bug JR-12345                   # prepare from a real Jira issue
 ```
 
 - The site is `https://your-company.atlassian.net`-style: `https://` only, with no user name, password, query or fragment. Redirects are followed only within the same site. There is no option to allow plain `http://`.
-- Where BugPilot reads the site, email and token: the environment first (`JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_TOKEN`), then `~/.bugpilot/config.toml` (written by `bugpilot setup`; `bugpilot jira-site set` changes only the site). The VS Code extension's Jira Setup writes the site to the same file and keeps the email and token in VS Code's secret storage.
+- Where BugPilot reads the site, email and token: the environment first (`JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_TOKEN`), then `~/.bugpilot/config/config.toml` (written by `bugpilot setup`; `bugpilot jira-site set` changes only the site). The VS Code extension's Jira Setup writes the site to the same file and keeps the email and token in VS Code's secret storage.
 - Real Jira is required by default. `--allow-mock` allows clearly marked demo data for trying BugPilot without a Jira site.
 - BugPilot reads Jira. It writes to Jira only when you ask it to post one comment (see [Notifications](#notifications)); it never transitions, assigns or edits fields.
 
@@ -119,7 +130,7 @@ bugpilot bug JR-12345                   # prepare from a real Jira issue
 - **Generic**: no language, framework or tooling assumption.
 - **Custom**: details you write — languages, frameworks, application type, build system, test framework, codebase notes.
 
-The profile is saved in `.bugpilot/repository_profile.json` in the repository (commit it to share it). No file means Auto-detect.
+The profile is saved in the repository's settings in BugPilot's data folder (`repository_profile.json`). No file means Auto-detect.
 
 ```powershell
 bugpilot repository-profile                        # what is configured, and what Auto-detect finds
@@ -130,8 +141,8 @@ bugpilot repository-profile set --mode generic
 
 Two optional Markdown files add your own guidance to every `task.md`:
 
-- **Project / Team Instructions** — `<repo>/.bugpilot/instructions.md` — the repository's rules, meant to be committed and shared: "Maintain Windows and Linux compatibility.", "Run module tests with `make check`."
-- **User Instructions** — `~/.bugpilot/instructions.md` — your own preferences, for every repository: "Prefer small focused changes."
+- **Project / Team Instructions** — `instructions.md` in the repository's settings — the repository's rules: "Maintain Windows and Linux compatibility.", "Run module tests with `make check`."
+- **User Instructions** — `~/.bugpilot/config/instructions.md` — your own preferences, for every repository: "Prefer small focused changes."
 
 Each is at most 20,000 characters; a file that cannot be used (a link, not UTF-8, too long) is left out with a warning, never cut short. Saving empty text removes the file. Their text is never written to a log.
 
@@ -178,8 +189,8 @@ bugpilot context-preview JR-12345 --json   # state, text, freshness (reasons, un
 
 **Verification Policy** — what checking the project expects from a fix. `task.md` states it in one `## Verification Policy` section and names where it came from. It comes from one of three places, the first that exists:
 
-1. `.bugpilot/verification.md` (`verification-file`) — the repository's own text, which **replaces** BugPilot's default; nothing is appended to it. Commit it to share it.
-2. The four Verification switches in `.bugpilot/project_settings.json` (`legacy-project-settings`), as 0.1.2 saved them: run relevant tests (on), run existing static checks (on), run the full test suite (off), report what was not run (on).
+1. `verification.md` in the repository's settings (`verification-file`) — the repository's own text, which **replaces** BugPilot's default; nothing is appended to it.
+2. The four Verification switches in the repository's `project_settings.json` (`legacy-project-settings`), as 0.1.2 saved them: run relevant tests (on), run existing static checks (on), run the full test suite (off), report what was not run (on).
 3. BugPilot's default (`bugpilot-default`): those four switches at their defaults.
 
 The last two also ask the agent to describe its manual validation when automated tests are unavailable, and to report the regression risk and the commands it attempted (in 0.1.2 these were BugPilot rules; they are the policy's now, so a repository's own text can replace them). Reading never creates the file; the first `bugpilot verification set` does, and from then on it is the policy. How a given attempt verifies stays the Fix Mode's, and whatever the policy says, the agent must never claim a test or check ran unless it did — that rule is BugPilot's, not the policy's.
@@ -202,12 +213,12 @@ A file that cannot be used — no or malformed front matter, an unknown key, an 
 ```powershell
 bugpilot verification show                       # the effective policy and where it comes from (--json: source, file state, lint, problems)
 bugpilot verification set --from-file policy.md  # a policy body (front matter is added) or a whole document; also --stdin
-bugpilot verification reset                      # remove .bugpilot/verification.md (clear is the same); the switches or the default apply again
+bugpilot verification reset                      # remove verification.md (clear is the same); the switches or the default apply again
 ```
 
 In the VS Code extension the policy is a row in **Advanced Settings › Guidance & Verification**: it shows the source in force (*BugPilot default*, *Legacy project settings* or *Repository verification.md*), and **Edit** opens `verification.md` in an editor tab — the CLI creates it first, from the policy in force, if it is not there — **Reset** removes it after asking, and **Preview** shows the policy read-only. Problems and warnings are shown on the row, and a policy that changed since the context was prepared shows **Needs rebuild**. The extension's four Verification switches are gone; see [extension/README.md](https://github.com/xsw7910/bugpilot/blob/main/extension/README.md).
 
-**Branch naming** — the name a new branch gets when the branch policy calls for one: `feature/{issue}-{slug}` by default, or a template such as `bugfix/{issue}-{slug}`, saved in `.bugpilot/project_settings.json`. Only `{issue}` and `{slug}` are substituted; `{issue}` is required, so two issues never share a branch, and a template that could make an unsafe ref is refused. It never creates or switches a branch, and a work item keeps the branch it already has.
+**Branch naming** — the name a new branch gets when the branch policy calls for one: `feature/{issue}-{slug}` by default, or a template such as `bugfix/{issue}-{slug}`, saved in the repository's `project_settings.json`. Only `{issue}` and `{slug}` are substituted; `{issue}` is required, so two issues never share a branch, and a template that could make an unsafe ref is refused. It never creates or switches a branch, and a work item keeps the branch it already has.
 
 ```powershell
 bugpilot project-settings                                   # current values, or the defaults, and the verification source
@@ -218,7 +229,7 @@ bugpilot project-settings set --from-file settings.json     # {"verification": {
 
 ## AI Behavior
 
-**AI Behavior** — how the agent is expected to make and report changes in this repository: conventions and minimum expectations, not safety rules. `task.md` states it in one `## AI Behavior` section. BugPilot's defaults (small, targeted fixes; follow the surrounding code; no unrelated refactoring, public API renames or behaviour changes outside the issue) always apply, and `.bugpilot/ai_behavior.md` **adds** the repository's own beneath them — it never replaces them. The selected Fix Mode decides how one attempt works within these conventions; what to verify stays the Verification Policy's.
+**AI Behavior** — how the agent is expected to make and report changes in this repository: conventions and minimum expectations, not safety rules. `task.md` states it in one `## AI Behavior` section. BugPilot's defaults (small, targeted fixes; follow the surrounding code; no unrelated refactoring, public API renames or behaviour changes outside the issue) always apply, and `ai_behavior.md` in the repository's settings **adds** the repository's own beneath them — it never replaces them. The selected Fix Mode decides how one attempt works within these conventions; what to verify stays the Verification Policy's.
 
 ```markdown
 ---
@@ -242,10 +253,10 @@ Without the file there is nothing to configure and nothing is warned about; read
 ```powershell
 bugpilot ai-behavior show                          # the effective AI Behavior and where it comes from (--json: source, file state, versions, lint, problems)
 bugpilot ai-behavior set --from-file behavior.md   # additions (front matter is added) or a whole document; also --stdin
-bugpilot ai-behavior reset                         # remove .bugpilot/ai_behavior.md (clear is the same); BugPilot's defaults apply alone
+bugpilot ai-behavior reset                         # remove ai_behavior.md (clear is the same); BugPilot's defaults apply alone
 ```
 
-In the VS Code extension it is a row in **Advanced Settings › AI Behavior & Rules**: **Edit** opens `.bugpilot/ai_behavior.md` in an editor tab (the CLI creates it first with its three sections, empty), **Reset** removes it after asking, and **Preview** shows the AI Behavior in force. The panel reads it to tell when a prepared context needs a rebuild; a 0.1.4 extension that finds `ai_behavior.md` next to a CLI whose `bugpilot doctor --json` has no `ai-behavior-text` capability reports the CLI as out of date. The same section lists the protected rules (read-only), and **Advanced Settings › Effective Output** — or **⋯ More** — shows the Effective AI Task and the Effective Context from `task-preview` and `context-preview`.
+In the VS Code extension it is a row in **Advanced Settings › AI Behavior & Rules**: **Edit** opens the repository's `ai_behavior.md` in an editor tab (the CLI creates it first with its three sections, empty), **Reset** removes it after asking, and **Preview** shows the AI Behavior in force. The panel reads it to tell when a prepared context needs a rebuild; a 0.1.4 extension that finds `ai_behavior.md` next to a CLI whose `bugpilot doctor --json` has no `ai-behavior-text` capability reports the CLI as out of date. The same section lists the protected rules (read-only), and **Advanced Settings › Effective Output** — or **⋯ More** — shows the Effective AI Task and the Effective Context from `task-preview` and `context-preview`.
 
 ## Fix Modes
 
@@ -253,7 +264,7 @@ A Fix Mode decides *how* the agent approaches a bug — how far to investigate, 
 
 - **Standard Fix** (`standard`) is the default. The other built-ins are **Conservative Fix**, **Investigate First** (no source changes in that pass), **Test-Driven Fix** and **Deep Analysis**.
 - Choose one with `--fix-mode <id>`; the choice is recorded with the work item and reused when it is prepared again.
-- Custom modes are JSON files: yours in `~/.bugpilot/fix_modes/`, the project's in `<repo>/.bugpilot/fix_modes/`. Start from `bugpilot fix-mode duplicate <builtin> <new-id> --scope user|project`.
+- Custom modes are JSON files: yours in `~/.bugpilot/config/fix_modes/`, the project's in the repository's settings (`fix_modes/`). Start from `bugpilot fix-mode duplicate <builtin> <new-id> --scope user|project`.
 
 ## Branch Policy
 
@@ -269,7 +280,9 @@ Preparing a work item again — a rebuild, a resume, a retry — never calls for
 
 - **Nothing runs by default.** `bugpilot bug` prepares and stops. An agent is launched only with `--launch-agent claude|copilot`.
 - **No delivery.** BugPilot never runs `git add`, `git commit`, `git push`, merges or opens pull requests. The agent asks before committing, and never pushes `main`/`master` or force-pushes.
-- **Nothing deleted unless asked.** Only `--fresh` and `clean` delete, only BugPilot's own `.ai/<issue>/`, and never through a symbolic link or junction. Every write under `.ai/` and `.ai_memory/` refuses links the same way.
+- **Nothing deleted unless asked.** Only `--fresh` and `clean` delete, only the work item's own folder in BugPilot's data folder, and never through a symbolic link or junction. Every write there refuses links the same way.
+- **Nothing written into the repository.** Work items, memory and settings are in BugPilot's data folder, which may not be inside a repository or a Git working tree.
+- **The agent is given the work item's folder, and only that.** The agent works in the repository and writes `fix_report.md` in the work item's folder in BugPilot's data folder. When BugPilot starts Claude Code (`--launch-agent claude`, or the extension's Claude CLI), it adds `--add-dir=<that folder>`, so Claude's normal edit permissions cover it; never the data folder as a whole, and never for Codex or Copilot. The folder's path is absolute and names your home folder, so it carries your operating-system user name into the agent's instructions and to its AI provider; set `BUGPILOT_HOME` to a neutral absolute folder if that matters.
 - **No programs from your repository.** `git`, `rg` and agent CLIs are found on `PATH`'s absolute entries only, never in the current folder.
 - **Jira credentials stay out of artifacts.** Tokens are never written to generated files, logs or command lines.
 - **AI review is read-only.** The VS Code extension's captured review runs without a shell or editing tools; BugPilot gives it the diff itself.
@@ -280,15 +293,15 @@ More in [docs/safety.md](https://github.com/xsw7910/bugpilot/blob/main/docs/safe
 
 ## Privacy
 
-- Generated artifacts (`.ai/`) and shared memory (`.ai_memory/`) contain repository context: code excerpts, file paths, git history and fetched issue text. AI prompts built from them carry the same. Keep both folders out of source control unless you mean to share them.
-- Project / Team Instructions and project settings in `.bugpilot/` are meant to be committed and shared. User Instructions in `~/.bugpilot/` are personal.
+- Generated artifacts and similar-fix memory contain repository context: code excerpts, file paths, git history and fetched issue text. AI prompts built from them carry the same. They are in BugPilot's data folder in your home, private to your account, never in the repository.
+- Project / Team Instructions, project settings and User Instructions are in the same data folder, and are yours.
 - Jira credentials are never written to generated artifacts.
 
 ## CLI usage
 
 ```powershell
 bugpilot bug JR-12345                       # prepare from Jira (keeps existing artifacts, launches nothing)
-bugpilot bug JR-12345 --fresh               # delete .ai/JR-12345/ first, then prepare
+bugpilot bug JR-12345 --fresh               # delete the work item's files first, then prepare
 bugpilot bug JR-12345 --fix-mode conservative --branch-policy per-issue
 bugpilot status JR-12345                    # where a work item stands
 bugpilot check-results JR-12345             # has the agent written fix_report.md?
@@ -296,7 +309,7 @@ bugpilot summarize-results JR-12345         # the report's status and a validati
 bugpilot review-package JR-12345            # a review prompt for any reviewer
 bugpilot record-review JR-12345 --summary "..."
 bugpilot retry-prompt JR-12345              # a second attempt, from your feedback
-bugpilot clean JR-12345                     # remove .ai/JR-12345/ (memory is kept)
+bugpilot clean JR-12345                     # remove the work item's files (memory is kept)
 ```
 
 Add `--json` (queries) or `--json-lines` (`bug`) for machine-readable output. `bugpilot --help` and `bugpilot <command> --help` list every command and option.

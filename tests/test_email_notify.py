@@ -9,7 +9,7 @@ import urllib.error
 import pytest
 
 from bugpilot.cli import main
-from bugpilot.core.config import load_email_config, load_graph_config
+from bugpilot.core.config import load_email_config, load_graph_config, issue_dir as config_issue_dir
 from bugpilot.core.issue import IssueArtifact, save_issue
 
 
@@ -72,7 +72,7 @@ def _set_email_env(monkeypatch, *, auth=False):
 
 
 def _seed_result_artifacts(tmp_path, issue_key="JR-12345"):
-    issue_dir = tmp_path / ".ai" / issue_key
+    issue_dir = config_issue_dir(tmp_path, issue_key)
     issue_dir.mkdir(parents=True, exist_ok=True)
     save_issue(
         tmp_path,
@@ -192,7 +192,7 @@ def test_notify_execute_sends_over_smtp(tmp_path, monkeypatch, capsys):
     assert message["To"] == "dev@example.test"
     assert "JR-12345" in message["Subject"]
     assert "Sent notification email via smtp to: dev@example.test" in output
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
+    status = json.loads((config_issue_dir(tmp_path, "JR-12345") / "run.json").read_text())
     assert status["steps"]["notify"] == "pass"
 
 
@@ -207,7 +207,7 @@ def test_notify_execute_without_config_skips_gracefully(tmp_path, monkeypatch, c
     assert sent == []
     assert "email not sent" in captured.out
     assert "SMTP_HOST" in captured.err
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
+    status = json.loads((config_issue_dir(tmp_path, "JR-12345") / "run.json").read_text())
     assert status["steps"]["notify"] == "skipped"
 
 
@@ -221,7 +221,7 @@ def test_commit_plan_sends_email_at_commit_gate(tmp_path, monkeypatch, capsys):
     output = capsys.readouterr().out
 
     # The plan is printed, not persisted; the mail still goes out at the gate.
-    assert not (tmp_path / ".ai" / "JR-12345" / "commit_plan.md").exists()
+    assert not (config_issue_dir(tmp_path, "JR-12345") / "commit_plan.md").exists()
     assert "# Commit Plan" in output
     assert len(sent) == 1
     assert "Sent notification email via smtp to: dev@example.test" in output
@@ -242,7 +242,7 @@ def test_commit_plan_no_email_flag_suppresses_send(tmp_path, monkeypatch, capsys
 
 def test_email_body_redacts_secret_like_values(tmp_path, monkeypatch):
     _seed_result_artifacts(tmp_path)
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     (issue_dir / "fix_report.md").write_text(
         "# Fix Report: JR-12345\n\n"
         "## Changes\nSet api_key=SUPERSECRETVALUE in the client\n",
@@ -354,7 +354,7 @@ def test_notify_writes_portable_eml(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     assert main(["notify", "JR-12345"]) == 0
-    eml_bytes = (tmp_path / ".ai" / "JR-12345" / "notification.eml").read_bytes()
+    eml_bytes = (config_issue_dir(tmp_path, "JR-12345") / "notification.eml").read_bytes()
     message = email.message_from_bytes(eml_bytes)
 
     assert message["To"] == "dev@example.test"
@@ -369,7 +369,7 @@ def test_notify_eml_written_even_without_any_transport(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     assert main(["notify", "JR-12345"]) == 0
-    assert (tmp_path / ".ai" / "JR-12345" / "notification.eml").is_file()
+    assert (config_issue_dir(tmp_path, "JR-12345") / "notification.eml").is_file()
 
 
 def test_graph_transport_sends_over_https(tmp_path, monkeypatch, capsys):
@@ -391,7 +391,7 @@ def test_graph_transport_sends_over_https(tmp_path, monkeypatch, capsys):
     assert payload["message"]["toRecipients"][0]["emailAddress"]["address"] == "dev@example.test"
     assert "Stale React Query cache key" in payload["message"]["body"]["content"]
     assert "Sent notification email via graph to: dev@example.test" in output
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
+    status = json.loads((config_issue_dir(tmp_path, "JR-12345") / "run.json").read_text())
     assert status["steps"]["notify"] == "pass"
 
 

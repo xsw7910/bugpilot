@@ -4,7 +4,7 @@
  * The profile says what the repository is — Auto-detect (the default), Generic,
  * or Custom details — and `task.md` describes the repository from it. It is
  * repository configuration, not issue content: `bugpilot repository-profile`
- * reads and writes `<repo>/.bugpilot/repository_profile.json`, and every run,
+ * reads and writes the repository's `repository_profile.json` setting, and every run,
  * from the CLI, the MCP server or this panel, reads that file. The panel never
  * sends the profile on a run's command line.
  *

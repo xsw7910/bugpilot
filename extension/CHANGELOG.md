@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.1.7 — unreleased
+
+- **BugPilot writes nothing into your repository.** Work items, similar-fix
+  memory and the repository's settings (Project Instructions, the Verification
+  Policy, AI Behavior, project settings, the Repository Profile, project Fix
+  Modes) are kept in BugPilot's data folder,
+  `~/.bugpilot/repositories/<repository>/`, and your Jira site, User
+  Instructions and Fix Modes in `~/.bugpilot/config/`. `BUGPILOT_HOME` moves the
+  data folder; `bugpilot doctor` shows where a repository's files are.
+- **The handoff names the task file by its full path.** Your agent still works
+  in the repository; an agent that asks before reading or writing outside it
+  asks for that one folder. Claude CLI is given that folder with `--add-dir`
+  when its `--help` lists the option (and `bugpilot bug --launch-agent claude`
+  always gives it), so it can write `fix_report.md` there. The path names your
+  home folder; set `BUGPILOT_HOME` to a neutral folder to keep your user name
+  out of the agent's instructions.
+- **Upgrading: nothing is migrated.** A repository's `.ai/`, `.ai_memory/` and
+  `.bugpilot/`, and `~/.bugpilot/config.toml`, are no longer read, and are never
+  deleted. Set up Jira again (`bugpilot setup`, or Jira Setup in the panel),
+  prepare work items again, and set again the settings you want to keep.
+  Update a CLI you installed yourself at the same time: an older extension
+  does not find what a 0.1.7 CLI prepares, and a 0.1.7 CLI started by one says
+  so (`EXTENSION_OUTDATED`) instead of preparing anything.
+- **Settings are no longer shared through the repository.** They are yours, for
+  that repository, on your machine.
+- **The `.gitignore` warning is gone**, with nothing left in the repository to
+  ignore. This extension needs BugPilot CLI 0.1.7 or later; with an older one
+  the panel asks you to update it.
+
 ## 0.1.6
 
 - **Safer reading of BugPilot's project files.** BugPilot is stricter about

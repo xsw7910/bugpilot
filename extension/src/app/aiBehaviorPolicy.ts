@@ -2,7 +2,7 @@
  * The repository's AI Behavior, as the host holds it (0.1.4).
  *
  * BugPilot's default AI Behavior plus the repository's additions in
- * `.bugpilot/ai_behavior.md`. The CLI owns every part of it — the file, its
+ * `settings/ai_behavior.md`. The CLI owns every part of it — the file, its
  * front matter, the defaults, what a task carries, the lint, the template a
  * new file starts from — and this module only reads what `bugpilot
  * ai-behavior show --json` says, and asks the CLI to write: `set --stdin`
@@ -14,7 +14,7 @@
  * check, so additions edited in an editor tab, pulled with git or switched with
  * a branch make a prepared context "Needs rebuild" the next time the host reads
  * them — at an environment check, a Run, Rebuild Context, Fix with AI, Start
- * New Attempt, the window coming back to focus, or a `.bugpilot/` file
+ * New Attempt, the window coming back to focus, or a file in the repository's settings folder
  * changing. A file that adds nothing hashes as no file, so creating one from
  * the template is not a change.
  *
@@ -35,11 +35,11 @@ import type { ProcessExit } from "./cliCompatibility.ts";
 import { rejectedByOutdatedCli } from "./cliCompatibility.ts";
 import { MAX_INSTRUCTION_CHARS } from "./instructions.ts";
 
-/** The `doctor --json` capability a CLI reports when it reads `.bugpilot/ai_behavior.md`. */
+/** The `doctor --json` capability a CLI reports when it reads `settings/ai_behavior.md`. */
 export const AI_BEHAVIOR_TEXT_CAPABILITY = "ai-behavior-text";
 
 /** The file, as a person names it. */
-export const AI_BEHAVIOR_FILE = ".bugpilot/ai_behavior.md";
+export const AI_BEHAVIOR_FILE = "settings/ai_behavior.md";
 
 export const AI_BEHAVIOR_SOURCES = ["bugpilot-default", "ai-behavior-file"] as const;
 export type AiBehaviorSource = (typeof AI_BEHAVIOR_SOURCES)[number];
@@ -62,7 +62,7 @@ export interface AiBehaviorSnapshot {
   readonly text: string;
   /** What a new file is created with: the three sections, empty. */
   readonly template?: string;
-  /** Whether `.bugpilot/ai_behavior.md` is there, usable or not. */
+  /** Whether `settings/ai_behavior.md` is there, usable or not. */
   readonly fileExists: boolean;
   /** The task carries the repository's additions beside BugPilot's defaults. */
   readonly hasProjectAdditions: boolean;
@@ -94,7 +94,7 @@ export function aiBehaviorArgs(command: AiBehaviorCommand = { kind: "show" }): r
   }
 }
 
-/** Whether the CLI behind a `doctor --json` report reads `.bugpilot/ai_behavior.md`. */
+/** Whether the CLI behind a `doctor --json` report reads `settings/ai_behavior.md`. */
 export function readsAiBehaviorText(report: Readonly<Record<string, unknown>> | undefined): boolean {
   const capabilities = report?.["capabilities"];
   return Array.isArray(capabilities) && capabilities.includes(AI_BEHAVIOR_TEXT_CAPABILITY);

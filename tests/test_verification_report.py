@@ -15,8 +15,9 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core.config import issue_dir, memory_dir
 from bugpilot.cli import main
-from bugpilot.core import errors
+from bugpilot.core import errors, storage
 from bugpilot.core.verification_report import (
     ALL_PASSED,
     INCLUDES_FAILURES,
@@ -54,7 +55,8 @@ HOSTILE = (
 
 
 def _package(root: Path, work_item: str = WORK_ITEM) -> Path:
-    target = root / ".ai" / work_item
+    storage.repository_storage(root).ensure()  # the repository's folder in the data folder, as a first run makes it
+    target = issue_dir(root, work_item)
     target.mkdir(parents=True)
     (target / "run.json").write_text(
         json.dumps({"schema_version": 1, "status": "prepared", "steps": {"prepare": "pass"}}), encoding="utf-8"
@@ -102,7 +104,7 @@ def test_the_report_is_the_canonical_format(tmp_path, monkeypatch, capsys):
 
     payload = _json(capsys)
     assert payload["ok"] is True
-    assert payload["verification_report"] == f".ai/{WORK_ITEM}/{REPORT}"
+    assert payload["verification_report"] == str(issue_dir(tmp_path, WORK_ITEM) / REPORT)
     assert payload["replaced"] is False
     assert payload["checks"] == {"passed": 1, "failed": 1, "not_run": 0}
     assert (target / REPORT).read_text(encoding="utf-8") == (
@@ -283,7 +285,7 @@ def test_an_unprepared_work_item_is_refused_and_no_folder_is_created(tmp_path, m
     assert main(["record-verification", "JR-99999", "--from-file", payload, "--json"]) == 1
 
     assert _json(capsys)["error"]["code"] == errors.WORK_ITEM_NOT_FOUND
-    assert not (tmp_path / ".ai" / "JR-99999").exists()
+    assert not (issue_dir(tmp_path, "JR-99999")).exists()
 
 
 def test_an_invalid_work_item_id_is_refused(tmp_path, monkeypatch, capsys):
@@ -359,7 +361,7 @@ def test_recording_adds_one_file_and_changes_no_other(tmp_path, monkeypatch, cap
     assert set(after) - set(before) == {REPORT}
     # run.json above all: no step mark, no status, no "verification" anywhere in it.
     assert {name: data for name, data in after.items() if name != REPORT} == before
-    assert not (tmp_path / ".ai_memory").exists()
+    assert not (memory_dir(tmp_path)).exists()
     # The transport file is the caller's; the CLI neither stores nor deletes it.
     assert Path(payload).exists()
 
@@ -439,7 +441,7 @@ def test_out_of_order_check_numbers_are_not_structured():
 def test_fresh_deletes_the_evidence_with_the_rest_of_the_attempt_and_resume_keeps_it(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     assert main(["bug", WORK_ITEM, "--allow-mock", "--prepare-only"]) == 0
-    target = tmp_path / ".ai" / WORK_ITEM
+    target = issue_dir(tmp_path, WORK_ITEM)
     (target / "fix_report.md").write_text("## Summary\n\nAttempted.\n", encoding="utf-8")
     payload = _payload(tmp_path, [{"name": "x", "status": "passed"}])
     assert main(["record-verification", WORK_ITEM, "--from-file", payload]) == 0
@@ -457,7 +459,7 @@ def test_retry_neither_creates_nor_changes_the_evidence(tmp_path, monkeypatch, c
     monkeypatch.chdir(tmp_path)
     main(["bug", "--description", "crash on save", "--prepare-only", "--json"])
     work_item = json.loads(capsys.readouterr().out)["work_item_id"]
-    target = tmp_path / ".ai" / work_item
+    target = issue_dir(tmp_path, work_item)
 
     assert main(["bug", work_item, "--retry", "--prepare-only"]) == 0
     assert not (target / REPORT).exists()

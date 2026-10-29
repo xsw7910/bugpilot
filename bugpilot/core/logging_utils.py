@@ -1,6 +1,6 @@
 """Diagnostic trace logging, unpersisted (plan §37).
 
-``log()`` used to append every line to ``.ai/<id>/execution.log``. Nothing ever
+``log()`` used to append every line to the work item's ``execution.log``. Nothing ever
 read that file — the steps map, the generated files and the warnings it echoed
 all have canonical homes (``run.json``, ``WorkflowResult.warnings``, the CLI's
 own output) — so the artifact is gone. The ~150 call sites keep their

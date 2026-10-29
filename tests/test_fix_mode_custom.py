@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core.config import issue_dir
 from bugpilot.cli import main
 from bugpilot.core import storage, workflow
 from bugpilot.core.fix_mode_store import FixModeStore, custom_mode_payload
@@ -58,11 +59,11 @@ def prepare(*args: str) -> int:
 
 
 def task_text(repo: Path, name: str = "task.md") -> str:
-    return (repo / ".ai" / "JR-12345" / name).read_text(encoding="utf-8")
+    return (issue_dir(repo, "JR-12345") / name).read_text(encoding="utf-8")
 
 
 def persisted(repo: Path) -> dict:
-    issue = json.loads((repo / ".ai" / "JR-12345" / "issue.json").read_text(encoding="utf-8"))
+    issue = json.loads((issue_dir(repo, "JR-12345") / "issue.json").read_text(encoding="utf-8"))
     return issue["guidance"]["fix_mode"]
 
 
@@ -471,7 +472,7 @@ def test_an_explicit_selection_of_a_broken_project_definition_fails_and_writes_n
     _out, err = capsys.readouterr()
     assert f"ERROR: {REFUSED}" in err and "my-safe.json is not valid JSON: " in err
     assert "Run: bugpilot fix-mode list" in err
-    assert not (repo / ".ai" / "JR-12345" / "task.md").exists()
+    assert not (issue_dir(repo, "JR-12345") / "task.md").exists()
     _assert_no_absolute_path(err, repo, home)
 
 
@@ -482,7 +483,7 @@ def test_the_json_envelope_carries_the_refusal_as_invalid_input(repo, home, caps
     assert prepare("--fix-mode", "my-safe", "--json") == 1
     error = json.loads(capsys.readouterr().out)["error"]
     assert error["code"] == "INVALID_INPUT" and error["message"].startswith(REFUSED)
-    assert not (repo / ".ai" / "JR-12345" / "task.md").exists()
+    assert not (issue_dir(repo, "JR-12345") / "task.md").exists()
     _assert_no_absolute_path(error["message"], repo, home)
 
 

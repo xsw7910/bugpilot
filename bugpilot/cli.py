@@ -14,9 +14,12 @@ from bugpilot.core.branch_policy import BRANCH_POLICIES
 from bugpilot.core.cleanup import clean_issue_artifacts
 from bugpilot.core.safe_paths import UnsafePathError, generated_file_exists, generated_folder_names
 from bugpilot.core.terminal import terminal_safe_output
+from bugpilot.core.config import issue_dir, prompt_path, readable_data_dir, shown, shown_memory, shown_work
+from bugpilot.core.handoff import retry_handoff_prompt, work_item_handoff
 from bugpilot.core.user_config import CONFIG_DIR_WARNING, config_dir_variable_is_set
 from bugpilot.core.context import build_context
 from bugpilot.core.email_notify import EmailSendError
+from bugpilot.core.extension_compat import outdated_extension_problem
 from bugpilot.core.git_history import render_git_context
 from bugpilot.core.fix_mode_state import fix_mode_metadata
 from bugpilot.core.fix_mode_store import FixModeCatalog, FixModeStore, scoped_modes
@@ -63,15 +66,15 @@ from bugpilot.core.project_settings import (
     verification_file_wins,
 )
 from bugpilot.core.ai_behavior import (
-    SHOWN_PATH as AI_BEHAVIOR_SHOWN_PATH,
     AiBehaviorError,
     ai_behavior_payload,
     remove_ai_behavior,
     resolve_ai_behavior,
     save_ai_behavior,
 )
+from bugpilot.core.ai_behavior import shown_path as ai_behavior_shown_path
+from bugpilot.core.verification import shown_path as verification_shown_path
 from bugpilot.core.verification import (
-    SHOWN_PATH as VERIFICATION_SHOWN_PATH,
     SOURCE_FILE as VERIFICATION_SOURCE_FILE,
     SOURCE_LEGACY as VERIFICATION_SOURCE_LEGACY,
     VerificationError,
@@ -208,7 +211,7 @@ def build_parser() -> argparse.ArgumentParser:
     jira_post_parser.add_argument("issue_key")
     jira_post_parser.add_argument("--execute", action="store_true", help="Post the local Jira comment draft to Jira.")
 
-    list_parser = subparsers.add_parser("list", help="List prepared work items under .ai/.")
+    list_parser = subparsers.add_parser("list", help="List this repository's prepared work items.")
     _add_json_flag(list_parser)
 
     clean_parser = subparsers.add_parser("clean", help="Remove generated workflow artifacts for an issue.")
@@ -324,7 +327,7 @@ def build_parser() -> argparse.ArgumentParser:
         "bug",
         help="Prepare the bug workflow package. Keeps existing artifacts and launches no agent unless asked.",
         description=(
-            "Prepare .ai/<issue>/ for a coding agent: issue details, code search, git history, "
+            "Prepare a work item's folder for a coding agent: issue details, code search, git history, "
             "similar fixes, context.md and task.md. By default this only prepares: existing "
             "artifacts are kept (--fresh deletes them first) and no agent is launched "
             "(--launch-agent starts one)."
@@ -351,7 +354,7 @@ def build_parser() -> argparse.ArgumentParser:
     bug_parser.add_argument("--ignore-path", metavar="PATH", action="append", default=[], dest="ignore_paths", help="Exclude this file or directory from code search. Repeatable.")
     bug_parser.add_argument("--attach", metavar="PATH", action="append", default=[], dest="attachments", help="Copy this file into the work item for the agent to read: a log, a screenshot, a config. Repeatable.")
     bug_parser.add_argument("--attach-description", metavar="TEXT", action="append", default=[], dest="attachment_descriptions", help="Why the matching --attach file matters, by position: the Nth describes the Nth --attach. Give one per --attach (an empty one for none), or none at all.")
-    bug_parser.add_argument("--replace-attachments", action="store_true", help="Make the --attach files the work item's complete set: a file an earlier run attached that is not among them is removed from .ai/<id>/attachments/ and from the task file. Without it, --attach adds to what an earlier run attached.")
+    bug_parser.add_argument("--replace-attachments", action="store_true", help="Make the --attach files the work item's complete set: a file an earlier run attached that is not among them is removed from the work item's attachments/ and from the task file. Without it, --attach adds to what an earlier run attached.")
     bug_parser.add_argument("--max-files", type=int, metavar="N", help="How many related files to keep (default 10).")
     bug_parser.add_argument("--max-search-lines", type=int, metavar="N", help="Line budget for the matched-lines section (default 300).")
     bug_parser.add_argument("--skip-code-search", action="store_true", help="Skip the code search capability.")
@@ -420,12 +423,12 @@ def build_parser() -> argparse.ArgumentParser:
     bug_mode.add_argument(
         "--fresh",
         action="store_true",
-        help="Delete the existing .ai/<issue>/ artifacts before preparing. Without it they are kept.",
+        help="Delete the work item's existing artifacts before preparing. Without it they are kept.",
     )
     bug_mode.add_argument(
         "--resume",
         action="store_true",
-        help="Keep the existing .ai/<issue>/ artifacts and continue the workflow. This is the default; the flag says so explicitly.",
+        help="Keep the work item's existing artifacts and continue the workflow. This is the default; the flag says so explicitly.",
     )
     bug_parser.add_argument(
         "--include-memory",
@@ -605,10 +608,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     verification_parser = subparsers.add_parser(
         "verification",
-        help="Show or set the repository's Verification Policy text (.bugpilot/verification.md).",
+        help="Show or set the repository's Verification Policy text (this repository's, in BugPilot's data folder).",
         description=(
             "The Verification Policy says what a pass that changes source code is expected to verify. "
-            "With .bugpilot/verification.md, its text replaces BugPilot's default whole; without it, the "
+            "It lives in ~/.bugpilot/repositories/<repository id>/settings/verification.md (under BUGPILOT_HOME "
+            "when it is set); it is your own, not stored in the repository. "
+            "With it, its text replaces BugPilot's default whole; without it, the "
             "Verification switches in the project settings (BugPilot 0.1.2 and earlier) apply, or "
             "the default. The CLI, the MCP server and the VS Code extension all read it the same way, and "
             "the task puts BugPilot's own rules ahead of it."
@@ -621,7 +626,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="show",
         help=(
             "show (the default) prints the effective policy and where it comes from; set writes "
-            ".bugpilot/verification.md; clear and reset are the same: they remove it, so the switches or "
+            "the policy file; clear and reset are the same: they remove it, so the switches or "
             "BugPilot's default apply again."
         ),
     )
@@ -637,13 +642,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     ai_behavior_parser = subparsers.add_parser(
         "ai-behavior",
-        help="Show or set the repository's AI Behavior additions (.bugpilot/ai_behavior.md).",
+        help="Show or set the repository's AI Behavior additions (this repository's, in BugPilot's data folder).",
         description=(
             "AI Behavior is how an AI agent is expected to make and report changes in this repository: "
-            "conventions, not safety rules. BugPilot's defaults always apply; .bugpilot/ai_behavior.md adds "
-            "the repository's own beneath them, under Code Change Conventions, Evidence Standards and "
-            "Reporting Standards. The task puts BugPilot's own rules ahead of it, and the Fix Mode works "
-            "within it."
+            "conventions, not safety rules. BugPilot's defaults always apply; the repository's additions file adds "
+            "its own beneath them, under Code Change Conventions, Evidence Standards and Reporting Standards. "
+            "It lives in ~/.bugpilot/repositories/<repository id>/settings/ai_behavior.md (under BUGPILOT_HOME "
+            "when it is set); it is your own, not stored in the repository. The task puts BugPilot's own rules "
+            "ahead of it, and the Fix Mode works within it."
         ),
     )
     ai_behavior_parser.add_argument(
@@ -653,7 +659,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="show",
         help=(
             "show (the default) prints the effective AI Behavior and where it comes from; set writes "
-            ".bugpilot/ai_behavior.md; clear and reset are the same: they remove it, so BugPilot's defaults "
+            "the additions file; clear and reset are the same: they remove it, so BugPilot's defaults "
             "apply alone."
         ),
     )
@@ -701,7 +707,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     task_preview_parser.add_argument(
         "work_item", nargs="?", metavar="WORK_ITEM_ID",
-        help="A prepared work item (.ai/<id>/issue.json). Omit it for the template.",
+        help="A prepared work item (its issue.json). Omit it for the template.",
     )
     task_preview_parser.add_argument(
         "--fix-mode", metavar="ID", dest="fix_mode",
@@ -730,7 +736,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     context_preview_parser.add_argument(
         "work_item", nargs="?", metavar="WORK_ITEM_ID",
-        help="The work item (.ai/<id>/). Without one there is no context to show.",
+        help="The work item. Without one there is no context to show.",
     )
     _add_json_flag(context_preview_parser)
 
@@ -818,6 +824,11 @@ def _dispatch(args, repo_root: Path) -> int | _AgentLaunch:
 
     if args.command == "doctor":
         if args.json_output:
+            outdated = outdated_extension_problem()
+            if outdated is not None:
+                # The handshake of an extension older than 0.1.7: it shows this sentence and runs nothing.
+                cli_json.emit_failure("doctor", errors.EXTENSION_OUTDATED, outdated)
+                return 1
             cli_json.emit(cli_json.success("doctor", report=doctor.collect_doctor_report(repo_root)))
             return 0
         for line in doctor.doctor_report_lines(repo_root):
@@ -865,7 +876,7 @@ def _dispatch(args, repo_root: Path) -> int | _AgentLaunch:
         except ValueError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 1
-        _print_clean_result(result, include_memory=args.include_memory)
+        _print_clean_result(repo_root, result, include_memory=args.include_memory)
         return 0
 
     if args.command == "jira-validate":
@@ -880,7 +891,7 @@ def _dispatch(args, repo_root: Path) -> int | _AgentLaunch:
         except Exception as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 1
-        _print_jira_validate_summary(args.issue_key, summary)
+        _print_jira_validate_summary(repo_root, args.issue_key, summary)
         return 0
 
     if args.command == "jira-comment-draft":
@@ -916,10 +927,10 @@ def _dispatch(args, repo_root: Path) -> int | _AgentLaunch:
         if args.execute:
             print(f"Posted Jira comment for {args.issue_key}.")
             print(f"Comment ID: {result.get('comment_id') or '(not returned)'}")
-            print(f"Generated: .ai/{args.issue_key}/jira_comment_post_result.json")
+            print(f"Generated: {shown_work(repo_root, args.issue_key, 'jira_comment_post_result.json')}")
         else:
             print(f"Preview Jira comment for {args.issue_key}.")
-            print(f"Draft: .ai/{args.issue_key}/jira_comment_draft.md")
+            print(f"Draft: {shown_work(repo_root, args.issue_key, 'jira_comment_draft.md')}")
             print(f"Length: {result.get('length', 0)} characters")
             print("No Jira comment was posted. Use --execute to post exactly one Jira comment.")
             print()
@@ -952,7 +963,7 @@ def _dispatch(args, repo_root: Path) -> int | _AgentLaunch:
                     "fetch",
                     work_item_id=args.issue_key,
                     source="jira",
-                    issue_dir=f".ai/{args.issue_key}",
+                    issue_dir=str(issue_dir(repo_root, args.issue_key)),
                     jira_source=result.source,
                     warnings=[mock_warning] if mock_warning else [],
                 )
@@ -960,11 +971,11 @@ def _dispatch(args, repo_root: Path) -> int | _AgentLaunch:
             return 0
         if mock_warning:
             print(f"WARN: {mock_warning}")
-        print(f"Fetched Jira data for {args.issue_key} into .ai/{args.issue_key}/")
+        print(f"Fetched Jira data for {args.issue_key} into {shown_work(repo_root, args.issue_key)}")
         return 0
 
     if args.command == "issue-details":
-        # Read-only, and deliberately not a step: `fetch` writes `.ai/<issue>/`
+        # Read-only, and deliberately not a step: `fetch` writes the work item's folder
         # because a run needs those artifacts, and the editor's hint improver
         # needs two strings. Creating a work item as a side effect of improving
         # a sentence would be a surprise, so this reuses the same Jira client
@@ -1028,7 +1039,7 @@ def _dispatch(args, repo_root: Path) -> int | _AgentLaunch:
                 cli_json.success(
                     "search",
                     work_item_id=args.issue_key,
-                    generated_files=[f".ai/{args.issue_key}/{RETRIEVAL_ARTIFACT}"],
+                    generated_files=[f"work/{args.issue_key}/{RETRIEVAL_ARTIFACT}"],
                 )
             )
             return 0
@@ -1056,7 +1067,7 @@ def _dispatch(args, repo_root: Path) -> int | _AgentLaunch:
                 cli_json.success(
                     "context",
                     work_item_id=args.issue_key,
-                    generated_files=[f".ai/{args.issue_key}/{CONTEXT_ARTIFACT}"],
+                    generated_files=[f"work/{args.issue_key}/{CONTEXT_ARTIFACT}"],
                 )
             )
             return 0
@@ -1077,11 +1088,11 @@ def _dispatch(args, repo_root: Path) -> int | _AgentLaunch:
         try:
             workflow.copilot_task_step(repo_root, args.issue_key, jira_comment=args.jira_comment)
         except FileNotFoundError as exc:
-            if (repo_root / ".ai" / args.issue_key / CONTEXT_ARTIFACT).exists():
+            if (issue_dir(repo_root, args.issue_key) / CONTEXT_ARTIFACT).exists():
                 # The context is there, so what is missing is issue.json.
                 print(f"ERROR: {exc}", file=sys.stderr)
                 return 1
-            print(f"Missing .ai/{args.issue_key}/{CONTEXT_ARTIFACT}.", file=sys.stderr)
+            print(f"Missing {shown_work(repo_root, args.issue_key, CONTEXT_ARTIFACT)}.", file=sys.stderr)
             print(f"Run: bugpilot bug {args.issue_key}", file=sys.stderr)
             return 1
         except FixModeError as exc:
@@ -1105,14 +1116,17 @@ def _dispatch(args, repo_root: Path) -> int | _AgentLaunch:
             return 1
         except FixModeError as exc:
             return _report_fix_mode_failure(exc)
-        print(f"Generated retry prompt: {result['prompt']}")
+        print(f"Generated retry prompt: {shown(result['prompt'])}")
         if "user_feedback" in result:
-            print(f"Generated user feedback template: {result['user_feedback']}")
-        print(f"Next manual agent instruction: Read .ai/{args.issue_key}/agent_retry_prompt.md and continue the workflow.")
+            print(f"Generated user feedback template: {shown(result['user_feedback'])}")
+        print(f"Next manual agent instruction: {retry_handoff_prompt(prompt_path(result['prompt']))}")
         return 0
 
     if args.command == "check-results":
-        missing = workflow.check_results_step(repo_root, args.issue_key, strict=args.strict)
+        names = workflow.check_results_step(repo_root, args.issue_key, strict=args.strict)
+        # The JSON names each file absolutely, as MCP's check_results does; text and warnings as messages do (0.1.7).
+        missing = [str(issue_dir(repo_root, args.issue_key) / name) for name in names]
+        shown_missing = [shown_work(repo_root, args.issue_key, name) for name in names]
         if args.json_output:
             if missing and args.strict:
                 cli_json.emit_failure(
@@ -1128,18 +1142,18 @@ def _dispatch(args, repo_root: Path) -> int | _AgentLaunch:
                     "check-results",
                     work_item_id=args.issue_key,
                     missing=missing,
-                    warnings=[f"missing {name}" for name in missing],
+                    warnings=[f"missing {name}" for name in shown_missing],
                 )
             )
             return 0
         if missing:
             print(f"WARN: missing {len(missing)} agent result file(s).")
-            for file_name in missing:
+            for file_name in shown_missing:
                 print(f"  {file_name}")
             print(f"Not fixed yet? Run: bugpilot bug {args.issue_key} --retry")
             return 1 if args.strict else 0
         else:
-            print(f"PASS: the fix report exists (.ai/{args.issue_key}/{FIX_REPORT_ARTIFACT}).")
+            print(f"PASS: the fix report exists ({shown_work(repo_root, args.issue_key, FIX_REPORT_ARTIFACT)}).")
         return 0
 
     if args.command == "manual-result":
@@ -1180,12 +1194,12 @@ def _dispatch(args, repo_root: Path) -> int | _AgentLaunch:
         if wants_comment:
             _post_jira_comment_auto(repo_root, args.issue_key, quiet=args.json_output)
         if args.json_output:
-            report_path = repo_root / ".ai" / args.issue_key / FIX_REPORT_ARTIFACT
+            report_path = issue_dir(repo_root, args.issue_key) / FIX_REPORT_ARTIFACT
             cli_json.emit(
                 cli_json.success(
                     "summarize-results",
                     work_item_id=args.issue_key,
-                    fix_report=f".ai/{args.issue_key}/{FIX_REPORT_ARTIFACT}" if report_path.exists() else None,
+                    fix_report=str(report_path) if report_path.exists() else None,
                     overview=overview,
                     jira_comment_requested=wants_comment,
                 )
@@ -1298,7 +1312,7 @@ def _dispatch(args, repo_root: Path) -> int | _AgentLaunch:
                 print(f"Updated shared memory entry for {args.issue_key}.")
             else:
                 print(
-                    f"WARN: missing .ai/{args.issue_key}/{FIX_REPORT_ARTIFACT}. "
+                    f"WARN: missing {shown_work(repo_root, args.issue_key, FIX_REPORT_ARTIFACT)}. "
                     f"The agent writes it; for a manual fix run: bugpilot manual-result {args.issue_key}"
                 )
         elif args.memory_command == "search":
@@ -1324,11 +1338,18 @@ def _dispatch(args, repo_root: Path) -> int | _AgentLaunch:
         _report_bug_preflight_failure(args, errors.INVALID_INPUT, message)
         return 1
 
+    if args.command == "bug" and (args.json_output or args.json_lines):
+        outdated = outdated_extension_problem()
+        if outdated is not None:
+            # Before anything is prepared: an extension older than 0.1.7 could not find it.
+            _report_bug_preflight_failure(args, errors.EXTENSION_OUTDATED, outdated)
+            return 1
+
     if args.command == "bug" and args.retry:
         return _run_retry(repo_root, args)
 
     if args.command == "bug":
-        # Non-destructive by default: only an explicit --fresh deletes .ai/<id>/.
+        # Non-destructive by default: only an explicit --fresh deletes the work item's folder.
         fresh = args.fresh
         json_mode = args.json_output
         if args.include_memory and not fresh:
@@ -1344,7 +1365,7 @@ def _dispatch(args, repo_root: Path) -> int | _AgentLaunch:
         work_item_id = request.work_item_id
         # Whether there was anything to keep, so the summary does not claim to
         # have preserved a folder this run created.
-        existed = (repo_root / ".ai" / work_item_id).is_dir()
+        existed = issue_dir(repo_root, work_item_id).is_dir()
         stream = None
         if args.json_lines:
             stream = cli_json.JsonLinesEmitter(work_item_id, request.spec.source)
@@ -1417,8 +1438,8 @@ def _dispatch(args, repo_root: Path) -> int | _AgentLaunch:
         )
         # --only-issue-details skips the prompt step, so there is no task file to
         # point an agent at. Claiming one would send Claude at a missing path.
-        agent_task = f".ai/{work_item_id}/{TASK_ARTIFACT}"
-        agent_task_exists = (repo_root / ".ai" / work_item_id / TASK_ARTIFACT).exists()
+        agent_task = issue_dir(repo_root, work_item_id) / TASK_ARTIFACT
+        agent_task_exists = agent_task.exists()
         if stream is not None:
             stream.finish(result.generated_files, result.warnings)
             return 0
@@ -1433,11 +1454,11 @@ def _dispatch(args, repo_root: Path) -> int | _AgentLaunch:
                     source=stored.source if stored else request.spec.source,
                     source_ref=stored.source_ref if stored else request.spec.source_ref,
                     title=(stored.title if stored else request.spec.title) or None,
-                    issue_dir=f".ai/{work_item_id}",
+                    issue_dir=str(agent_task.parent),
                     generated_files=result.generated_files,
                     skipped_steps=request.skipped_steps(),
                     fix_mode=fix_mode_metadata(result.fix_mode) if result.fix_mode else None,
-                    agent_task=agent_task if agent_task_exists else None,
+                    agent_task=str(agent_task) if agent_task_exists else None,
                     warnings=([mock_warning] if mock_warning else []) + list(result.warnings),
                 )
             )
@@ -1452,7 +1473,7 @@ def _dispatch(args, repo_root: Path) -> int | _AgentLaunch:
             print("Previous artifacts were kept (--fresh deletes them first).")
         _print_key_generated_artifacts(repo_root, work_item_id)
         print(f"Prepared bugpilot workflow package for {work_item_id}.")
-        print(f"Artifacts: .ai/{work_item_id}")
+        print(f"Artifacts: {shown_work(repo_root, work_item_id)}")
         if result.fix_mode is not None:
             print(f"AI Fix Mode: {result.fix_mode.name} ({result.fix_mode.id})")
             if result.fix_mode.is_investigation:
@@ -1460,16 +1481,16 @@ def _dispatch(args, repo_root: Path) -> int | _AgentLaunch:
         # Prepare-only unless --launch-agent names an agent; --agent-fix prints
         # the legacy invocation guidance alongside the manual instruction.
         if not agent_task_exists:
-            print(f"No {agent_task} was generated, so there is nothing to hand to an agent.")
+            print(f"No {TASK_ARTIFACT} was generated, so there is nothing to hand to an agent.")
             print("Re-run without --only-issue-details to build the full task package.")
             return 0
         if args.launch_agent is None:
             print("Next manual agent instruction:")
-            print(f"  Read {agent_task} and complete the workflow.")
+            print(f"  {work_item_handoff(repo_root, work_item_id)}")
             if args.agent_fix:
                 for line in copilot.agent_status_lines(repo_root):
                     print(line)
-                for line in copilot.auto_invocation_guidance(work_item_id):
+                for line in copilot.auto_invocation_guidance(repo_root, work_item_id):
                     print(line)
             return 0
         return _run_agent_after_prepare(repo_root, work_item_id, args.launch_agent, fix_mode=result.fix_mode)
@@ -1626,7 +1647,7 @@ def _run_agent_after_prepare(
     handoff = (
         agent_runner.RETRY_HANDOFF_PROMPT.format(prompt_file=prompt_file) if prompt_file else None
     )
-    instruction = prompt_file or f".ai/{issue_key}/{TASK_ARTIFACT}"
+    instruction = prompt_file or prompt_path(issue_dir(repo_root, issue_key) / TASK_ARTIFACT)
     print()
     print(f"Launching {agent} to complete the workflow for {issue_key}.")
     for line in _launch_expectation_lines(fix_mode, retry=prompt_file is not None):
@@ -1716,13 +1737,13 @@ def _record_review(repo_root: Path, args) -> int:
         # The folder removed or unwritable mid-write — a clean or a Fresh run.
         return fail(errors.error_code_for(exc), f"The review result could not be written: {exc}")
 
-    relative = f".ai/{args.issue_key}/{recorded.path.name}"
+    relative = shown(recorded.path)
     if args.json_output:
         cli_json.emit(
             cli_json.success(
                 "record-review",
                 work_item_id=args.issue_key,
-                review_report=relative,
+                review_report=str(recorded.path),
                 replaced=recorded.replaced,
             )
         )
@@ -1792,13 +1813,13 @@ def _record_verification(repo_root: Path, args) -> int:
         return fail(errors.error_code_for(exc), f"The verification evidence could not be written: {exc}")
 
     counts = {status: sum(check.status == status for check in checks) for status in ("passed", "failed", "not_run")}
-    relative = f".ai/{args.issue_key}/{recorded.path.name}"
+    relative = shown(recorded.path)
     if args.json_output:
         cli_json.emit(
             cli_json.success(
                 "record-verification",
                 work_item_id=args.issue_key,
-                verification_report=relative,
+                verification_report=str(recorded.path),
                 replaced=recorded.replaced,
                 checks=counts,
             )
@@ -1874,16 +1895,17 @@ def _run_retry(repo_root: Path, args) -> int | _AgentLaunch:
             print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 
-    feedback = f".ai/{args.issue_key}/user_feedback.md"
-    prompt = f".ai/{args.issue_key}/agent_retry_prompt.md"
+    folder = issue_dir(repo_root, args.issue_key)
+    feedback, prompt = shown(folder / "user_feedback.md"), shown(folder / "agent_retry_prompt.md")
+    prompt_file = prompt_path(folder / "agent_retry_prompt.md")  # what an agent is handed
     if args.json_output:
         cli_json.emit(
             cli_json.success(
                 "bug",
                 work_item_id=args.issue_key,
                 retry=True,
-                feedback_file=feedback,
-                retry_prompt=prompt,
+                feedback_file=str(folder / "user_feedback.md"),
+                retry_prompt=str(folder / "agent_retry_prompt.md"),
                 feedback_created="user_feedback" in generated,
             )
         )
@@ -1900,9 +1922,9 @@ def _run_retry(repo_root: Path, args) -> int | _AgentLaunch:
     print(f"Using your existing {feedback}.")
     if args.launch_agent is None:
         print("Next manual agent instruction:")
-        print(f"  Read {prompt} and continue the workflow.")
+        print(f"  {retry_handoff_prompt(prompt_file)}")
         return 0
-    return _run_agent_after_prepare(repo_root, args.issue_key, args.launch_agent, prompt_file=prompt)
+    return _run_agent_after_prepare(repo_root, args.issue_key, args.launch_agent, prompt_file=prompt_file)
 
 
 def _refuse_for_manual(repo_root: Path, command: str, work_item_id: str, json_output: bool) -> int | None:
@@ -1946,9 +1968,12 @@ def _list_work_items(repo_root: Path, json_output: bool) -> int:
     A local id carries no readable slug on purpose (design 3.4), so this command
     is where the title becomes visible in a terminal.
     """
-    ai_root = repo_root / ".ai"
+    base = readable_data_dir(repo_root)
+    work_root = base / "work"
     entries: list[dict[str, object]] = []
-    # Only folders named like a work item. Anything else under .ai/ is not one
+    # The work items are in the repository's folder in BugPilot's data folder
+    # (0.1.7), never in the repository; a 0.1.5 `.ai/` there is not read.
+    # Only folders named like a work item. Anything else under work/ is not one
     # this tool made, and listing it would hand its name to every consumer of
     # this list — the extension's History, and from there a handoff's command
     # line (§37.70). Skipped, not touched: nothing here deletes or renames.
@@ -1957,17 +1982,17 @@ def _list_work_items(repo_root: Path, json_output: bool) -> int:
     # folder's names reach the list, and nothing outside is asked about its
     # files.
     try:
-        names = generated_folder_names(repo_root, ai_root)
+        names = generated_folder_names(base, work_root)
     except UnsafePathError as exc:
         if json_output:
             cli_json.emit_failure("list", errors.INVALID_INPUT, str(exc))
         else:
             print(f"ERROR: {exc}", file=sys.stderr)
         return 1
-    directories = sorted(ai_root / name for name in names or () if is_work_item_id(name))
+    directories = sorted(work_root / name for name in names or () if is_work_item_id(name))
     for path in directories:
         issue = read_issue_quietly(repo_root, path.name)
-        prepared = _prepared(repo_root, path / RUN_ARTIFACT)
+        prepared = _prepared(base, path / RUN_ARTIFACT)
         entries.append(
             {
                 "work_item_id": path.name,
@@ -1980,7 +2005,7 @@ def _list_work_items(repo_root: Path, json_output: bool) -> int:
         cli_json.emit(cli_json.success("list", work_items=entries))
         return 0
     if not entries:
-        print("No work items found under .ai/.")
+        print("No work items found for this repository.")
         return 0
     width = max(len(str(entry["work_item_id"])) for entry in entries)
     for entry in entries:
@@ -1991,10 +2016,10 @@ def _list_work_items(repo_root: Path, json_output: bool) -> int:
     return 0
 
 
-def _prepared(repo_root: Path, run_file: Path) -> bool:
+def _prepared(base: Path, run_file: Path) -> bool:
     """Whether a work item's ``run.json`` is a regular file; a link there is not, whatever it points at (O-1)."""
     try:
-        return generated_file_exists(repo_root, run_file)
+        return generated_file_exists(base, run_file)
     except UnsafePathError:
         return False
 
@@ -2211,7 +2236,7 @@ def _run_project_settings_command(args, repo_root: Path) -> int:
     settings, warnings = load_project_settings(repo_root)
     saved = settings_path(repo_root).is_file()
     shown = settings_shown_path(repo_root)
-    # Which Verification Policy is effective. Once `.bugpilot/verification.md`
+    # Which Verification Policy is effective. Once `settings/verification.md`
     # exists the switches are kept — older BugPilot versions still read and write
     # them — but no longer decide anything for this one, and a save says so.
     verification_source = resolve_project_settings(repo_root).effective_verification.source
@@ -2247,7 +2272,7 @@ def _run_project_settings_command(args, repo_root: Path) -> int:
 def _run_verification_command(args, repo_root: Path) -> int:
     """`bugpilot verification [show|set|clear|reset]`: the repository's Verification Policy text.
 
-    `show` is read-only. `set` writes `.bugpilot/verification.md` — from a policy
+    `show` is read-only. `set` writes `settings/verification.md` — from a policy
     body, which gets front matter, or from a whole document whose front matter
     must parse — through the instructions' checks (no links, UTF-8, the size
     limit). `clear` and `reset` are one operation: they remove the file, and the
@@ -2279,12 +2304,11 @@ def _run_verification_command(args, repo_root: Path) -> int:
             else:
                 return fail("`bugpilot verification set` needs --from-file PATH or --stdin.")
             save_verification(repo_root, text)
-            note = f"Saved the Verification Policy: {VERIFICATION_SHOWN_PATH}"
+            note = f"Saved the Verification Policy: {verification_shown_path(repo_root)}"
         elif args.action in ("clear", "reset"):
             removed = remove_verification(repo_root)
-            note = (
-                f"Removed {VERIFICATION_SHOWN_PATH}." if removed else f"There is no {VERIFICATION_SHOWN_PATH} to remove."
-            )
+            shown = verification_shown_path(repo_root)
+            note = f"Removed {shown}." if removed else f"There is no {shown} to remove."
     except (OSError, ValueError) as exc:
         if isinstance(exc, VerificationError) or isinstance(exc, ValueError):
             return fail(str(exc))
@@ -2298,7 +2322,7 @@ def _run_verification_command(args, repo_root: Path) -> int:
     if note:
         print(note)
     origin = {
-        VERIFICATION_SOURCE_FILE: VERIFICATION_SHOWN_PATH,
+        VERIFICATION_SOURCE_FILE: resolved.file.shown,
         VERIFICATION_SOURCE_LEGACY: f"the Verification switches in {settings_shown_path(repo_root)}",
     }.get(resolved.source, "BugPilot's default")
     print(f"Verification Policy ({resolved.source}: {origin}):")
@@ -2308,7 +2332,7 @@ def _run_verification_command(args, repo_root: Path) -> int:
     print(resolved.text)
     print("---")
     if resolved.source != VERIFICATION_SOURCE_FILE:
-        print(f"Replace it with: bugpilot verification set --from-file <file>  (writes {VERIFICATION_SHOWN_PATH})")
+        print(f"Replace it with: bugpilot verification set --from-file <file>  (writes {resolved.file.shown})")
     return 0
 
 
@@ -2463,7 +2487,7 @@ def _run_ai_behavior_command(args, repo_root: Path) -> int:
     """`bugpilot ai-behavior [show|set|clear|reset]`: the repository's AI Behavior additions.
 
     `show` is read-only and never creates the file. `set` writes
-    `.bugpilot/ai_behavior.md` — from the additions, which get front matter, or
+    `settings/ai_behavior.md` — from the additions, which get front matter, or
     from a whole document whose front matter must parse — through the
     instructions' checks (no links, UTF-8, the size limit). `clear` and `reset`
     remove it, so BugPilot's defaults apply alone. The text is never logged.
@@ -2489,12 +2513,11 @@ def _run_ai_behavior_command(args, repo_root: Path) -> int:
             else:
                 return fail("`bugpilot ai-behavior set` needs --from-file PATH or --stdin.")
             save_ai_behavior(repo_root, text)
-            note = f"Saved AI Behavior: {AI_BEHAVIOR_SHOWN_PATH}"
+            note = f"Saved AI Behavior: {ai_behavior_shown_path(repo_root)}"
         elif args.action in ("clear", "reset"):
             removed = remove_ai_behavior(repo_root)
-            note = (
-                f"Removed {AI_BEHAVIOR_SHOWN_PATH}." if removed else f"There is no {AI_BEHAVIOR_SHOWN_PATH} to remove."
-            )
+            shown = ai_behavior_shown_path(repo_root)
+            note = f"Removed {shown}." if removed else f"There is no {shown} to remove."
     except (OSError, ValueError) as exc:
         if isinstance(exc, (AiBehaviorError, ValueError)):
             return fail(str(exc))
@@ -2508,7 +2531,7 @@ def _run_ai_behavior_command(args, repo_root: Path) -> int:
     if note:
         print(note)
     origin = (
-        f"BugPilot's defaults + {AI_BEHAVIOR_SHOWN_PATH}" if resolved.has_project_additions else "BugPilot's defaults"
+        f"BugPilot's defaults + {resolved.file.shown}" if resolved.has_project_additions else "BugPilot's defaults"
     )
     print(f"AI Behavior ({resolved.source}: {origin}):")
     for warning in resolved.warnings:
@@ -2516,11 +2539,11 @@ def _run_ai_behavior_command(args, repo_root: Path) -> int:
     print("--- BugPilot defaults ---")
     print(resolved.default_text)
     if resolved.has_project_additions:
-        print(f"--- repository additions ({AI_BEHAVIOR_SHOWN_PATH}) ---")
+        print(f"--- repository additions ({resolved.file.shown}) ---")
         print(resolved.project_text)
     print("---")
     if not resolved.has_project_additions:
-        print(f"Add to it with: bugpilot ai-behavior set --from-file <file>  (writes {AI_BEHAVIOR_SHOWN_PATH})")
+        print(f"Add to it with: bugpilot ai-behavior set --from-file <file>  (writes {resolved.file.shown})")
     return 0
 
 
@@ -3002,7 +3025,8 @@ def _bug_progress_printer(issue_key: str, resolved_steps: list[str] | None = Non
 
 def _print_key_generated_artifacts(repo_root: Path, issue_key: str) -> None:
     key_files = list(CORE_ARTIFACTS)
-    existing = [f".ai/{issue_key}/{file_name}" for file_name in key_files if (repo_root / ".ai" / issue_key / file_name).exists()]
+    folder = issue_dir(repo_root, issue_key)
+    existing = [shown(folder / file_name) for file_name in key_files if (folder / file_name).exists()]
     if not existing:
         return
     print("Generated:")
@@ -3011,7 +3035,7 @@ def _print_key_generated_artifacts(repo_root: Path, issue_key: str) -> None:
 
 
 def _print_log_hint(repo_root: Path, issue_key: str) -> None:
-    if (repo_root / ".ai" / issue_key / RUN_ARTIFACT).exists():
+    if (issue_dir(repo_root, issue_key) / RUN_ARTIFACT).exists():
         print(f"Run: bugpilot status {issue_key} for step status.", file=sys.stderr)
 
 
@@ -3061,9 +3085,9 @@ def _notify_at_commit_gate(repo_root: Path, issue_key: str) -> None:
 def _print_notify_result(result: dict) -> None:
     issue_key = result.get("issue_key")
     if result.get("draft_path"):
-        print(f"Email draft: .ai/{issue_key}/email_draft.md")
+        print(f"Email draft: {shown(result['draft_path'])}")
     if result.get("eml_path"):
-        print(f"Outlook-ready file: .ai/{issue_key}/notification.eml")
+        print(f"Outlook-ready file: {shown(result['eml_path'])}")
     if not result.get("execute"):
         print("Preview only. No email was sent.")
         print(f"  To send automatically:  bugpilot notify {issue_key} --execute   (needs SMTP or Graph configured)")
@@ -3106,7 +3130,7 @@ def _print_jira_validate_error(exc: JiraFetchError) -> None:
     print("No Jira artifacts were generated.", file=sys.stderr)
 
 
-def _print_jira_validate_summary(issue_key: str, summary: dict) -> None:
+def _print_jira_validate_summary(repo_root: Path, issue_key: str, summary: dict) -> None:
     print(f"Jira validation: {issue_key}")
     print(f"  source: {summary.get('source', '')}")
     print(f"  issue type: {summary.get('issue_type', '') or '(not specified)'}")
@@ -3118,20 +3142,20 @@ def _print_jira_validate_summary(issue_key: str, summary: dict) -> None:
     print(f"  reproduction steps found: {'yes' if summary.get('has_reproduction_steps') else 'no'}")
     count = summary.get("missing_information_count", 0)
     print(f"  missing information: {count} item(s)")
-    print(f"Generated: .ai/{issue_key}/{ISSUE_ARTIFACT}")
-    print(f"Generated: .ai/{issue_key}/jira_field_report.md")
+    print(f"Generated: {shown_work(repo_root, issue_key, ISSUE_ARTIFACT)}")
+    print(f"Generated: {shown_work(repo_root, issue_key, 'jira_field_report.md')}")
 
 
-def _print_clean_result(result, include_memory: bool) -> None:
-    if f".ai/{result.issue_key}/" in result.deleted_paths:
+def _print_clean_result(repo_root: Path, result, include_memory: bool) -> None:
+    if f"work/{result.issue_key}/" in result.deleted_paths:
         print(f"Cleaned workflow artifacts for {result.issue_key}:")
-        print(f"  deleted: .ai/{result.issue_key}/")
+        print(f"  deleted: {shown_work(repo_root, result.issue_key)}")
     else:
         print(f"No workflow artifacts found for {result.issue_key}.")
 
-    memory_path = f".ai_memory/bugs/{result.issue_key}.md"
+    memory_path = shown_memory(repo_root, result.issue_key)
     if include_memory:
-        if memory_path in result.deleted_paths:
+        if f"memory/{result.issue_key}.md" in result.deleted_paths:
             print(f"  deleted memory: {memory_path}")
         else:
             print(f"  memory not found: {memory_path}")

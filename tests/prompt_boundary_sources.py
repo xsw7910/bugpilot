@@ -32,6 +32,7 @@ from datetime import datetime
 from pathlib import Path
 
 import _isolation
+from bugpilot.core.config import data_dir, issue_dir, memory_dir
 from bugpilot.core.ai_behavior import render_document as render_ai_behavior
 from bugpilot.core.ai_behavior import resolve_ai_behavior
 from bugpilot.core.context import build_context
@@ -139,7 +140,9 @@ class Workspace:
                 os.environ["BUGPILOT_HOME"] = previous
 
     def reset(self) -> None:
-        for path in (self.root / ".bugpilot", self.root / ".ai", self.root / ".ai_memory"):
+        with self.configured():  # the workspace's own data folder: its work items and memory (0.1.7)
+            leftovers = (self.root / ".bugpilot", data_dir(self.root) / "work", memory_dir(self.root))
+        for path in leftovers:
             shutil.rmtree(path, ignore_errors=True)
         (self.root.parent / "data" / "config" / "instructions.md").unlink(missing_ok=True)
         # The repository's own settings are in its namespace in the data folder (0.1.6 Batch 2B-3a).
@@ -173,10 +176,15 @@ class Workspace:
                 self._write(storage.repository_storage(self.root).settings_file("instructions.md", create=True), project)
         if user is not None:
             self._write(self.root.parent / "data" / "config" / "instructions.md", user)
-        if ai_behavior is not None:
-            self._write(self.root / ".bugpilot" / "ai_behavior.md", render_ai_behavior(ai_behavior))
-        if verification is not None:
-            self._write(self.root / ".bugpilot" / "verification.md", render_verification(verification))
+        if ai_behavior is not None or verification is not None:
+            from bugpilot.core import storage
+
+            with self.configured():  # the repository's settings, in its namespace (0.1.7: these two as well)
+                namespace = storage.repository_storage(self.root)
+                if ai_behavior is not None:
+                    self._write(namespace.settings_file("ai_behavior.md", create=True), render_ai_behavior(ai_behavior))
+                if verification is not None:
+                    self._write(namespace.settings_file("verification.md", create=True), render_verification(verification))
         with self.configured():
             return generate_task(
                 ISSUE_KEY,
@@ -189,6 +197,7 @@ class Workspace:
                 instructions=load_instructions(self.root),
                 project_settings=resolve_project_settings(self.root),
                 ai_behavior=resolve_ai_behavior(self.root),
+                work_folder="/data/work",
             )
 
     # --- context.md ---------------------------------------------------------------------------
@@ -208,11 +217,11 @@ class Workspace:
     def similar_fixes(self, heading: str) -> str:
         """The Similar fixes report `memory.search_memory` renders, over one stored memory."""
         self.reset()
-        self._write(
-            self.root / ".ai_memory" / "bugs" / "JR-11111.md",
-            f"# JR-11111: {heading}\n\nFixed in src/export/format_selector.py: the format was reset.\n",
-        )
         with self.configured():
+            self._write(
+                memory_dir(self.root) / "JR-11111.md",
+                f"# JR-11111: {heading}\n\nFixed in src/export/format_selector.py: the format was reset.\n",
+            )
             _matched, report, _results = search_memory(self.root, "export format", terms=["export", "format"])
         return report
 
@@ -221,12 +230,12 @@ class Workspace:
     def retry(self, *, feedback: str = _FEEDBACK, report: str = _FIX_REPORT, fix_mode: FixMode = STANDARD_FIX) -> str:
         """`agent_retry_prompt.md` through the retry builder, from the two files it reads."""
         self.reset()
-        target = self.root / ".ai" / ISSUE_KEY
-        self._write(target / "user_feedback.md", feedback)
-        self._write(target / "fix_report.md", report)
-        # Inside the workspace's configuration: the builder resolves Fix Modes,
-        # which reads the user configuration folder (plan §11.1).
+        # Inside the workspace's configuration: the work item's folder is in its data folder (0.1.7), and the
+        # builder resolves Fix Modes, which reads the user configuration folder (plan §11.1).
         with self.configured():
+            target = issue_dir(self.root, ISSUE_KEY)
+            self._write(target / "user_feedback.md", feedback)
+            self._write(target / "fix_report.md", report)
             return _build_retry_prompt(self.root, ISSUE_KEY, fix_mode=fix_mode)
 
 

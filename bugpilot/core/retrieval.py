@@ -40,7 +40,7 @@ from pathlib import Path
 
 from .artifact_io import atomic_write_text
 from .artifacts import ARTIFACT_SCHEMA_VERSION, RETRIEVAL_ARTIFACT
-from .config import issue_dir, writable_issue_dir
+from .config import issue_dir, readable_data_dir, writable_issue_dir
 from .models import DEFAULT_MAX_RELATED_COMMITS
 from .safe_paths import UnsafePathError, decode_text, read_generated_file
 
@@ -284,8 +284,9 @@ def load_retrieval(repo_root: Path, work_item_id: str) -> RetrievalArtifact | No
     used, including one from before this schema. Never read through a link,
     and only as a regular file (O-1): a refusal is a :class:`RetrievalArtifactError` too.
     """
+    base = readable_data_dir(repo_root)  # storage's own errors keep their codes (C-1): resolved before the try
     try:
-        raw = read_generated_file(repo_root, retrieval_path(repo_root, work_item_id))
+        raw = read_generated_file(base, retrieval_path(repo_root, work_item_id))
         if raw is None:
             return None
         data = json.loads(decode_text(raw, "utf-8"))
@@ -293,7 +294,7 @@ def load_retrieval(repo_root: Path, work_item_id: str) -> RetrievalArtifact | No
         raise RetrievalArtifactError(str(exc)) from exc
     except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
         raise RetrievalArtifactError(
-            f".ai/{work_item_id}/{RETRIEVAL_ARTIFACT} could not be read ({exc})."
+            f"work/{work_item_id}/{RETRIEVAL_ARTIFACT} could not be read ({exc})."
         ) from exc
     return retrieval_from_dict(data, work_item_id)
 
@@ -392,7 +393,7 @@ def _code_search_dict(retrieval: RetrievalArtifact) -> dict[str, object]:
 
 def retrieval_from_dict(data: object, work_item_id: str) -> RetrievalArtifact:
     """Rebuild a retrieval from ``retrieval.json``. Version 1 only, by design."""
-    where = f".ai/{work_item_id}/{RETRIEVAL_ARTIFACT}"
+    where = f"work/{work_item_id}/{RETRIEVAL_ARTIFACT}"
     if not isinstance(data, dict):
         raise RetrievalArtifactError(f"{where} does not contain a JSON object.")
     if data.get("schema_version") != ARTIFACT_SCHEMA_VERSION:

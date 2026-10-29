@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -201,43 +202,133 @@ def _parse_recipients(raw: str | None) -> tuple[str, ...]:
     return tuple(item for item in parts if item)
 
 
+def data_dir(repo_root: Path) -> Path:
+    """The repository's folder in BugPilot's data folder: ``<data folder>/repositories/<repository id>``.
+
+    0.1.7: every work item and bug memory file is below it, never in the
+    repository. The base the safe readers (``safe_paths.read_generated_file``)
+    judge each component below. Resolves; checks and creates nothing.
+    """
+    from . import storage
+
+    return Path(storage.repository_storage(repo_root).diagnostics()["repository_dir"])
+
+
+def readable_data_dir(repo_root: Path) -> Path:
+    """:func:`data_dir` as the base of a read, checked by storage as every read of the namespace is (§8.3).
+
+    Refused — ``UnsafePathError`` (storage's ``StorageError``) — when the data
+    folder and the repository are not kept apart or the data folder is in a Git
+    working tree, a link or junction is on the way to the namespace, or its
+    identity record names another repository or cannot be read as one. The safe
+    readers then check every component below it. Creates nothing. A data
+    folder that cannot be examined right now is ``StorageAccessError``, in
+    storage's sentence, as for every other storage failure (C-1, F2-S).
+    """
+    from . import storage
+    from .errors import StorageAccessError
+
+    found = storage.repository_storage(repo_root).check()
+    if found.state == "unavailable":
+        raise StorageAccessError(str(found.problem))
+    if found.state == "refused":
+        raise storage.StorageError(str(found.problem))
+    return data_dir(repo_root)
+
+
 def issue_dir(repo_root: Path, issue_key: str) -> Path:
-    """Where a work item's files are read from. Writers use :func:`writable_issue_dir`."""
-    return repo_root / ".ai" / issue_key
+    """``<data_dir>/work/<issue_key>``: where a work item's files are read from. Writers use :func:`writable_issue_dir`."""
+    return data_dir(repo_root) / "work" / issue_key
 
 
 def writable_issue_dir(repo_root: Path, issue_key: str, *, create: bool = True) -> Path:
-    """``.ai/<issue_key>/``, checked before anything is written into it.
+    """``work/<issue_key>/`` in the repository's namespace, checked by storage before anything is written into it.
 
-    The id is validated — it becomes a path segment — and every component is
-    checked by ``safe_paths.writable_dir``: a link or junction at ``.ai`` or
-    ``.ai/<id>`` raises ``UnsafePathError`` and nothing is written. With
-    ``create=False`` a missing folder is returned for the caller to report.
+    The id is validated — it becomes a path segment — and every component from
+    the data folder down is checked: a link or junction on the way raises
+    ``UnsafePathError`` (storage's ``StorageError``) and nothing is written, as
+    does a data folder inside the repository or a namespace whose identity
+    record names another repository. ``create=True`` makes the namespace ready
+    (``0700``, its record) first. With ``create=False`` a missing folder is
+    returned for the caller to report, and nothing is created; a link at
+    ``work`` or ``work/<id>`` is then refused in the write refusal's own words,
+    as a run's first check has refused it since O-1, before storage checks the rest.
     """
-    from .safe_paths import writable_dir
-
-    _checked_id(issue_key)
-    return writable_dir(repo_root, (".ai", issue_key), create=create)
-
-
-def _checked_id(issue_key: str) -> None:
-    """The id as a path segment: anything but a work item id is an unsafe path."""
+    from . import storage
     from .identity import validate_work_item_id
-    from .safe_paths import UnsafePathError
+    from .repository_settings import guarded
+    from .safe_paths import UnsafePathError, writable_dir
 
-    try:
-        validate_work_item_id(issue_key)
-    except ValueError as exc:
-        raise UnsafePathError(str(exc)) from exc
+    namespace = storage.repository_storage(repo_root)
+    if not create:
+        try:
+            validate_work_item_id(issue_key)
+        except ValueError as exc:
+            raise UnsafePathError(str(exc)) from exc
+        writable_dir(data_dir(repo_root), ("work", issue_key), create=False, boundary=storage.DATA_ROOT_BOUNDARY)
+    return guarded(
+        "prepare" if create else "read",
+        lambda: shown(data_dir(repo_root) / "work"),
+        lambda: namespace.work_item_dir(issue_key, create=create),
+    )
 
 
 def memory_dir(repo_root: Path) -> Path:
-    return repo_root / ".ai_memory" / "bugs"
+    """``<data_dir>/memory``: the repository's bug memory, one ``<id>.md`` per work item."""
+    return data_dir(repo_root) / "memory"
 
 
 def writable_memory_file(repo_root: Path, issue_key: str, *, create: bool = True) -> Path:
-    """``.ai_memory/bugs/<issue_key>.md``, checked like :func:`writable_issue_dir`."""
-    from .safe_paths import refuse_link, writable_dir
+    """``memory/<issue_key>.md`` in the repository's namespace, checked like :func:`writable_issue_dir`."""
+    from . import storage
+    from .repository_settings import guarded
 
-    _checked_id(issue_key)
-    return refuse_link(writable_dir(repo_root, (".ai_memory", "bugs"), create=create) / f"{issue_key}.md")
+    namespace = storage.repository_storage(repo_root)
+    return guarded(
+        "prepare" if create else "read",
+        lambda: shown(memory_dir(repo_root)),
+        lambda: namespace.memory_file(issue_key, create=create),
+    )
+
+
+def shown(path: Path) -> str:
+    """A path in BugPilot's data folder as messages and logs name it: ``~/.bugpilot/…`` (never the user's folder)."""
+    from .storage import display_path
+
+    return display_path(path)
+
+
+def shown_work(repo_root: Path, issue_key: str, name: str = "") -> str:
+    """A work item's folder, with a trailing ``/``, or one file in it, as messages name them."""
+    folder = issue_dir(repo_root, issue_key)
+    return shown(folder / name) if name else shown(folder) + "/"
+
+
+def shown_memory(repo_root: Path, issue_key: str) -> str:
+    """A work item's bug memory file, as messages name it."""
+    return shown(memory_dir(repo_root) / f"{issue_key}.md")
+
+
+#: What an agent instruction cannot hold: it would end the inline code it is
+#: written in, or the line (plan §9.8.1).
+_UNRENDERABLE = re.compile("[`\x00-\x1f\x7f-\x9f  ]")
+
+
+def prompt_path(path: Path) -> str:
+    """``path`` as agent instructions name it: absolute, with forward slashes on every system.
+
+    The agent's working directory stays the repository, so a work item's files
+    are named absolutely. A path that cannot be written into a Markdown
+    instruction as it is — a backtick, a control character, a line or
+    paragraph separator — is refused (``UnsafePathError``), never altered;
+    set ``BUGPILOT_HOME`` to a plain folder to use BugPilot there.
+    """
+    from .safe_paths import UnsafePathError
+
+    text = str(path).replace("\\", "/")
+    if _UNRENDERABLE.search(text):
+        raise UnsafePathError(
+            "BugPilot cannot name its work folder in an agent's instructions: the path to BugPilot's data folder "
+            "holds a backtick or a control character. Set BUGPILOT_HOME to a plain absolute path. Nothing was written."
+        )
+    return text

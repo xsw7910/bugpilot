@@ -168,7 +168,7 @@ MAX_SIMILAR_FIXES_LIMIT = 20
 class SimilarFixesOptions:
     """Similar Fixes Settings: how the Similar fixes step searches past fixes.
 
-    The step scores ``.ai_memory`` entries against the issue's own extracted
+    The step scores bug memory entries (``memory/<id>.md``) against the issue's own extracted
     terms, which always take part. On top of them come the shared Keywords
     (``InvestigationOptions.keywords``) unless ``use_shared_keywords`` is off, and
     ``keywords`` — Additional Keywords, Similar Fixes' own, which neither Code
@@ -306,7 +306,7 @@ class InvestigationRequest:
     # policy, else the default (the current branch).
     branch_policy: str | None = None
     # A Repository Profile mode for this run only (`repository_profile.py`).
-    # `None`: the repository's own `.bugpilot/repository_profile.json`, else
+    # `None`: the repository's own `repository_profile.json` setting, else
     # Auto-detect. Not recorded with the work item: the profile is repository
     # configuration, and a later regeneration reads the file again.
     repository_profile: str | None = None

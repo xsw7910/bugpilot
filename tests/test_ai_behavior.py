@@ -1,4 +1,4 @@
-"""The repository's AI Behavior: `.bugpilot/ai_behavior.md` (0.1.4, plan section 43).
+"""The repository's AI Behavior: `settings/ai_behavior.md` (0.1.4, plan section 43).
 
 BugPilot's defaults plus the repository's additions, never a replacement; the
 Verification Policy's front-matter parser with the one mode `append`; the
@@ -20,8 +20,11 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core import storage
+from bugpilot.core.config import data_dir, issue_dir
 from bugpilot.cli import main
 from bugpilot.core.ai_behavior import (
+    shown_path,
     DEFAULT_AI_BEHAVIOR_VERSION,
     DEFAULT_CODE_CHANGE_CONVENTIONS,
     DEFAULT_TEXT,
@@ -60,8 +63,8 @@ def _repo(root: Path) -> Path:
 
 
 def _file(root: Path, text: str) -> Path:
-    (root / ".bugpilot").mkdir(exist_ok=True)
-    path = root / ".bugpilot" / "ai_behavior.md"
+    (data_dir(root) / "settings").mkdir(parents=True, exist_ok=True)
+    path = (data_dir(root) / "settings" / "ai_behavior.md")
     path.write_bytes(text.encode("utf-8"))
     return path
 
@@ -82,6 +85,7 @@ def _task(root: Path) -> str:
         instructions=load_instructions(root),
         project_settings=resolve_project_settings(root),
         ai_behavior=resolve_ai_behavior(root),
+        work_folder="/data/work",
     )
 
 
@@ -137,7 +141,7 @@ def test_reading_never_creates_the_file(tmp_path, monkeypatch, capsys):
     _cli(monkeypatch, capsys, root, "ai-behavior", "show")
     _prepare(root, monkeypatch, capsys)
 
-    assert not (root / ".bugpilot" / "ai_behavior.md").exists()
+    assert not ((data_dir(root) / "settings" / "ai_behavior.md")).exists()
 
 
 # --- the file: default + append -----------------------------------------------------------------
@@ -152,10 +156,11 @@ def test_the_file_adds_to_the_defaults_and_never_replaces_them(tmp_path):
     assert resolved.has_project_additions and resolved.project_text == ADDITIONS
     assert resolved.text == f"{DEFAULT_TEXT}\n\n{ADDITIONS}"
     assert resolved.based_on_version == DEFAULT_AI_BEHAVIOR_VERSION and not resolved.default_changed
-    assert resolved.log_line == f"[INFO] ai behavior: defaults + .bugpilot/ai_behavior.md ({len(ADDITIONS)} characters)"
+    assert resolved.log_line == f"[INFO] ai behavior: defaults + {shown_path(root)} ({len(ADDITIONS)} characters)"
 
     section = _section(_task(root), "## AI Behavior")
-    assert "Source: BugPilot defaults, with this repository's additions (.bugpilot/ai_behavior.md).\n" in section
+    # E-1: the task names no settings path.
+    assert "Source: BugPilot defaults, with this repository's additions.\n" in section
     # The defaults first, whole; then the additions, their headings held below the task's.
     assert section.index("### Code Change Conventions") < section.index("### Repository Additions")
     for item in DEFAULT_CODE_CHANGE_CONVENTIONS:
@@ -212,10 +217,10 @@ def test_a_file_that_cannot_be_used_is_left_out_whole_and_says_why(tmp_path, doc
     assert "policy" not in (resolved.problem or "").lower()
     # Not guessed at: the defaults apply, and the task, the run and the log say why.
     assert resolved.text == DEFAULT_TEXT and not resolved.has_project_additions
-    assert resolved.warnings[0].startswith("AI Behavior (.bugpilot/ai_behavior.md) was not used: ")
-    assert resolved.log_line.startswith("[WARN] ai behavior: .bugpilot/ai_behavior.md not used")
+    assert resolved.warnings[0].startswith(f"AI Behavior ({shown_path(root)}) was not used: ")
+    assert resolved.log_line.startswith(f"[WARN] ai behavior: {shown_path(root)} not used")
     section = _section(_task(root), "## AI Behavior")
-    assert "Source: BugPilot defaults, because the repository's .bugpilot/ai_behavior.md could not be used." in section
+    assert "Source: BugPilot defaults, because the repository's AI Behavior could not be used." in section
     assert "was not included:" in section
     assert "### Repository Additions" not in section
 
@@ -225,7 +230,7 @@ def test_the_file_follows_the_instructions_rules(tmp_path):
     _file(root, render_document("x" * (MAX_INSTRUCTION_CHARS + 1)))
     assert "more than the 20,000" in read_ai_behavior_file(root).problem
 
-    (root / ".bugpilot" / "ai_behavior.md").write_bytes(b"---\xff\xfe not utf-8")
+    ((data_dir(root) / "settings" / "ai_behavior.md")).write_bytes(b"---\xff\xfe not utf-8")
     assert read_ai_behavior_file(root).problem == "it is not UTF-8 text."
 
     # Normalized like instructions: a BOM, CRLF and trailing spaces are not content.
@@ -250,33 +255,35 @@ def _junction(link: Path, target: Path) -> None:
 
 @pytest.mark.parametrize("make_link", [_symlink, _junction], ids=["symlink", "junction"])
 def test_a_linked_config_folder_is_neither_read_nor_written(tmp_path, make_link):
+    """0.1.7: the folder is the namespace's `settings/`. A link there fails the command, as it does for every
+    other repository setting since 2B-3a (G-6), instead of falling back to the defaults."""
     root = _repo(tmp_path / "r")
+    storage.repository_storage(root).ensure()
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     (elsewhere / "ai_behavior.md").write_text(render_document("- Elsewhere."), encoding="utf-8")
-    make_link(root / ".bugpilot", elsewhere)
+    make_link(data_dir(root) / "settings", elsewhere)
 
-    assert read_ai_behavior_file(root).problem.startswith(".bugpilot is a symbolic link or junction")
-    assert resolve_ai_behavior(root).text == DEFAULT_TEXT
-    with pytest.raises(AiBehaviorError, match="was not saved: .bugpilot is a symbolic link or junction"):
-        save_ai_behavior(root, ADDITIONS)
-    with pytest.raises(AiBehaviorError, match="was not removed"):
-        remove_ai_behavior(root)
+    for attempt in (lambda: read_ai_behavior_file(root), lambda: resolve_ai_behavior(root),
+                    lambda: save_ai_behavior(root, ADDITIONS), lambda: remove_ai_behavior(root)):
+        with pytest.raises(storage.StorageError, match="/settings is a symbolic link or junction"):
+            attempt()
     assert (elsewhere / "ai_behavior.md").read_text(encoding="utf-8") == render_document("- Elsewhere.")
 
 
 def test_a_linked_file_is_neither_read_nor_written(tmp_path):
+    """0.1.7: a repository setting like 2B-3a's: storage refuses a link at the file on a read and a write alike
+    (G-6), as it refuses a linked project instructions file."""
     root = _repo(tmp_path / "r")
     outside = tmp_path / "outside.md"
     outside.write_text(render_document("- Outside."), encoding="utf-8")
-    (root / ".bugpilot").mkdir()
-    _symlink(root / ".bugpilot" / "ai_behavior.md", outside)
+    (data_dir(root) / "settings").mkdir(parents=True)
+    _symlink((data_dir(root) / "settings" / "ai_behavior.md"), outside)
 
-    assert read_ai_behavior_file(root).problem.startswith(".bugpilot/ai_behavior.md is a symbolic link")
-    with pytest.raises(AiBehaviorError):
-        save_ai_behavior(root, ADDITIONS)
-    with pytest.raises(AiBehaviorError):
-        remove_ai_behavior(root)
+    for attempt in (lambda: read_ai_behavior_file(root), lambda: resolve_ai_behavior(root),
+                    lambda: save_ai_behavior(root, ADDITIONS), lambda: remove_ai_behavior(root)):
+        with pytest.raises(storage.StorageError, match="ai_behavior.md is a symbolic link or junction"):
+            attempt()
     assert outside.read_text(encoding="utf-8") == render_document("- Outside.")
 
 
@@ -289,7 +296,7 @@ def test_additions_get_front_matter_and_a_whole_document_keeps_its_own(tmp_path)
     assert (saved.schema_version, saved.based_on_version, saved.mode, saved.text) == (
         1, DEFAULT_AI_BEHAVIOR_VERSION, "append", ADDITIONS
     )
-    assert (root / ".bugpilot" / "ai_behavior.md").read_text(encoding="utf-8") == (
+    assert ((data_dir(root) / "settings" / "ai_behavior.md")).read_text(encoding="utf-8") == (
         f"---\nschema_version: 1\nbased_on_version: {DEFAULT_AI_BEHAVIOR_VERSION}\nmode: append\n---\n\n{ADDITIONS}\n"
     )
 
@@ -315,7 +322,7 @@ def test_removing_returns_to_the_defaults(tmp_path):
     assert remove_ai_behavior(root) is False
     save_ai_behavior(root, ADDITIONS)
     assert remove_ai_behavior(root) is True
-    assert not (root / ".bugpilot" / "ai_behavior.md").exists()
+    assert not ((data_dir(root) / "settings" / "ai_behavior.md")).exists()
     assert resolve_ai_behavior(root).source == SOURCE_DEFAULT
 
 
@@ -327,7 +334,7 @@ def test_show_set_clear_and_reset(tmp_path, monkeypatch, capsys):
     code, shown = _cli(monkeypatch, capsys, root, "ai-behavior", "show")
     assert code == 0 and shown["ok"] and shown["command"] == "ai-behavior"
     assert (shown["source"], shown["path"], shown["text"], shown["default_text"], shown["project_text"]) == (
-        SOURCE_DEFAULT, ".bugpilot/ai_behavior.md", DEFAULT_TEXT, DEFAULT_TEXT, ""
+        SOURCE_DEFAULT, shown_path(root), DEFAULT_TEXT, DEFAULT_TEXT, ""
     )
     assert shown["file"] == {
         "exists": False, "characters": 0, "schema_version": None, "based_on_version": None, "mode": None,
@@ -377,7 +384,7 @@ def test_show_reports_a_broken_file_and_the_defaults(tmp_path, monkeypatch, caps
     assert shown["problem"] == shown["file"]["problem"]
     assert shown["warnings"] and "was not used" in shown["warnings"][0]
     # Reported, not repaired.
-    assert (root / ".bugpilot" / "ai_behavior.md").read_text(encoding="utf-8") == "- No front matter."
+    assert ((data_dir(root) / "settings" / "ai_behavior.md")).read_text(encoding="utf-8") == "- No front matter."
 
 
 def test_set_refuses_what_it_cannot_store(tmp_path, monkeypatch, capsys):
@@ -388,7 +395,7 @@ def test_set_refuses_what_it_cannot_store(tmp_path, monkeypatch, capsys):
     assert code == 1 and "needs --from-file PATH or --stdin" in failed["error"]["message"]
     code, failed = _cli(monkeypatch, capsys, root, "ai-behavior", "show", "--stdin")
     assert code == 1 and "are for `bugpilot ai-behavior set`" in failed["error"]["message"]
-    assert not (root / ".bugpilot" / "ai_behavior.md").exists()
+    assert not ((data_dir(root) / "settings" / "ai_behavior.md")).exists()
 
 
 def test_the_text_output_names_the_source_and_both_parts(tmp_path, monkeypatch, capsys):
@@ -403,7 +410,7 @@ def test_the_text_output_names_the_source_and_both_parts(tmp_path, monkeypatch, 
     save_ai_behavior(root, ADDITIONS)
     assert main(["ai-behavior", "show"]) == 0
     out = capsys.readouterr().out
-    assert "AI Behavior (ai-behavior-file: BugPilot's defaults + .bugpilot/ai_behavior.md):" in out
+    assert f"AI Behavior (ai-behavior-file: BugPilot's defaults + {shown_path(root)}):" in out
     assert ADDITIONS in out
 
 
@@ -444,7 +451,7 @@ def test_the_lint_warns_on_rule_conflicts_fix_mode_headings_and_verification_lin
         assert warnings and "belongs in the Verification Policy" in warnings[0], line
     # Says which line of the file, never what it says.
     warnings = lint_ai_behavior("- Fine.\n- Force push to the shared branch.", first_line=7)
-    assert warnings[0].startswith("Line 8 of .bugpilot/ai_behavior.md ")
+    assert warnings[0].startswith("Line 8 of settings/ai_behavior.md ")
     assert "shared branch" not in " ".join(warnings)
 
 
@@ -459,8 +466,8 @@ def test_the_lint_is_shown_carried_into_the_run_and_never_blocks(tmp_path, monke
     code, saved = _cli(monkeypatch, capsys, root, "ai-behavior", "set", "--stdin", stdin="- Force push when done.\n")
     assert code == 0 and saved["lint"] and saved["warnings"] == saved["lint"]
     # The file's line number, as an editor shows it: after five lines of front matter and a blank line.
-    assert saved["lint"][0].startswith("Line 7 of .bugpilot/ai_behavior.md "), saved["lint"]
-    assert (root / ".bugpilot" / "ai_behavior.md").read_text(encoding="utf-8").split("\n")[6] == "- Force push when done."
+    assert saved["lint"][0].startswith(f"Line 7 of {shown_path(root)} "), saved["lint"]
+    assert ((data_dir(root) / "settings" / "ai_behavior.md")).read_text(encoding="utf-8").split("\n")[6] == "- Force push when done."
 
     task, payload = _prepare(root, monkeypatch, capsys)
     assert any("may conflict with a BugPilot rule (force push)" in warning for warning in payload["warnings"])
@@ -474,9 +481,9 @@ def test_the_lint_is_shown_carried_into_the_run_and_never_blocks(tmp_path, monke
 
 def test_the_task_has_one_ai_behavior_section_and_no_working_guidance(tmp_path, user_config_folder):
     root = _repo(tmp_path / "r")
-    (root / ".bugpilot").mkdir()
+    (data_dir(root) / "settings").mkdir(parents=True)
     __import__("bugpilot.core.storage", fromlist=["storage"]).repository_storage(root).settings_file("instructions.md", create=True).write_text("Keep the exports stable.\n", encoding="utf-8")  # where 0.1.6 keeps it (Batch 2B-3a)
-    (root / ".bugpilot" / "verification.md").write_text(render_verification("- Run the unit tests."), encoding="utf-8")
+    ((data_dir(root) / "settings" / "verification.md")).write_text(render_verification("- Run the unit tests."), encoding="utf-8")
     (user_config_folder / "instructions.md").write_text("Prefer explicit names.\n", encoding="utf-8")
     _file(root, render_document(ADDITIONS))
     task = _task(root)
@@ -574,7 +581,7 @@ def test_the_text_is_never_logged(tmp_path, monkeypatch, capsys):
         logger.setLevel(previous)
 
     joined = "\n".join(capture.messages)
-    assert "ai behavior: defaults + .bugpilot/ai_behavior.md" in joined
+    assert f"ai behavior: defaults + {shown_path(root)}" in joined
     assert "may conflict with a BugPilot rule" in joined
     assert marker not in joined and "Force push when done" not in joined
     # The task is where the text goes.
@@ -628,7 +635,7 @@ def test_the_cli_the_core_and_mcp_read_the_same_file(tmp_path, monkeypatch, caps
     _file(core_root, render_document(ADDITIONS))
     spec = bug_spec_from_description("Saving a record crashes", repo_root=core_root)
     workflow.run_investigation(core_root, InvestigationRequest(spec=spec))
-    core_task = (core_root / ".ai" / spec.work_item_id / "task.md").read_text(encoding="utf-8")
+    core_task = (issue_dir(core_root, spec.work_item_id) / "task.md").read_text(encoding="utf-8")
     assert _section(cli_task, "## AI Behavior") == _section(core_task, "## AI Behavior")
     assert "#### Evidence Standards" in _section(core_task, "## AI Behavior")
 
@@ -640,7 +647,7 @@ def test_the_cli_the_core_and_mcp_read_the_same_file(tmp_path, monkeypatch, caps
     result = mcp_server._run(
         "prepare", mcp_root, InvestigationRequest(spec=bug_spec_from_description("Saving a record crashes", repo_root=mcp_root))
     )
-    mcp_task = (mcp_root / ".ai" / result.issue_key / "task.md").read_text(encoding="utf-8")
+    mcp_task = (issue_dir(mcp_root, result.issue_key) / "task.md").read_text(encoding="utf-8")
     assert _section(mcp_task, "## AI Behavior") == _section(cli_task, "## AI Behavior")
 
 
@@ -664,10 +671,10 @@ def test_the_template_edit_creates_adds_nothing_until_something_is_written(tmp_p
     # The same task, and the same hash, as without the file: creating it is not a change.
     assert created["sha256"] == shown["sha256"]
     assert _task(root) == plain_task
-    assert resolve_ai_behavior(root).log_line == "[INFO] ai behavior: bugpilot-default (.bugpilot/ai_behavior.md adds nothing yet)"
+    assert resolve_ai_behavior(root).log_line == f"[INFO] ai behavior: bugpilot-default ({shown_path(root)} adds nothing yet)"
 
     # Writing under a heading is the change.
-    (root / ".bugpilot" / "ai_behavior.md").write_text(
+    ((data_dir(root) / "settings" / "ai_behavior.md")).write_text(
         render_document(TEMPLATE_BODY.replace("## Evidence Standards", "## Evidence Standards\n\n- Quote the failing line.")),
         encoding="utf-8",
     )

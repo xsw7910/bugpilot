@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core.config import issue_dir
 from bugpilot.core.attachments import (
     ATTACHMENTS_DIR,
     MAX_ATTACHMENT_BYTES,
@@ -137,11 +138,12 @@ def test_names_are_read_back_from_disk(tmp_path):
 
 
 def test_the_task_file_names_each_attachment(tmp_path):
-    task = generate_task("JR-1", "Crash", attachments=["crash.log", "shot.png"])
+    task = generate_task("JR-1", "Crash", attachments=["crash.log", "shot.png"], work_folder="/data/work")
 
     assert "## Developer Attachments" in task
-    assert "`.ai/JR-1/attachments/crash.log`" in task
-    assert "`.ai/JR-1/attachments/shot.png`" in task
+    # Named in the work folder the task states (0.1.7), not by a path in the repository.
+    assert "`attachments/crash.log`" in task
+    assert "`attachments/shot.png`" in task
     # Told to say so rather than guess: whether a PNG is readable depends on the
     # agent and the model behind it, which is not knowable from here.
     assert "cannot read" in task
@@ -150,7 +152,7 @@ def test_the_task_file_names_each_attachment(tmp_path):
 def test_no_attachments_means_no_section(tmp_path):
     """An empty heading is a question the agent has to ask and answer itself."""
     for attachments in ([], None):
-        task = generate_task("JR-1", "Crash", attachments=attachments)
+        task = generate_task("JR-1", "Crash", attachments=attachments, work_folder="/data/work")
         assert "Developer Attachments" not in task
 
 
@@ -166,7 +168,7 @@ def test_the_task_file_can_only_name_files_that_arrived(tmp_path):
     good = _file(tmp_path / "elsewhere", "crash.log", b"stack")
 
     result = copy_attachments(target, [str(good), str(tmp_path / "vanished.png")])
-    task = generate_task("JR-1", "Crash", attachments=attachment_names(target))
+    task = generate_task("JR-1", "Crash", attachments=attachment_names(target), work_folder="/data/work")
 
     assert "crash.log" in task
     assert "vanished.png" not in task
@@ -248,12 +250,13 @@ def test_the_task_file_gives_each_attachment_its_own_entry_with_its_description(
         "Crash",
         attachments=["crash.log", "shot.png"],
         attachment_notes={"crash.log": "Console output immediately after clicking Save."},
+        work_folder="/data/work",
     )
     section = task.split("## Developer Attachments")[1].split("\n## ")[0]
 
-    assert "### crash.log\n\nDescription: Console output immediately after clicking Save.\nFile: `.ai/JR-1/attachments/crash.log`" in section
+    assert "### crash.log\n\nDescription: Console output immediately after clicking Save.\nFile: `attachments/crash.log`" in section
     # Blank: no empty "Description:" line, just the file.
-    assert "### shot.png\n\nFile: `.ai/JR-1/attachments/shot.png`" in section
+    assert "### shot.png\n\nFile: `attachments/shot.png`" in section
     assert section.count("Description:") == 1
     # Source-agnostic, and still honest about images.
     assert "Jira" not in section
@@ -261,7 +264,7 @@ def test_the_task_file_gives_each_attachment_its_own_entry_with_its_description(
 
 
 def test_a_description_for_a_file_that_is_not_there_is_not_mentioned():
-    task = generate_task("JR-1", "Crash", attachments=["crash.log"], attachment_notes={"gone.png": "secret note"})
+    task = generate_task("JR-1", "Crash", attachments=["crash.log"], attachment_notes={"gone.png": "secret note"}, work_folder="/data/work")
     assert "gone.png" not in task
     assert "secret note" not in task
 
@@ -348,7 +351,7 @@ def test_the_cli_pairs_descriptions_by_position_and_refuses_a_mismatch(tmp_path,
     ])
     assert code == 0
     work_item = json.loads(capsys.readouterr().out)["work_item_id"]
-    task = (tmp_path / ".ai" / work_item / "task.md").read_text(encoding="utf-8")
+    task = (issue_dir(tmp_path, work_item) / "task.md").read_text(encoding="utf-8")
     assert "### crash.log\n\nDescription: Console output after Save." in task
     assert "### shot.png\n\nFile:" in task
 
@@ -562,7 +565,7 @@ def test_the_cli_flag_makes_the_selection_the_whole_set(tmp_path, monkeypatch, c
     # A Jira work item, so the second run resumes the same one (a typed bug gets a new id each run).
     assert main(["bug", "JR-12345", "--allow-mock", f"--attach={a}", f"--attach={b}", "--replace-attachments", "--prepare-only", "--json"]) == 0
     work_item = json.loads(capsys.readouterr().out)["work_item_id"]
-    folder = tmp_path / ".ai" / work_item
+    folder = issue_dir(tmp_path, work_item)
     assert sorted(path.name for path in (folder / ATTACHMENTS_DIR).iterdir()) == ["a.png", "b.log"]
 
     # The panel's resume with everything removed: no --attach at all, the flag says so.

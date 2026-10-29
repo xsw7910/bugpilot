@@ -4,7 +4,7 @@ When a fix is ready, BugPilot can tell people — only when you ask, and only in
 
 ## One Jira comment
 
-The lightest way to notify the people watching an issue: BugPilot posts one comment with the analysis summary, and Jira notifies the issue's watchers, assignee and reporter through its own notifications. It uses your existing Jira credentials (`JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_TOKEN`, or `~/.bugpilot/config.toml`).
+The lightest way to notify the people watching an issue: BugPilot posts one comment with the analysis summary, and Jira notifies the issue's watchers, assignee and reporter through its own notifications. It uses your existing Jira credentials (`JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_TOKEN`, or `~/.bugpilot/config/config.toml`).
 
 ```powershell
 bugpilot jira-comment-draft JR-12345        # write a local, reviewable draft
@@ -68,4 +68,4 @@ $env:BUGPILOT_EMAIL_TO="you@example.com"
 
 ### Sending by hand through Outlook
 
-With no transport, `bugpilot notify` still writes a portable `.ai/<ISSUE>/notification.eml`. `scripts/send-via-outlook.ps1 <ISSUE>` opens it as a pre-filled Outlook message for you to review and send.
+With no transport, `bugpilot notify` still writes a portable `notification.eml` in the work item's folder (the command prints where). `scripts/send-via-outlook.ps1 <ISSUE>` opens it as a pre-filled Outlook message for you to review and send.

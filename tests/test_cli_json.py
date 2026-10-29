@@ -9,6 +9,7 @@ import pathlib
 import pytest
 
 import _isolation
+from bugpilot.core.config import issue_dir
 from bugpilot.cli import main
 from bugpilot.cli_json import SCHEMA_VERSION, failure, success
 from bugpilot.core import errors
@@ -190,8 +191,8 @@ def test_check_results_json_lists_what_is_missing(tmp_path, monkeypatch, capsys)
     code, payload = _run_json(capsys, ["check-results", "JR-12345", "--json"])
     assert code == 0
     assert payload["ok"] is True
-    # Entries are repo-relative paths, not bare file names.
-    assert ".ai/JR-12345/fix_report.md" in payload["missing"]
+    # Entries are paths, not bare file names: absolute, in the work item's folder of the data folder (0.1.7).
+    assert str(issue_dir(tmp_path, "JR-12345") / "fix_report.md") in payload["missing"]
     assert payload["warnings"]
 
 
@@ -266,8 +267,8 @@ def test_bug_json_for_a_jira_work_item(tmp_path, monkeypatch, capsys):
     assert payload["work_item_id"] == "JR-12345"
     assert payload["source"] == "jira"
     assert payload["source_ref"] == "JR-12345"
-    assert payload["issue_dir"] == ".ai/JR-12345"
-    assert payload["agent_task"] == ".ai/JR-12345/task.md"
+    assert payload["issue_dir"] == str(issue_dir(tmp_path, "JR-12345"))
+    assert payload["agent_task"] == str(issue_dir(tmp_path, "JR-12345") / "task.md")
     assert payload["skipped_steps"] == []
 
 
@@ -329,7 +330,7 @@ def test_plan_flags_report_what_was_skipped(tmp_path, monkeypatch, capsys):
     )
     assert code == 0
     assert "git_context" in payload["skipped_steps"]
-    assert not (tmp_path / ".ai" / payload["work_item_id"] / "git_context.md").exists()
+    assert not (issue_dir(tmp_path, payload["work_item_id"]) / "git_context.md").exists()
 
 
 def test_only_issue_details_skips_everything_else(tmp_path, monkeypatch, capsys):
@@ -355,7 +356,7 @@ def test_ignore_path_reaches_the_code_search(tmp_path, monkeypatch, capsys):
          "--prepare-only", "--json"],
     )
     assert code == 0
-    retrieval = json.loads((tmp_path / ".ai" / payload["work_item_id"] / "retrieval.json").read_text(encoding="utf-8"))
+    retrieval = json.loads((issue_dir(tmp_path, payload["work_item_id"]) / "retrieval.json").read_text(encoding="utf-8"))
     assert "vendor/W.cpp" not in [item["file"] for item in retrieval["related_files"]]
 
 
@@ -366,7 +367,7 @@ def test_hint_flag_still_reaches_the_artifacts(tmp_path, monkeypatch, capsys):
         ["bug", "--description", "crash on save", "--hint", "look in CsvWriter", "--prepare-only", "--json"],
     )
     assert code == 0
-    issue = json.loads((tmp_path / ".ai" / payload["work_item_id"] / "issue.json").read_text(encoding="utf-8"))
+    issue = json.loads((issue_dir(tmp_path, payload["work_item_id"]) / "issue.json").read_text(encoding="utf-8"))
     assert issue["guidance"]["hint"] == "look in CsvWriter"
 
 

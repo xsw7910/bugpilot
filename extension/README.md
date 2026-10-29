@@ -111,30 +111,34 @@ There is no built-in Jira site: enter yours in the panel's **Jira Setup** (see
 [First run](#first-run-in-about-five-minutes)), run `bugpilot setup` in a
 terminal, or set `JIRA_BASE_URL`.
 
-One thing to do in the repository you are fixing bugs in, before the first run:
+BugPilot writes nothing into the repository you are fixing bugs in. Its work
+items, its similar-fix memory and the repository's settings are in its own data
+folder, `~/.bugpilot/repositories/<repository>/` (set `BUGPILOT_HOME` to an
+absolute path outside every repository to move it); **BugPilot: Doctor** shows
+where, as `storage.repository_dir`. This extension needs a BugPilot CLI 0.1.7 or
+later, which keeps them there; with an older one the panel asks you to update it.
 
-```gitignore
-.ai/
-.ai_memory/
-```
+**Upgrading from 0.1.6 or earlier:** nothing is migrated. A repository's `.ai/`,
+`.ai_memory/` and `.bugpilot/` folders, and `~/.bugpilot/config.toml`, are no
+longer read and are never deleted. Enter your Jira site again in **Jira Setup**,
+prepare work items again, and set again the settings you want to keep; delete the
+old folders yourself when you no longer need them. Update the extension and a CLI you
+installed yourself together: an older extension does not find what a 0.1.7 CLI prepares,
+and such a CLI tells it so (its environment check fails with `EXTENSION_OUTDATED`) rather
+than preparing anything. With a CLI older than 0.1.7, this extension asks you to update it.
 
-BugPilot writes its artifacts there, including the fetched Jira content. The
-panel warns when they are not ignored, and **BugPilot: Doctor** reports it as
-`ai_artifacts_ignored`.
-
-The warning's **Add to .gitignore** button does it for you. It adds only the
-rule git says is missing — a `.ai` or `/.ai/` you already have counts, as it
-does for git — to the `.gitignore` at the repository root, creating the file if
-there is none. Your existing lines, comments and line endings stay as they are;
-the new lines go at the end. Pressing it twice adds nothing the second time.
-BugPilot then asks git again, and the warning goes only once git ignores both
-folders. If `.gitignore` is open with unsaved changes, the lines go into the
-editor and you save them; nothing is written behind your edits.
+**Fix with AI and Claude CLI.** The handoff names the work item's `task.md` by its full
+path, in BugPilot's data folder. When the installed `claude` lists `--add-dir` in its own
+`--help`, the command line also gives Claude that one folder (`--add-dir="<folder>"`), so
+writing `fix_report.md` there follows Claude's usual edit permissions; otherwise Claude asks
+before writing outside the repository. The path names your home folder, so your user name
+reaches the agent and its provider; set `BUGPILOT_HOME` to a neutral folder if that matters.
 
 ## First run, in about five minutes
 
 1. Open the repository you are fixing bugs in. One folder, and ideally a git
-   checkout — BugPilot writes `.ai/<work-item>/` next to your code.
+   checkout — BugPilot keeps each work item in its data folder, never next to
+   your code.
 2. Click the BugPilot icon in the activity bar. It has two views:
    **Workflow** (the panel below) and **Results** — the open work item's files
    under **Current**, every work item under **History**, and what BugPilot is
@@ -145,7 +149,7 @@ editor and you save them; nothing is written behind your edits.
    account email and an API token, together, with **Save** and **Cancel**. The
    site is an `https://` address such as `https://your-company.atlassian.net`,
    with no user name, query or fragment; it is saved where the CLI reads it,
-   `~/.bugpilot/config.toml`. If `JIRA_BASE_URL` is set in your environment,
+   `~/.bugpilot/config/config.toml`. If `JIRA_BASE_URL` is set in your environment,
    that is the site BugPilot uses, and the dialog shows it without letting you
    change it there. To get a token, press **Open Atlassian API tokens**, select
    **Create API token**, choose a name and an expiration date, then copy the
@@ -294,15 +298,14 @@ repository's own build and package files — the line under the picker says what
 it found, "Detected: C++ · Qt · CMake" — and never guesses; **Generic** assumes
 nothing about languages or frameworks; **Custom** shows six short fields for the
 details you provide. It is the repository's setting rather than this panel's:
-**Apply** saves it in `.bugpilot/repository_profile.json` in the repository,
-where the CLI and the MCP server read it too (commit it to share it), and a
-profile someone else saved there is what the page shows. It needs a rebuild, and
+**Apply** saves it in the repository's settings in BugPilot's data folder,
+where the CLI and the MCP server read it too, and a profile saved there from the
+CLI is what the page shows. It needs a rebuild, and
 **Reset Session** keeps it.
 
 **User instructions** and **Project instructions** (in Guidance &
-Verification) are guidance for the AI agent, in plain text or Markdown: the project's in `.bugpilot/instructions.md` in the repository,
-shared with it (commit it to share it), and yours in
-`~/.bugpilot/instructions.md`, for every repository. Each row says what its file
+Verification) are guidance for the AI agent, in plain text or Markdown: the project's in the repository's settings in BugPilot's data folder,
+and yours in `~/.bugpilot/config/instructions.md`, for every repository. Each row says what its file
 holds — *No project instructions configured.*, *Configured · 1,204 characters*
 — and **Edit** opens its own page: Back, the title, one line on whom it applies
 to, the text, **Save** and **Cancel** (Ctrl+Enter saves, Escape cancels).
@@ -320,7 +323,7 @@ a rebuild, **Reset Session** keeps both, and the CLI and the MCP server read
 the same two files. Their text is never written to the Output channel.
 
 An edit made outside the panel — in an editor tab, or by switching branch or
-pulling — is noticed too: BugPilot watches `.bugpilot/` in the repository, and
+pulling — is noticed too: BugPilot watches the repository's settings folder, and
 reads the instruction files and the Verification Policy again when the window
 comes back to focus, at the environment check, and just before **Run**,
 **Rebuild Context**, **Fix with AI** and **Start New Attempt**. If what they
@@ -338,11 +341,11 @@ ran unless it did. The row shows where the policy in force comes from:
 
 - **BugPilot default** — no file, nothing saved: BugPilot's own policy.
 - **Legacy project settings** — the four Verification switches BugPilot 0.1.2
-  saved in `.bugpilot/project_settings.json`, as text.
-- **Repository verification.md** — `.bugpilot/verification.md`, which replaces
-  BugPilot's default whole (commit it to share it).
+  saved in the repository's `project_settings.json`, as text.
+- **Repository verification.md** — `verification.md` in the repository's
+  settings, which replaces BugPilot's default whole.
 
-**Edit** opens `.bugpilot/verification.md` in an editor tab, never in the
+**Edit** opens the repository's `verification.md` in an editor tab, never in the
 sidebar. If the file is not there yet, the CLI creates it first from the policy
 in force — BugPilot's default, or the legacy switches' text, which makes the
 first Edit the move from the switches to the file — with the front matter
@@ -375,8 +378,7 @@ policy the context was prepared with. Edit and Reset write straight away, not
 on **Apply**; they wait while a run or a handoff is in flight.
 
 The panel no longer has the four Verification switches. The values an older
-version saved stay in `.bugpilot/project_settings.json` untouched, so a
-teammate still on BugPilot 0.1.2 keeps the policy they set; once
+version saved stay in the repository's `project_settings.json` untouched; once
 `verification.md` exists it decides, and `bugpilot project-settings` reports
 `verification_source: verification-file`. Editing the policy needs BugPilot
 CLI 0.1.3 or later: with an older CLI the row says so and offers nothing, and
@@ -386,7 +388,7 @@ task without the repository's policy.
 
 **AI Behavior & Rules** (0.1.4). **AI Behavior** is how the AI agent is
 expected to make and report changes in this repository: BugPilot's defaults,
-always, plus this repository's additions in `.bugpilot/ai_behavior.md` under
+always, plus this repository's additions in its `ai_behavior.md` setting under
 *Code Change Conventions*, *Evidence Standards* and *Reporting Standards*.
 Additions never replace the defaults. Its row works like the Verification
 Policy's: **Edit** opens the file in an editor tab — if it is not there yet,
@@ -515,12 +517,10 @@ Each custom mode lives in one of two scopes:
 
 | Scope | Where it lives | Who sees it |
 | --- | --- | --- |
-| User | `~/.bugpilot/fix_modes/` | You, in every repository |
-| Project | `.bugpilot/fix_modes/` in this repository | Everyone who checks the repository out |
+| User | `~/.bugpilot/config/fix_modes/` | You, in every repository |
+| Project | `fix_modes/` in this repository's settings, in BugPilot's data folder | You, in this repository |
 
-A project mode with the same id shadows a user mode, which is how a team
-standardises a workflow: commit `.bugpilot/fix_modes/` and the mode arrives with
-the code. A mode's instructions are guidance for the agent; BugPilot's own
+A project mode with the same id shadows a user mode. A mode's instructions are guidance for the agent; BugPilot's own
 rules — evidence, branches, Jira, delivery, no commits — wrap every mode and are
 not editable here.
 
@@ -530,7 +530,7 @@ not editable here.
 in the repository and not in the Jira ticket: a crash log, a screenshot of the
 broken dialog, a config that reproduces it.
 
-The files are copied into `.ai/<work-item>/attachments/` and **named one by one
+The files are copied into the work item's `attachments/` and **named one by one
 in `task.md`**, which is what makes the agent read them — dropping a file
 into that directory by hand does nothing, because the task file lists its inputs
 explicitly.
@@ -544,8 +544,8 @@ Three things worth knowing:
 - **Whether an image can be read depends on your agent.** The task file names
   the file and asks the agent to say so plainly if it cannot open it, rather
   than guessing at the contents.
-- **They land in `.ai/`.** Same as every other artifact — so the `.gitignore`
-  advice above matters more once a customer's log file is in there.
+- **They land in the work item's folder.** Same as every other artifact: in
+  BugPilot's data folder, never in the repository.
 
 At most ten files, 10 MB each.
 
@@ -637,8 +637,8 @@ fold it again; a new report starts folded. It says a report
 is there to read — not that the bug is fixed: an investigation-only pass, a
 no-op and an attempt whose tests still fail all write the same file. BugPilot
 does not watch the agent, but it does watch the work item's folder: when the
-agent — or anything else — writes, changes or deletes a file in `.ai/<work
-item>/`, the panel and **Current** read it again within about a second,
+agent — or anything else — writes, changes or deletes a file in the work
+item's folder, the panel and **Current** read it again within about a second,
 with no reload. Only that folder is watched, not the repository; a refresh only
 reads, it never prepares, searches or runs anything, and nothing you are typing
 in the panel is touched by it. Showing the panel again reads the folder too, and
@@ -685,7 +685,7 @@ could not use as a branch name is refused
 when you press Apply, with the reason, and the saved one stays. A template only
 names a branch: it never creates or switches one, and a work item that already
 has a branch keeps it. Like the Verification Policy, it is saved for the
-repository in `.bugpilot/project_settings.json`; it needs a rebuild, and Reset
+repository in its `project_settings.json`; it needs a rebuild, and Reset
 Session keeps it.
 
 ## Review and verification
@@ -917,14 +917,14 @@ own), and **History**.
 
 It asks first, with one choice about the generated files:
 
-- **Keep generated files** (the default) leaves `.ai/<work item>/` exactly as
+- **Keep generated files** (the default) leaves the work item's folder exactly as
   it is. The work item stays in History, and clicking it there reopens it.
-- **Delete generated files** permanently deletes `.ai/<work item>/` — the
+- **Delete generated files** permanently deletes the work item's folder — the
   current work item's context, task, report and copied attachments — and
   nothing else: never a repository file, never another work item, never the
   memory entry. The work item leaves History with its folder. BugPilot deletes
-  only a real folder inside the repository's own `.ai/`; if `.ai` or the folder
-  is a link or junction, or the delete does not finish, nothing is reset and
+  only a real folder inside the repository's own `work/` in its data folder; if
+  `work` or the folder is a link or junction, or the delete does not finish, nothing is reset and
   the dialog says why.
 
 A BugPilot run in progress is stopped first, and a background AI review
@@ -1022,9 +1022,9 @@ worth knowing:
 | Doctor | What the CLI thinks of this machine: Python, git, ripgrep, Jira, agents |
 | Choose Executable | You have more than one bugpilot and want a specific one |
 | Fix with AI | Hand the prepared package to your agent in a terminal, from anywhere |
-| Open Artifacts Folder | Reveal `.ai/<work-item>/` in the explorer |
+| Open Artifacts Folder | Reveal the work item's folder in the explorer |
 | Open Panel in Editor | The form is more comfortable in a wide editor tab |
-| Clean Work Item Artifacts | Remove one work item's `.ai/` directory. Confirms first |
+| Clean Work Item Artifacts | Remove one work item's folder. Confirms first |
 | MCP Status | Whether an agent in this workspace can reach bugpilot directly |
 | Resume Agent Session in Terminal | Continue the last Claude CLI session that ran in this repository (`claude --resume`) |
 
@@ -1045,16 +1045,15 @@ worth knowing:
 
 ## Privacy
 
-- **Generated files hold repository context.** `.ai/<work item>/` and
-  `.ai_memory/` contain code excerpts, file paths, git history, attachments and
-  the fetched issue text, and the prompts BugPilot builds for an agent or a
-  reviewer carry the same. Keep both folders out of source control (see
-  [Before you start](#before-you-start)) unless you mean to share them, and
-  hand them only to an agent you would show the code to.
-- **Project settings are shared; yours are not.** `.bugpilot/` in the
-  repository — Project instructions, the Repository profile, the Verification
-  Policy, Branch naming, project Fix Modes — is meant to be committed. User
-  instructions and user Fix Modes in `~/.bugpilot/` are yours alone.
+- **Generated files hold repository context.** A work item's files and the
+  similar-fix memory contain code excerpts, file paths, git history, attachments
+  and the fetched issue text, and the prompts BugPilot builds for an agent or a
+  reviewer carry the same. They are in BugPilot's data folder in your home,
+  never in the repository; hand them only to an agent you would show the code to.
+- **Settings are yours.** The repository's settings — Project instructions, the
+  Repository profile, the Verification Policy, Branch naming, project Fix Modes —
+  and your User instructions and Fix Modes are in BugPilot's data folder, on
+  your machine; nothing is shared through the repository.
 - **Improve with AI sends text to your AI agent.** It hands the hint — and,
   when *using Issue details* is ticked, the issue's title and description —
   to the Claude or Codex CLI you use, and so to that provider, with no tools
@@ -1083,7 +1082,8 @@ The codicons icon font in `media/codicons/`, the activity bar icon `media/bug.sv
 | "The BugPilot runtime is not working." | Its environment is incomplete, or its `bugpilot` no longer answers — for instance after an interrupted setup. **Reinstall Runtime** rebuilds it; only this version's environment is replaced |
 | "does not support the machine-readable output this extension needs" | An older CLI is being found first. Upgrade it, or set `bugpilot.executablePath` |
 | "BugPilot CLI is out of date" | The CLI found is older than this extension and does not accept what a Run sends. For a CLI found on `PATH`, **Install BugPilot Runtime** is offered first. **Update Instructions** says how to upgrade (`pipx upgrade bugpilot`); **Choose Executable** points at a newer one; then **Retry**. `bugpilot --version` shows which version runs |
-| "… cannot read .bugpilot/ai_behavior.md, so it would prepare tasks without this repository's AI Behavior" | The repository has an AI Behavior file and the CLI found is older than 0.1.4, so it would leave the file out of every task. Update the CLI (or **Install BugPilot Runtime**), then **Retry**. Removing the file also lets an older CLI prepare |
+| "… keeps work items in the repository's .ai/ folder, and this extension reads them from BugPilot's data folder …" | The CLI found is older than 0.1.7. Update it (or **Install BugPilot Runtime**), then **Retry** |
+| "… cannot read settings/ai_behavior.md, so it would prepare tasks without this repository's AI Behavior" | The repository has an AI Behavior file and the CLI found is older than 0.1.4, so it would leave the file out of every task. Update the CLI (or **Install BugPilot Runtime**), then **Retry**. Removing the file also lets an older CLI prepare |
 | "The installed BugPilot CLI cannot preview the AI task" (or show the generated context, or list its protected rules) | The CLI is older than 0.1.4. Everything else works; the Effective Output and Protected rules views need a 0.1.4 CLI |
 | "Not refreshed: BugPilot is busy" in a read-only view | A run is in progress, or the CLI is being checked again. The view keeps its last answer and asks again when BugPilot is ready |
 | "BugPilot CLI was not found" during a Run | The executable went away since the panel checked. Install it, or choose it again |

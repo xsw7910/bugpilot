@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core.config import issue_dir
 from bugpilot.cli import main
 from bugpilot.core import storage, workflow
 from bugpilot.core.git_ops import branch_name, branch_template_problem, render_branch_template
@@ -290,17 +291,17 @@ def test_per_issue_records_the_templated_branch_and_a_later_template_does_not_re
     monkeypatch.chdir(root)
     assert main(["bug", "--prepare-only", "JR-12345", "--allow-mock", "--branch-policy", "per-issue"]) == 0
     capsys.readouterr()
-    guidance = json.loads((root / ".ai" / "JR-12345" / "issue.json").read_text(encoding="utf-8"))["guidance"]
+    guidance = json.loads((issue_dir(root, "JR-12345") / "issue.json").read_text(encoding="utf-8"))["guidance"]
     first = guidance["branch_name"]
     assert first.startswith("bugfix/JR-12345-")
-    task = (root / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
+    task = (issue_dir(root, "JR-12345") / "task.md").read_text(encoding="utf-8")
     assert f"- Branch name: `{first}`" in task
 
     # A new template, and another preparation: the work item keeps its branch.
     _settings(root, {"branch_naming": {"template": "fix/{issue}"}})
     assert main(["bug", "--prepare-only", "JR-12345", "--allow-mock", "--resume"]) == 0
     workflow.copilot_task_step(root, "JR-12345")
-    task = (root / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
+    task = (issue_dir(root, "JR-12345") / "task.md").read_text(encoding="utf-8")
     assert f"- Branch name: `{first}`" in task
     assert "fix/JR-12345`" not in task
     # Preparing again never calls for a new branch.
@@ -312,10 +313,10 @@ def test_the_current_policy_suggests_the_templated_name(tmp_path, monkeypatch, c
     _settings(root, {"branch_naming": {"template": "fix/{issue}"}})
     monkeypatch.chdir(root)
     assert main(["bug", "--prepare-only", "JR-12345", "--allow-mock"]) == 0
-    task = (root / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
+    task = (issue_dir(root, "JR-12345") / "task.md").read_text(encoding="utf-8")
     assert "`fix/JR-12345`" in task
     assert "feature/JR-12345" not in task
-    guidance = json.loads((root / ".ai" / "JR-12345" / "issue.json").read_text(encoding="utf-8"))["guidance"]
+    guidance = json.loads((issue_dir(root, "JR-12345") / "issue.json").read_text(encoding="utf-8"))["guidance"]
     assert "branch_name" not in guidance
 
 
@@ -332,7 +333,7 @@ def test_the_cli_the_core_entry_point_and_mcp_write_the_same_policy_and_branch(t
     _settings(core_root, settings)
     spec = bug_spec_from_description("Saving a record crashes", repo_root=core_root)
     workflow.run_investigation(core_root, InvestigationRequest(spec=spec))
-    core_task = (core_root / ".ai" / spec.work_item_id / "task.md").read_text(encoding="utf-8")
+    core_task = (issue_dir(core_root, spec.work_item_id) / "task.md").read_text(encoding="utf-8")
 
     assert _section(cli_task, "## Verification Policy") == _section(core_task, "## Verification Policy")
     assert re.search(r"`bugfix/bug-[0-9a-f]{8}-saving-a-record-crashes`", cli_task)
@@ -344,13 +345,13 @@ def test_the_cli_the_core_entry_point_and_mcp_write_the_same_policy_and_branch(t
     mcp_root = _repo(tmp_path / "mcp")
     _settings(mcp_root, settings)
     result = mcp_server._run("prepare", mcp_root, InvestigationRequest(spec=bug_spec_from_description("Saving a record crashes", repo_root=mcp_root)))
-    mcp_task = (mcp_root / ".ai" / result.issue_key / "task.md").read_text(encoding="utf-8")
+    mcp_task = (issue_dir(mcp_root, result.issue_key) / "task.md").read_text(encoding="utf-8")
     assert _section(mcp_task, "## Verification Policy") == _section(cli_task, "## Verification Policy")
     assert _section(mcp_task, "## Branch Instructions") == _section(cli_task, "## Branch Instructions")
 
 
 def test_generate_task_without_settings_writes_the_defaults():
-    task = generate_task("JR-1", "Saving crashes")
+    task = generate_task("JR-1", "Saving crashes", work_folder="/data/work")
     section = _section(task, "## Verification Policy")
     for line in DEFAULT_LINES:
         assert line in section
@@ -359,7 +360,7 @@ def test_generate_task_without_settings_writes_the_defaults():
 def test_change_scope_is_not_a_setting():
     """Deliberately not a setting: every Fix Mode already sets how broad a change may be."""
     assert "change_scope" not in ProjectSettings().to_dict()
-    assert "## Change Scope" not in generate_task("JR-1", "Saving crashes")
+    assert "## Change Scope" not in generate_task("JR-1", "Saving crashes", work_folder="/data/work")
 
 
 def test_a_file_with_a_bom_is_read_like_any_other(tmp_path, monkeypatch, capsys):
@@ -432,7 +433,7 @@ def test_a_saved_template_without_issue_is_not_used_and_a_recorded_branch_is_kep
     monkeypatch.chdir(root)
     assert main(["bug", "--prepare-only", "JR-12345", "--allow-mock", "--branch-policy", "per-issue"]) == 0
     capsys.readouterr()
-    recorded = json.loads((root / ".ai" / "JR-12345" / "issue.json").read_text(encoding="utf-8"))["guidance"]["branch_name"]
+    recorded = json.loads((issue_dir(root, "JR-12345") / "issue.json").read_text(encoding="utf-8"))["guidance"]["branch_name"]
     assert recorded.startswith("bugfix/JR-12345-")
 
     # The file as an earlier version could have saved it: not used, and said.
@@ -444,7 +445,7 @@ def test_a_saved_template_without_issue_is_not_used_and_a_recorded_branch_is_kep
     # Preparing again keeps the recorded branch: nothing is renamed.
     assert main(["bug", "--prepare-only", "JR-12345", "--allow-mock", "--resume"]) == 0
     workflow.copilot_task_step(root, "JR-12345")
-    task = (root / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
+    task = (issue_dir(root, "JR-12345") / "task.md").read_text(encoding="utf-8")
     assert f"- Branch name: `{recorded}`" in task
     assert "`fix/" not in _section(task, "## Branch Instructions")
 

@@ -9,6 +9,9 @@ from subprocess import CompletedProcess
 
 import pytest
 
+from bugpilot.core.handoff import work_item_handoff
+from bugpilot.core.storage import repository_storage
+from bugpilot.core.config import issue_dir as config_issue_dir, memory_dir as config_memory_dir, data_dir as config_data_dir, prompt_path, shown_memory, shown_work
 from bugpilot.core import workflow
 from bugpilot.cli import main
 from bugpilot.core.agent_runner import AgentRunResult
@@ -69,7 +72,7 @@ LEGACY_RETRIEVAL_FILES = ("extracted_keywords.json", "code_search.md", "search_q
 def _search(tmp_path: Path, keywords: dict, work_item: str = "JR-12345") -> dict:
     """The search step given an extraction in memory, as the pipeline hands it over."""
     workflow.code_search_step(tmp_path, work_item, keywords=keywords)
-    target = tmp_path / ".ai" / work_item
+    target = config_issue_dir(tmp_path, work_item)
     for name in LEGACY_RETRIEVAL_FILES:
         assert not (target / name).exists(), name
     return json.loads((target / "retrieval.json").read_text(encoding="utf-8"))
@@ -99,8 +102,8 @@ def test_output_directory_creation(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
 
-    assert (tmp_path / ".ai" / "JR-12345").is_dir()
-    assert (tmp_path / ".ai_memory" / "bugs" / "JR-12345.md").is_file()
+    assert (config_issue_dir(tmp_path, "JR-12345")).is_dir()
+    assert (config_memory_dir(tmp_path) / "JR-12345.md").is_file()
 
 
 def test_branch_name_generation():
@@ -127,7 +130,7 @@ def test_summary_slug_rules():
 
 def test_run_json_generation(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
+    status = json.loads((config_issue_dir(tmp_path, "JR-12345") / "run.json").read_text())
 
     assert status["schema_version"] == 1
     assert status["work_item_id"] == "JR-12345"
@@ -156,14 +159,14 @@ def test_run_json_generation(tmp_path):
         "retry_prompt": "skipped",
         "manual_result": "skipped",
     }
-    assert ".ai/JR-12345/task.md" in status["generated_files"]
-    assert ".ai/JR-12345/context.md" in status["generated_files"]
+    assert "work/JR-12345/task.md" in status["generated_files"]
+    assert "work/JR-12345/context.md" in status["generated_files"]
     for name in LEGACY_CONTEXT_TASK_FILES:
-        assert f".ai/JR-12345/{name}" not in status["generated_files"]
-    assert ".ai/JR-12345/retrieval.json" in status["generated_files"]
+        assert f"work/JR-12345/{name}" not in status["generated_files"]
+    assert "work/JR-12345/retrieval.json" in status["generated_files"]
     for name in LEGACY_RETRIEVAL_FILES:
-        assert f".ai/JR-12345/{name}" not in status["generated_files"]
-    assert ".ai_memory/bugs/JR-12345.md" in status["generated_files"]
+        assert f"work/JR-12345/{name}" not in status["generated_files"]
+    assert "memory/JR-12345.md" in status["generated_files"]
 
 
 def test_bug_command_runs_in_temporary_directory(tmp_path, monkeypatch):
@@ -176,8 +179,8 @@ def test_bug_command_runs_in_temporary_directory(tmp_path, monkeypatch):
     exit_code = main(["bug", "JR-12345"])
 
     assert exit_code == 0
-    assert (tmp_path / ".ai" / "JR-12345" / "issue.json").is_file()
-    assert (tmp_path / ".ai" / "JR-12345" / "run.json").is_file()
+    assert (config_issue_dir(tmp_path, "JR-12345") / "issue.json").is_file()
+    assert (config_issue_dir(tmp_path, "JR-12345") / "run.json").is_file()
 
 
 def test_bug_is_the_default_command(tmp_path, monkeypatch):
@@ -190,7 +193,7 @@ def test_bug_is_the_default_command(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     assert main(["JR-12345"]) == 0
-    assert (tmp_path / ".ai" / "JR-12345" / "issue.json").is_file()
+    assert (config_issue_dir(tmp_path, "JR-12345") / "issue.json").is_file()
 
 
 def test_bug_command_prints_progress_and_key_artifacts(tmp_path, monkeypatch, capsys):
@@ -214,15 +217,15 @@ def test_bug_command_prints_progress_and_key_artifacts(tmp_path, monkeypatch, ca
     assert "Building bug context" in output
     assert "Generating agent task package" in output
     assert "Generated:" in output
-    assert ".ai/JR-12345/issue.json" in output
+    assert "/work/JR-12345/issue.json" in output
     assert "jira_summary.md" not in output
     assert "jira_parsed.md" not in output
-    assert ".ai/JR-12345/retrieval.json" in output
+    assert "/work/JR-12345/retrieval.json" in output
     assert "code_search.md" not in output
-    assert ".ai/JR-12345/context.md" in output
-    assert ".ai/JR-12345/task.md" in output
+    assert "/work/JR-12345/context.md" in output
+    assert "/work/JR-12345/task.md" in output
     assert "Prepared bugpilot workflow package for JR-12345." in output
-    assert "Artifacts: .ai/JR-12345" in output
+    assert f"Artifacts: {shown_work(tmp_path, 'JR-12345')}" in output
 
 
 def test_bug_command_fetch_failure_prints_clear_error(tmp_path, monkeypatch, capsys):
@@ -263,7 +266,7 @@ def test_the_prepare_lifecycle_is_traced_through_logging_not_a_file(tmp_path, mo
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
     log_text = execution_trace.text
     # The trace is diagnostics, not an artifact: no file in the work item holds it.
-    assert not (tmp_path / ".ai" / "JR-12345" / "execution.log").exists()
+    assert not (config_issue_dir(tmp_path, "JR-12345") / "execution.log").exists()
 
     assert "[START] command: bugpilot bug JR-12345" in log_text
     assert "[START] doctor" in log_text
@@ -289,30 +292,30 @@ def test_the_prepare_lifecycle_is_traced_through_logging_not_a_file(tmp_path, mo
     assert "[START] memory_add" in log_text
     assert "[END] memory_add: pass" in log_text
     assert "[SKIP] agent_fix: prepare-only mode" in log_text
-    assert "[GENERATED] .ai/JR-12345/retrieval.json" in log_text
+    assert "[GENERATED] work/JR-12345/retrieval.json" in log_text
     for name in LEGACY_RETRIEVAL_FILES:
-        assert f"[GENERATED] .ai/JR-12345/{name}" not in log_text
+        assert f"[GENERATED] work/JR-12345/{name}" not in log_text
     for name in LEGACY_CONTEXT_TASK_FILES:
-        assert f".ai/JR-12345/{name}" not in log_text
-    assert "[GENERATED] .ai/JR-12345/task.md" in log_text
-    assert "[GENERATED] .ai/JR-12345/context.md" in log_text
-    assert "[GENERATED] .ai_memory/bugs/JR-12345.md" in log_text
+        assert f"work/JR-12345/{name}" not in log_text
+    assert "[GENERATED] work/JR-12345/task.md" in log_text
+    assert "[GENERATED] work/JR-12345/context.md" in log_text
+    assert "[GENERATED] memory/JR-12345.md" in log_text
     assert "[END] workflow: pass" in log_text
 
 
 def test_copilot_task_references_retrieval(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
-    task = (tmp_path / ".ai" / "JR-12345" / "task.md").read_text()
+    task = (config_issue_dir(tmp_path, "JR-12345") / "task.md").read_text()
 
     assert "Run your AI agent from the target repository root, not from the bugpilot tool source directory" in task
-    assert ".ai/JR-12345/` paths are relative to the target repository root" in task
+    assert f"outside the repository, in `{prompt_path(config_issue_dir(tmp_path, 'JR-12345'))}/`" in task
     assert "feature/JR-12345-demo-bug-employee-search-returns-stale-results-after" in task
     assert "Check the current branch before editing" in task
     # The default branch policy: the checked-out branch, a feature branch only
     # from main/master and only if the developer agrees (tests/test_branch_policy.py).
     assert "edit only on the branch that is checked out. Do not create or switch branches." in task
     assert "Create or switch to `" not in task
-    assert ".ai/JR-12345/context.md" in task
+    assert "- Read `context.md`:" in task
     # BugPilot's safety rules are in the task, not in a file beside it.
     assert "## BugPilot Safety Rules" in task
     assert "### Test and Check Integrity" in task
@@ -325,7 +328,7 @@ def test_copilot_task_references_retrieval(tmp_path):
     assert "## Repository Context" in task
     for assumption in ("C++", "Qt", "legacy", "desktop"):
         assert assumption not in task, assumption
-    assert ".ai/JR-12345/retrieval.json" in task
+    assert "- Read and inspect `retrieval.json` if present:" in task
     for name in LEGACY_RETRIEVAL_FILES:
         assert name not in task
     # Similar fixes and git history come from context.md, not standalone files.
@@ -340,7 +343,7 @@ def test_copilot_task_references_retrieval(tmp_path):
     assert "do not assume the matched files are the implementation" in task
     assert "Write a no-op analysis" in task
     assert "matched line numbers" in task
-    assert "Write one report: `.ai/JR-12345/fix_report.md`" in task
+    assert f"Write one report: `{prompt_path(config_issue_dir(tmp_path, 'JR-12345'))}/fix_report.md`" in task
     for heading in ("`## Summary`", "`## Analysis`", "`## Changes`", "`## Tests`", "`## Review Notes`"):
         assert heading in task, heading
     # Honest test reporting: the report says what ran, and the Safety Rules say never claim more.
@@ -360,7 +363,7 @@ def test_copilot_task_references_retrieval(tmp_path):
 
 def test_default_omits_jira_status_section(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     task = (issue_dir / "task.md").read_text()
     # The team rules name `jira-comment --execute` conditionally ("when the task
     # instructions ask for it"); what must be absent is the task asking.
@@ -378,7 +381,7 @@ def test_default_omits_jira_status_section(tmp_path):
 
 def test_jira_comment_opt_in_includes_status_section(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True, jira_comment=True)
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     task = (issue_dir / "task.md").read_text()
 
     # --jira-comment adds the pre-commit status section and its commands.
@@ -393,7 +396,7 @@ def test_jira_comment_opt_in_includes_status_section(tmp_path):
 
 def test_copilot_task_step_jira_comment_flag(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     assert "Report Status to Jira (before commit)" not in (issue_dir / "task.md").read_text()
 
     # Standalone regeneration can turn the status comment on after the fact.
@@ -412,7 +415,7 @@ def test_copilot_task_branch_uses_the_issue_title_slug(tmp_path):
     )
 
     workflow.prompt_step(tmp_path, "JR-12345")
-    task = (tmp_path / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
+    task = (config_issue_dir(tmp_path, "JR-12345") / "task.md").read_text(encoding="utf-8")
 
     assert "feature/JR-12345-output-panel-min-max-values-not-converted-to-db" in task
 
@@ -511,7 +514,7 @@ def test_search_command_writes_retrieval_json(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     source = tmp_path / "employee_search.py"
     source.write_text("class EmployeeSearch:\n    def refresh_filter_cache(self):\n        return 'filter cache'\n")
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     save_issue(tmp_path, IssueArtifact(id="JR-12345", source="jira", title="EmployeeSearch filter cache"))
 
     assert main(["search", "JR-12345"]) == 0
@@ -540,7 +543,7 @@ def test_rg_unavailable_fallback_generates_empty_results(tmp_path, monkeypatch):
 
 
 def test_memory_search_with_no_memory_entries_writes_no_results(tmp_path):
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     extracted = {"high_value_keywords": ["EmployeeSearch"], "normal_keywords": [], "dropped_keywords": []}
 
     issue_key, markdown, results = search_memory(tmp_path, "JR-12345", extracted=extracted)
@@ -556,12 +559,12 @@ def test_git_context_outside_git_repo_does_not_crash(tmp_path):
     text = render_git_context(git_context_step(tmp_path, "JR-12345"))
 
     assert "Current directory is not inside a git repository" in text
-    assert not (tmp_path / ".ai" / "JR-12345" / "git_context.md").exists()
+    assert not (config_issue_dir(tmp_path, "JR-12345") / "git_context.md").exists()
 
 
 def test_bug_workflow_generates_phase_2_files_and_enriched_context(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     context = (issue_dir / "context.md").read_text()
 
     assert (issue_dir / "retrieval.json").is_file()
@@ -729,7 +732,7 @@ def test_case_insensitive_high_value_keyword_bonus(tmp_path, monkeypatch):
 
 def test_context_includes_code_search_quality(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
-    context = (tmp_path / ".ai" / "JR-12345" / "context.md").read_text(encoding="utf-8")
+    context = (config_issue_dir(tmp_path, "JR-12345") / "context.md").read_text(encoding="utf-8")
 
     assert "### Search Quality" in context
     assert "Confidence:" in context
@@ -738,9 +741,9 @@ def test_context_includes_code_search_quality(tmp_path):
 
 def test_workflow_generated_files_include_retrieval(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text(encoding="utf-8"))
+    status = json.loads((config_issue_dir(tmp_path, "JR-12345") / "run.json").read_text(encoding="utf-8"))
 
-    assert ".ai/JR-12345/retrieval.json" in status["generated_files"]
+    assert "work/JR-12345/retrieval.json" in status["generated_files"]
 
 
 def test_git_run_command_uses_utf8_replace(monkeypatch, tmp_path):
@@ -764,7 +767,7 @@ def test_git_run_command_uses_utf8_replace(monkeypatch, tmp_path):
 
 
 def test_free_text_memory_search_prints_markdown(tmp_path, monkeypatch, capsys):
-    memory_dir = tmp_path / ".ai_memory" / "bugs"
+    memory_dir = config_memory_dir(tmp_path)
     memory_dir.mkdir(parents=True)
     (memory_dir / "JR-1.md").write_text("# JR-1\n\nEmployeeSearch cache bug\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -773,7 +776,7 @@ def test_free_text_memory_search_prints_markdown(tmp_path, monkeypatch, capsys):
     output = capsys.readouterr().out
 
     assert "# Memory Search: EmployeeSearch cache" in output
-    assert ".ai_memory/bugs/JR-1.md" in output
+    assert f"`{prompt_path(config_memory_dir(tmp_path) / 'JR-1.md')}`" in output
 
 
 def test_memory_entry_uses_prepare_only_phase_2_wording():
@@ -809,7 +812,7 @@ def test_context_relevant_files_lists_the_ranked_files():
 def test_the_task_carries_what_the_handoff_file_used_to(tmp_path):
     """No agent_handoff.md: each of its reminders is a line of task.md."""
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     task = (issue_dir / "task.md").read_text()
 
     assert not (issue_dir / "agent_handoff.md").exists()
@@ -834,7 +837,7 @@ def test_team_instructions_defer_to_the_task_fix_mode():
     # change code, and an investigation's Handoff withholds the offer.
     assert "you may ask" not in text and "whether they want you to commit" not in text
     assert "In an investigation-only pass, state plainly that tests were not run" in text
-    gate = generate_task("JR-1", "Stale results")
+    gate = generate_task("JR-1", "Stale results", work_folder="/data/work")
     assert "A pass allowed to change source code may ask once its work is done." in gate
 
 
@@ -879,7 +882,7 @@ def test_docs_copilot_team_instructions_exists():
 
 
 def test_copilot_task_command_regenerates_task_files(tmp_path, monkeypatch):
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     issue_dir.mkdir(parents=True)
     (issue_dir / "context.md").write_text("# Bug Context\n", encoding="utf-8")
     save_issue(tmp_path, IssueArtifact(id="JR-12345", source="jira"))
@@ -904,7 +907,7 @@ def test_bug_hint_is_injected_into_copilot_task(tmp_path, monkeypatch):
     hint = "Fix in WidgetController.cpp: preserve the selected input on tab switch"
 
     assert main(["bug", "JR-12345", "--allow-mock", "--hint", hint]) == 0
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     task = (issue_dir / "task.md").read_text(encoding="utf-8")
 
     assert load_issue(tmp_path, "JR-12345").guidance.hint == hint
@@ -921,7 +924,7 @@ def test_bug_without_hint_has_no_developer_hint_section(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     assert main(["bug", "JR-12345", "--allow-mock"]) == 0
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
 
     assert load_issue(tmp_path, "JR-12345").guidance.hint is None
     assert "## Developer Hint" not in (issue_dir / "task.md").read_text(encoding="utf-8")
@@ -934,7 +937,7 @@ def test_bug_hint_persists_across_resume(tmp_path, monkeypatch):
     assert main(["bug", "JR-12345", "--allow-mock", "--hint", hint]) == 0
     # Resume without repeating --hint: the stored hint should still apply.
     assert main(["bug", "JR-12345", "--allow-mock", "--resume"]) == 0
-    task = (tmp_path / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
+    task = (config_issue_dir(tmp_path, "JR-12345") / "task.md").read_text(encoding="utf-8")
 
     assert hint in task
 
@@ -945,7 +948,7 @@ def test_copilot_task_command_reports_missing_context(tmp_path, monkeypatch, cap
     assert main(["agent-task", "JR-12345"]) == 1
     error = capsys.readouterr().err
 
-    assert "Missing .ai/JR-12345/context.md." in error
+    assert f"Missing {shown_work(tmp_path, 'JR-12345', 'context.md')}." in error
     assert "Run: bugpilot bug JR-12345" in error
 
 
@@ -955,11 +958,11 @@ def test_copilot_instructions_command_prints_them(tmp_path, monkeypatch, capsys)
 
     assert main(["agent-instructions", "JR-12345"]) == 0
     output = capsys.readouterr().out
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
+    status = json.loads((config_issue_dir(tmp_path, "JR-12345") / "run.json").read_text())
 
     assert "BugPilot Safety Rules" in output
     assert "## Test and Check Integrity" in output
-    assert not (tmp_path / ".ai" / "JR-12345" / "agent_team_instructions.md").exists()
+    assert not (config_issue_dir(tmp_path, "JR-12345") / "agent_team_instructions.md").exists()
     assert status["steps"]["agent_instructions"] == "pass"
 
 
@@ -980,7 +983,7 @@ def test_check_results_reports_missing_files(tmp_path, monkeypatch, capsys):
     output = capsys.readouterr().out
 
     assert "WARN: missing 1 agent result file(s)." in output
-    assert ".ai/JR-12345/fix_report.md" in output
+    assert shown_work(tmp_path, "JR-12345", "fix_report.md") in output
 
 
 def test_check_results_strict_missing_files_exits_nonzero(tmp_path, monkeypatch, capsys):
@@ -993,7 +996,7 @@ def test_check_results_strict_missing_files_exits_nonzero(tmp_path, monkeypatch,
 
 
 def test_check_results_passes_when_the_report_exists(tmp_path, monkeypatch, capsys):
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     issue_dir.mkdir(parents=True)
     (issue_dir / "fix_report.md").write_text(REPORT, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -1004,7 +1007,7 @@ def test_check_results_passes_when_the_report_exists(tmp_path, monkeypatch, caps
 
 
 def test_check_results_strict_passes_when_the_report_exists(tmp_path, monkeypatch, capsys):
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     issue_dir.mkdir(parents=True)
     (issue_dir / "fix_report.md").write_text(REPORT, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -1016,14 +1019,14 @@ def test_check_results_strict_passes_when_the_report_exists(tmp_path, monkeypatc
 
 def test_the_old_five_result_files_do_not_satisfy_check_results(tmp_path, monkeypatch, capsys):
     """No fallback: a directory from an older version has no report under this contract."""
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     issue_dir.mkdir(parents=True)
     for file_name in ["bug_analysis.md", "fix_summary.md", "test_result.md", "diff_summary.md", "review_notes.md"]:
         (issue_dir / file_name).write_text("done", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
     assert main(["check-results", "JR-12345", "--strict"]) == 1
-    assert ".ai/JR-12345/fix_report.md" in capsys.readouterr().out
+    assert shown_work(tmp_path, "JR-12345", "fix_report.md") in capsys.readouterr().out
 
 
 def test_bug_agent_fix_remains_manual_and_safe(tmp_path, monkeypatch, capsys):
@@ -1031,15 +1034,15 @@ def test_bug_agent_fix_remains_manual_and_safe(tmp_path, monkeypatch, capsys):
 
     assert main(["bug", "JR-12345", "--agent-fix", "--allow-mock"]) == 0
     output = capsys.readouterr().out
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
+    status = json.loads((config_issue_dir(tmp_path, "JR-12345") / "run.json").read_text())
 
     assert "Agent automatic invocation is not enabled." in output
-    assert "Read .ai/JR-12345/task.md and complete the workflow." in output
+    assert work_item_handoff(tmp_path, "JR-12345") in output
     assert status["steps"]["agent_fix"] == "skipped"
 
 
 def test_summarize_results_renders_the_overview_and_writes_nothing(tmp_path, monkeypatch, capsys):
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     issue_dir.mkdir(parents=True)
     (issue_dir / "fix_report.md").write_text(REPORT, encoding="utf-8")
     save_retrieval(
@@ -1060,7 +1063,7 @@ def test_summarize_results_renders_the_overview_and_writes_nothing(tmp_path, mon
     # Rendered, never persisted: the report is the record.
     assert not (issue_dir / "result_summary.md").exists()
     assert not (issue_dir / "manual_validation.md").exists()
-    assert "- .ai/JR-12345/fix_report.md: present" in overview
+    assert f"- {shown_work(tmp_path, 'JR-12345', 'fix_report.md')}: present" in overview
     assert "Fixed: stale cache invalidated on filter change." in overview
     assert "## Suggested Validation Steps" in overview
     assert "3. If source changes were made, confirm they do not affect unrelated behavior.\n" in overview
@@ -1073,8 +1076,8 @@ def test_summarize_results_renders_the_overview_and_writes_nothing(tmp_path, mon
 
 
 def test_memory_update_replaces_final_result_section(tmp_path, monkeypatch):
-    issue_dir = tmp_path / ".ai" / "JR-12345"
-    memory_dir = tmp_path / ".ai_memory" / "bugs"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
+    memory_dir = config_memory_dir(tmp_path)
     issue_dir.mkdir(parents=True)
     memory_dir.mkdir(parents=True)
     (issue_dir / "fix_report.md").write_text(
@@ -1114,7 +1117,7 @@ def test_memory_update_replaces_final_result_section(tmp_path, monkeypatch):
 
 
 def test_memory_update_marks_a_report_with_empty_sections(tmp_path, monkeypatch):
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     issue_dir.mkdir(parents=True)
     (issue_dir / "fix_report.md").write_text(
         "# Fix Report: JR-12345\n\n## Summary\nAttempted.\n\n## Analysis\nPartial.\n",
@@ -1123,7 +1126,7 @@ def test_memory_update_marks_a_report_with_empty_sections(tmp_path, monkeypatch)
     monkeypatch.chdir(tmp_path)
 
     assert main(["memory", "update", "JR-12345"]) == 0
-    memory = (tmp_path / ".ai_memory" / "bugs" / "JR-12345.md").read_text()
+    memory = (config_memory_dir(tmp_path) / "JR-12345.md").read_text()
 
     assert "Report sections incomplete. Manual update required." in memory
 
@@ -1133,9 +1136,9 @@ def test_memory_update_missing_result_summary_is_graceful(tmp_path, monkeypatch,
 
     assert main(["memory", "update", "JR-12345"]) == 0
     output = capsys.readouterr().out
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
+    status = json.loads((config_issue_dir(tmp_path, "JR-12345") / "run.json").read_text())
 
-    assert "WARN: missing .ai/JR-12345/fix_report.md" in output
+    assert f"WARN: missing {shown_work(tmp_path, 'JR-12345', 'fix_report.md')}" in output
     assert "bugpilot manual-result JR-12345" in output
     assert status["steps"]["memory_update"] == "skipped"
 
@@ -1149,20 +1152,20 @@ def test_review_package_prints_the_final_review_prompt(tmp_path, monkeypatch, ca
 
     assert "# Final Review Request" in prompt
     assert "Review the BugPilot result for work item JR-12345." in prompt
-    assert ".ai/JR-12345/fix_report.md if present" in prompt
+    assert f"{prompt_path(config_issue_dir(tmp_path, 'JR-12345'))}/fix_report.md if present" in prompt
     for heading in ("## Summary", "## Findings", "## Validation Notes", "## Recommendations"):
         assert f"\n{heading}\n" in prompt, heading
     assert "Verdict:" not in prompt
     assert "PASS" not in prompt
-    assert not (tmp_path / ".ai" / "JR-12345" / "final_review_prompt.md").exists()
+    assert not (config_issue_dir(tmp_path, "JR-12345") / "final_review_prompt.md").exists()
     # A printed prompt is not a review: no step mark, and so no run.json invented
     # for a work item that has none (§37.70).
-    assert not (tmp_path / ".ai" / "JR-12345" / "run.json").exists()
+    assert not (config_issue_dir(tmp_path, "JR-12345") / "run.json").exists()
 
 
 def test_phase_4_commands_trace_generated_and_updated_files(tmp_path, monkeypatch, execution_trace):
-    issue_dir = tmp_path / ".ai" / "JR-12345"
-    memory_dir = tmp_path / ".ai_memory" / "bugs"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
+    memory_dir = config_memory_dir(tmp_path)
     issue_dir.mkdir(parents=True)
     memory_dir.mkdir(parents=True)
     (issue_dir / "fix_report.md").write_text(REPORT, encoding="utf-8")
@@ -1174,16 +1177,16 @@ def test_phase_4_commands_trace_generated_and_updated_files(tmp_path, monkeypatc
     main(["review-package", "JR-12345"])
     log_text = execution_trace.text
 
-    assert "[UPDATED] .ai_memory/bugs/JR-12345.md" in log_text
+    assert "[UPDATED] memory/JR-12345.md" in log_text
     # The derivations render in memory now; nothing is generated for them.
-    assert "[GENERATED] .ai/JR-12345/result_summary.md" not in log_text
-    assert "[GENERATED] .ai/JR-12345/manual_validation.md" not in log_text
-    assert "[GENERATED] .ai/JR-12345/final_review_prompt.md" not in log_text
+    assert "[GENERATED] work/JR-12345/result_summary.md" not in log_text
+    assert "[GENERATED] work/JR-12345/manual_validation.md" not in log_text
+    assert "[GENERATED] work/JR-12345/final_review_prompt.md" not in log_text
 
 
 def _write_delivery_artifacts(tmp_path):
-    issue_dir = tmp_path / ".ai" / "JR-12345"
-    memory_dir = tmp_path / ".ai_memory" / "bugs"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
+    memory_dir = config_memory_dir(tmp_path)
     issue_dir.mkdir(parents=True, exist_ok=True)
     memory_dir.mkdir(parents=True, exist_ok=True)
     (issue_dir / "fix_report.md").write_text(REPORT, encoding="utf-8")
@@ -1196,10 +1199,10 @@ def test_delivery_check_warns_when_required_files_missing(tmp_path, monkeypatch,
 
     assert main(["delivery-check", "JR-12345"]) == 0
     output = capsys.readouterr().out
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
+    status = json.loads((config_issue_dir(tmp_path, "JR-12345") / "run.json").read_text())
 
     assert "WARN: delivery is not ready." in output
-    assert "Missing required result file: .ai/JR-12345/fix_report.md" in output
+    assert f"Missing required result file: {shown_work(tmp_path, 'JR-12345', 'fix_report.md')}" in output
     assert status["steps"]["delivery_check"] == "fail"
 
 
@@ -1213,7 +1216,7 @@ def test_delivery_check_passes_when_ready(tmp_path, monkeypatch, capsys):
 
     assert main(["delivery-check", "JR-12345"]) == 0
     output = capsys.readouterr().out
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
+    status = json.loads((config_issue_dir(tmp_path, "JR-12345") / "run.json").read_text())
 
     assert "PASS: ready for manual commit/push." in output
     assert status["steps"]["delivery_check"] == "pass"
@@ -1238,7 +1241,7 @@ def test_commit_plan_prints_the_plan_without_git_mutation(tmp_path, monkeypatch,
     assert main(["commit-plan", "JR-12345"]) == 0
     plan = capsys.readouterr().out
 
-    assert not (tmp_path / ".ai" / "JR-12345" / "commit_plan.md").exists()
+    assert not (config_issue_dir(tmp_path, "JR-12345") / "commit_plan.md").exists()
     assert "# Commit Plan" in plan
     assert "feature/JR-12345-demo" in plan
     assert "src/file.cpp" in plan
@@ -1268,7 +1271,7 @@ def test_push_plan_prints_the_plan_without_git_push(tmp_path, monkeypatch, capsy
     assert main(["push-plan", "JR-12345"]) == 0
     plan = capsys.readouterr().out
 
-    assert not (tmp_path / ".ai" / "JR-12345" / "push_plan.md").exists()
+    assert not (config_issue_dir(tmp_path, "JR-12345") / "push_plan.md").exists()
     assert "# Push Plan" in plan
     assert "feature/JR-12345-demo" in plan
     assert "git push -u origin feature/JR-12345-demo" in plan
@@ -1295,12 +1298,12 @@ def test_delivery_plan_updates_the_run_state(tmp_path, monkeypatch):
 
     main(["commit-plan", "JR-12345"])
     main(["push-plan", "JR-12345"])
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
+    status = json.loads((config_issue_dir(tmp_path, "JR-12345") / "run.json").read_text())
 
     assert status["steps"]["commit_plan"] == "pass"
     assert status["steps"]["push_plan"] == "pass"
-    assert ".ai/JR-12345/commit_plan.md" not in status["generated_files"]
-    assert ".ai/JR-12345/push_plan.md" not in status["generated_files"]
+    assert "work/JR-12345/commit_plan.md" not in status["generated_files"]
+    assert "work/JR-12345/push_plan.md" not in status["generated_files"]
 
 
 def test_commit_and_push_execute_placeholders_do_not_mutate_git(tmp_path, monkeypatch, capsys):
@@ -1319,7 +1322,8 @@ def test_commit_and_push_execute_placeholders_do_not_mutate_git(tmp_path, monkey
 
 
 def test_clean_removes_issue_artifact_directory(tmp_path, monkeypatch, capsys):
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
+    repository_storage(tmp_path).ensure()  # made as a first run makes it: the namespace and its record
     issue_dir.mkdir(parents=True)
     (issue_dir / "some_old_file.md").write_text("old", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -1328,12 +1332,14 @@ def test_clean_removes_issue_artifact_directory(tmp_path, monkeypatch, capsys):
     output = capsys.readouterr().out
 
     assert not issue_dir.exists()
-    assert "deleted: .ai/JR-12345/" in output
+    assert f"deleted: {shown_work(tmp_path, 'JR-12345')}" in output
 
 
 def test_clean_preserves_memory_by_default(tmp_path, monkeypatch):
-    issue_dir = tmp_path / ".ai" / "JR-12345"
-    memory_file = tmp_path / ".ai_memory" / "bugs" / "JR-12345.md"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
+    repository_storage(tmp_path).ensure()  # made as a first run makes it: the namespace and its record
+    memory_file = config_memory_dir(tmp_path) / "JR-12345.md"
+    repository_storage(tmp_path).ensure()  # made as a first run makes it: the namespace and its record
     issue_dir.mkdir(parents=True)
     memory_file.parent.mkdir(parents=True)
     memory_file.write_text("keep me", encoding="utf-8")
@@ -1346,8 +1352,9 @@ def test_clean_preserves_memory_by_default(tmp_path, monkeypatch):
 
 
 def test_clean_include_memory_removes_only_that_issue_memory(tmp_path, monkeypatch):
-    issue_dir = tmp_path / ".ai" / "JR-12345"
-    memory_dir = tmp_path / ".ai_memory" / "bugs"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
+    repository_storage(tmp_path).ensure()  # made as a first run makes it: the namespace and its record
+    memory_dir = config_memory_dir(tmp_path)
     issue_dir.mkdir(parents=True)
     memory_dir.mkdir(parents=True)
     (memory_dir / "JR-12345.md").write_text("delete", encoding="utf-8")
@@ -1368,14 +1375,14 @@ def test_clean_handles_missing_artifacts_gracefully(tmp_path, monkeypatch, capsy
     output = capsys.readouterr().out
 
     assert "No workflow artifacts found for JR-12345." in output
-    assert "Preserved memory entry: .ai_memory/bugs/JR-12345.md" in output
+    assert f"Preserved memory entry: {shown_memory(tmp_path, 'JR-12345')}" in output
 
 
 def test_clean_rejects_invalid_issue_keys_without_deleting(tmp_path, monkeypatch, capsys):
     product_file = tmp_path / "src" / "example.cpp"
     product_file.parent.mkdir()
     product_file.write_text("int main() { return 0; }\n", encoding="utf-8")
-    protected_dir = tmp_path / ".ai" / "JR-12345"
+    protected_dir = config_issue_dir(tmp_path, "JR-12345")
     protected_dir.mkdir(parents=True)
     (protected_dir / "keep.md").write_text("keep", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -1389,7 +1396,8 @@ def test_clean_rejects_invalid_issue_keys_without_deleting(tmp_path, monkeypatch
 
 
 def test_clean_accepts_unpadded_valid_issue_key(tmp_path, monkeypatch):
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
+    repository_storage(tmp_path).ensure()  # made as a first run makes it: the namespace and its record
     issue_dir.mkdir(parents=True)
     monkeypatch.chdir(tmp_path)
 
@@ -1399,7 +1407,8 @@ def test_clean_accepts_unpadded_valid_issue_key(tmp_path, monkeypatch):
 
 
 def test_bug_fresh_removes_old_later_phase_artifacts(tmp_path, monkeypatch):
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
+    repository_storage(tmp_path).ensure()  # made as a first run makes it: the namespace and its record
     issue_dir.mkdir(parents=True)
     (issue_dir / "result_summary.md").write_text("old result", encoding="utf-8")
     (issue_dir / "commit_plan.md").write_text("old commit", encoding="utf-8")
@@ -1420,7 +1429,8 @@ def test_bug_default_keeps_old_artifacts(tmp_path, monkeypatch):
         "bugpilot.core.jira._open",
         lambda request, timeout: _good_jira_response()(),
     )
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
+    repository_storage(tmp_path).ensure()  # made as a first run makes it: the namespace and its record
     issue_dir.mkdir(parents=True)
     (issue_dir / "old_artifact.md").write_text("old", encoding="utf-8")
     (issue_dir / "fix_report.md").write_text("an agent's report", encoding="utf-8")
@@ -1436,7 +1446,8 @@ def test_bug_default_keeps_old_artifacts(tmp_path, monkeypatch):
 
 
 def test_bug_resume_preserves_old_artifacts(tmp_path, monkeypatch):
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
+    repository_storage(tmp_path).ensure()  # made as a first run makes it: the namespace and its record
     issue_dir.mkdir(parents=True)
     (issue_dir / "old_artifact.md").write_text("old", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -1448,7 +1459,8 @@ def test_bug_resume_preserves_old_artifacts(tmp_path, monkeypatch):
 
 
 def test_bug_fresh_preserves_memory_by_default(tmp_path, monkeypatch):
-    memory_file = tmp_path / ".ai_memory" / "bugs" / "JR-12345.md"
+    memory_file = config_memory_dir(tmp_path) / "JR-12345.md"
+    repository_storage(tmp_path).ensure()  # made as a first run makes it: the namespace and its record
     memory_file.parent.mkdir(parents=True)
     memory_file.write_text("old memory", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -1459,7 +1471,8 @@ def test_bug_fresh_preserves_memory_by_default(tmp_path, monkeypatch):
 
 
 def test_bug_fresh_include_memory_removes_old_memory_then_recreates(tmp_path, monkeypatch):
-    memory_file = tmp_path / ".ai_memory" / "bugs" / "JR-12345.md"
+    memory_file = config_memory_dir(tmp_path) / "JR-12345.md"
+    repository_storage(tmp_path).ensure()  # made as a first run makes it: the namespace and its record
     memory_file.parent.mkdir(parents=True)
     memory_file.write_text("UNIQUE OLD MEMORY", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -1472,7 +1485,8 @@ def test_bug_fresh_include_memory_removes_old_memory_then_recreates(tmp_path, mo
 
 
 def test_include_memory_without_fresh_deletes_nothing(tmp_path, monkeypatch, capsys):
-    memory_file = tmp_path / ".ai_memory" / "bugs" / "JR-12345.md"
+    memory_file = config_memory_dir(tmp_path) / "JR-12345.md"
+    repository_storage(tmp_path).ensure()  # made as a first run makes it: the namespace and its record
     memory_file.parent.mkdir(parents=True)
     memory_file.write_text("UNIQUE OLD MEMORY", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -1481,11 +1495,12 @@ def test_include_memory_without_fresh_deletes_nothing(tmp_path, monkeypatch, cap
 
     assert "needs --fresh" in capsys.readouterr().err
     assert memory_file.read_text(encoding="utf-8") == "UNIQUE OLD MEMORY"
-    assert not (tmp_path / ".ai").exists()
+    assert not ((config_data_dir(tmp_path) / "work")).exists()
 
 
 def test_clean_does_not_affect_product_files(tmp_path, monkeypatch):
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
+    repository_storage(tmp_path).ensure()  # made as a first run makes it: the namespace and its record
     product_file = tmp_path / "src" / "example.cpp"
     issue_dir.mkdir(parents=True)
     product_file.parent.mkdir()
@@ -1534,7 +1549,7 @@ def test_missing_env_default_no_mock_fails_without_mock_artifacts(tmp_path, monk
 
     assert main(["bug", "JR-12345"]) == 1
     error = capsys.readouterr().err
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
 
     assert "ERROR: Jira is not configured:" in error
     assert "Mock fallback is disabled by default." in error
@@ -1556,7 +1571,7 @@ def test_missing_env_allow_mock_marks_fallback(tmp_path, monkeypatch, capsys):
 
     assert main(["bug", "JR-12345", "--allow-mock"]) == 0
     output = capsys.readouterr().out
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     raw = (issue_dir / "issue.json").read_text(encoding="utf-8")
     issue = load_issue(tmp_path, "JR-12345")
     context = (issue_dir / "context.md").read_text(encoding="utf-8")
@@ -1579,7 +1594,7 @@ def test_missing_env_no_mock_fails_without_mock_artifacts(tmp_path, monkeypatch,
 
     assert main(["bug", "JR-12345", "--no-mock"]) == 1
     error = capsys.readouterr().err
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     status = json.loads((issue_dir / "run.json").read_text(encoding="utf-8"))
 
     assert "ERROR: Jira is not configured:" in error
@@ -1602,7 +1617,7 @@ def test_fetch_default_no_mock_fails_without_mock_fallback(tmp_path, monkeypatch
 
     assert main(["fetch", "JR-12345"]) == 1
     error = capsys.readouterr().err
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
 
     assert "Mock fallback is disabled by default." in error
     assert not (issue_dir / "issue.json").exists()
@@ -1622,7 +1637,7 @@ def test_fetch_allow_mock_generates_mock_files(tmp_path, monkeypatch, capsys):
     assert issue.source == "jira"
     assert issue.details.mock is True
     for name in LEGACY_ISSUE_FILES:
-        assert not (tmp_path / ".ai" / "JR-12345" / name).exists(), name
+        assert not (config_issue_dir(tmp_path, "JR-12345") / name).exists(), name
 
 
 def test_fetch_no_mock_fails_without_mock_fallback(tmp_path, monkeypatch, capsys):
@@ -1633,7 +1648,7 @@ def test_fetch_no_mock_fails_without_mock_fallback(tmp_path, monkeypatch, capsys
 
     assert main(["fetch", "JR-12345", "--no-mock"]) == 1
     error = capsys.readouterr().err
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
 
     assert "Mock fallback is disabled by default." in error
     assert not (issue_dir / "issue.json").exists()
@@ -2062,7 +2077,7 @@ def test_context_includes_comment_and_attachment_signals(tmp_path):
         comments=[_jira_comment("Dev", "2026-05-30T10:00:00.000+0000", _adf_text("Regression in stack trace"))],
         attachments=[_jira_attachment("crash.log", "text/plain", 4096, "Dev")],
     )
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     issue_dir.mkdir(parents=True)
     save_issue(tmp_path, _normalized(issue))
 
@@ -2082,7 +2097,7 @@ def test_context_includes_comment_and_attachment_signals(tmp_path):
 
 def test_copilot_task_includes_comment_attachment_guidance(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
-    task = (tmp_path / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
+    task = (config_issue_dir(tmp_path, "JR-12345") / "task.md").read_text(encoding="utf-8")
 
     assert "Read its Jira comments as possibly newer than the description" in task
     assert "review its attachment metadata" in task
@@ -2323,7 +2338,7 @@ def test_context_includes_reproduction_and_missing_info(tmp_path):
     )
     issue = _jira_issue()
     issue["fields"]["description"] = description  # plain string passthrough
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     issue_dir.mkdir(parents=True)
     save_issue(tmp_path, _normalized(issue))
 
@@ -2341,7 +2356,7 @@ def test_context_includes_reproduction_and_missing_info(tmp_path):
 
 def test_copilot_task_points_at_the_issue_details_in_context(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
-    task = (tmp_path / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
+    task = (config_issue_dir(tmp_path, "JR-12345") / "task.md").read_text(encoding="utf-8")
 
     assert "context.md`: the Issue Details (" in task
     assert "jira_parsed.md" not in task
@@ -2524,7 +2539,7 @@ def test_jira_validate_success_generates_required_files(tmp_path, monkeypatch):
 
     assert main(["jira-validate", "JR-12345"]) == 0
 
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     assert load_issue(tmp_path, "JR-12345").details.issue_type == "Bug"
     assert (issue_dir / "jira_field_report.md").is_file()
     for name in LEGACY_ISSUE_FILES:
@@ -2543,7 +2558,7 @@ def test_jira_validate_fails_without_credentials(tmp_path, monkeypatch, capsys):
 
     err = capsys.readouterr().err
     assert "JIRA_BASE_URL" in err or "Jira environment variables" in err
-    assert not (tmp_path / ".ai" / "JR-12345" / "issue.json").exists()
+    assert not (config_issue_dir(tmp_path, "JR-12345") / "issue.json").exists()
 
 
 # G. jira_field_report.md content
@@ -2578,7 +2593,7 @@ def test_bug_fresh_no_mock_uses_real_jira_normalized_fields(tmp_path, monkeypatc
 
     assert main(["bug", "JR-12345", "--fresh", "--no-mock"]) == 0
 
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     raw = (issue_dir / "issue.json").read_text(encoding="utf-8")
     issue = json.loads(raw)
     context = (issue_dir / "context.md").read_text(encoding="utf-8")
@@ -2733,7 +2748,7 @@ def test_field_report_does_not_redact_innocent_key_words():
 
 
 def _write_comment_draft_package(tmp_path: Path, include_results: bool = True) -> Path:
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     issue_dir.mkdir(parents=True)
     (issue_dir / "context.md").write_text("# Bug Context\n\nContext body", encoding="utf-8")
     save_issue(tmp_path, IssueArtifact(id="JR-12345", source="jira", title="Save crash"))
@@ -2788,7 +2803,7 @@ def test_jira_comment_draft_strict_fails_when_results_missing(tmp_path, monkeypa
     err = capsys.readouterr().err
 
     assert "Missing required agent result files" in err
-    assert not (tmp_path / ".ai" / "JR-12345" / "jira_comment_draft.md").exists()
+    assert not (config_issue_dir(tmp_path, "JR-12345") / "jira_comment_draft.md").exists()
 
 
 def test_jira_comment_draft_strict_passes_when_results_exist(tmp_path, monkeypatch):
@@ -2892,7 +2907,7 @@ def test_jira_comment_draft_updates_the_run_state(tmp_path, monkeypatch):
     status = json.loads((issue_dir / "run.json").read_text(encoding="utf-8"))
 
     assert status["steps"]["jira_comment_draft"] == "pass"
-    assert ".ai/JR-12345/jira_comment_draft.md" in status["generated_files"]
+    assert "work/JR-12345/jira_comment_draft.md" in status["generated_files"]
 
 
 # ---------------------------------------------------------------------------
@@ -2901,7 +2916,7 @@ def test_jira_comment_draft_updates_the_run_state(tmp_path, monkeypatch):
 
 
 def _write_jira_comment_draft(tmp_path: Path, text: str = "# bugpilot Analysis Summary\n\nIssue: JR-12345\n\nReady to post.") -> Path:
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     issue_dir.mkdir(parents=True, exist_ok=True)
     (issue_dir / "jira_comment_draft.md").write_text(text, encoding="utf-8")
     return issue_dir
@@ -2977,7 +2992,7 @@ def test_jira_comment_execute_missing_draft_fails(tmp_path, monkeypatch, capsys)
     assert main(["jira-comment", "JR-12345", "--execute"]) == 1
     err = capsys.readouterr().err
 
-    assert "Missing .ai/JR-12345/jira_comment_draft.md" in err or "No workflow package found" in err
+    assert f"Missing {shown_work(tmp_path, 'JR-12345', 'jira_comment_draft.md')}" in err or "No workflow package found" in err
 
 
 def test_jira_comment_execute_missing_env_fails_without_post(tmp_path, monkeypatch, capsys):
@@ -3075,8 +3090,8 @@ def test_jira_comment_execute_status_includes_generated_files(tmp_path, monkeypa
     status = json.loads((issue_dir / "run.json").read_text(encoding="utf-8"))
 
     assert status["steps"]["jira_comment"] == "pass"
-    assert ".ai/JR-12345/jira_comment_post_result.json" in status["generated_files"]
-    assert ".ai/JR-12345/jira_comment_post_summary.md" not in status["generated_files"]
+    assert "work/JR-12345/jira_comment_post_result.json" in status["generated_files"]
+    assert "work/JR-12345/jira_comment_post_summary.md" not in status["generated_files"]
 
 
 # ---------------------------------------------------------------------------
@@ -3183,7 +3198,7 @@ def test_summarize_results_auto_post_failure_is_non_fatal(tmp_path, monkeypatch,
 
 
 def _write_retry_package(tmp_path: Path) -> Path:
-    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir = config_issue_dir(tmp_path, "JR-12345")
     issue_dir.mkdir(parents=True, exist_ok=True)
     (issue_dir / "context.md").write_text("# Bug Context\n\nInvestigate stale results.", encoding="utf-8")
     return issue_dir
@@ -3200,7 +3215,7 @@ def test_retry_prompt_creates_user_feedback_template_if_missing(tmp_path, monkey
     assert "# User Feedback: JR-12345" in feedback
     assert "Do not claim tests passed unless they were run." in feedback
     assert "# Agent Retry Prompt: JR-12345" in prompt
-    assert ".ai/JR-12345/user_feedback.md" in prompt
+    assert "- user_feedback.md" in prompt
 
 
 def test_retry_prompt_includes_developer_feedback(tmp_path, monkeypatch):
@@ -3243,12 +3258,12 @@ def test_retry_prompt_carries_the_previous_attempts_report(tmp_path, monkeypatch
     assert main(["retry-prompt", "JR-12345"]) == 0
     prompt = (issue_dir / "agent_retry_prompt.md").read_text(encoding="utf-8")
 
-    assert "- .ai/JR-12345/retrieval.json" in prompt
-    assert "- .ai/JR-12345/fix_report.md" in prompt
+    assert "- retrieval.json" in prompt
+    assert "- fix_report.md" in prompt
     assert "### fix_report.md" in prompt
     assert "present" in prompt
     assert "Tests failed." in prompt
-    assert "- .ai/JR-12345/fix_report.md — update every section for this attempt" in prompt
+    assert f"- {prompt_path(config_issue_dir(tmp_path, 'JR-12345'))}/fix_report.md — update every section for this attempt" in prompt
 
 
 def test_retry_prompt_fails_helpfully_when_package_missing(tmp_path, monkeypatch, capsys):
@@ -3304,7 +3319,7 @@ def test_manual_result_updates_status_and_log(tmp_path, monkeypatch):
     status = json.loads((issue_dir / "run.json").read_text(encoding="utf-8"))
 
     assert status["steps"]["manual_result"] == "pass"
-    assert ".ai/JR-12345/fix_report.md" in status["generated_files"]
+    assert "work/JR-12345/fix_report.md" in status["generated_files"]
 
 
 def test_retry_prompt_updates_status_and_log(tmp_path, monkeypatch):
@@ -3315,5 +3330,5 @@ def test_retry_prompt_updates_status_and_log(tmp_path, monkeypatch):
     status = json.loads((issue_dir / "run.json").read_text(encoding="utf-8"))
 
     assert status["steps"]["retry_prompt"] == "pass"
-    assert ".ai/JR-12345/agent_retry_prompt.md" in status["generated_files"]
-    assert ".ai/JR-12345/user_feedback.md" in status["generated_files"]
+    assert "work/JR-12345/agent_retry_prompt.md" in status["generated_files"]
+    assert "work/JR-12345/user_feedback.md" in status["generated_files"]

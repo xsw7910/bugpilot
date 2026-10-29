@@ -52,6 +52,10 @@ GOLDEN_DIR = Path(__file__).resolve().parent / "golden" / "task"
 
 FIX_MODES: dict[str, FixMode] = {"fix": STANDARD_FIX, "investigation": INVESTIGATE_FIRST_FIX}
 
+#: Where a golden task says the work item's folder is: a representative Linux path, so the text is what an
+#: agent reads (0.1.7: the work folder is in BugPilot's data folder, named absolutely, plan §9.8.1).
+GOLDEN_DATA_FOLDER = "/home/user/.bugpilot/repositories/repo-0123456789abcdef"
+
 JIRA_ID = "JR-12345"
 LOCAL_ID = "local_20260101090000"
 
@@ -195,15 +199,19 @@ def _resolved_inputs(
             path.write_text(text, encoding="utf-8", newline="\n")
         if configured:
             (config / "instructions.md").write_text(_USER_INSTRUCTIONS, encoding="utf-8", newline="\n")
-        if verification_file:
-            (root / ".bugpilot").mkdir(exist_ok=True)
-            (root / ".bugpilot" / "verification.md").write_text(_VERIFICATION_FILE, encoding="utf-8", newline="\n")
-        if ai_behavior:
-            (root / ".bugpilot").mkdir(exist_ok=True)
-            (root / ".bugpilot" / "ai_behavior.md").write_text(_AI_BEHAVIOR_FILE, encoding="utf-8", newline="\n")
         previous = os.environ.get("BUGPILOT_HOME")
         os.environ["BUGPILOT_HOME"] = str(data)
         try:
+            # The repository's Verification Policy and AI Behavior, in its namespace's settings (0.1.7).
+            settings = {
+                "verification.md": _VERIFICATION_FILE if verification_file else None,
+                "ai_behavior.md": _AI_BEHAVIOR_FILE if ai_behavior else None,
+            }
+            for name, text in settings.items():
+                if text is not None:
+                    storage.repository_storage(root).settings_file(name, create=True).write_text(  # type: ignore[arg-type]
+                        text, encoding="utf-8", newline="\n"
+                    )
             if configured:
                 # The repository's own settings, where 0.1.6 keeps them: written through storage's accessor.
                 namespace = storage.repository_storage(root)
@@ -239,12 +247,22 @@ def render(case: TaskCase) -> str:
             attachment_notes={name: note for name, note in case.attachments if note},
             branch_policy=case.branch_policy,
             branch=None,
+            work_folder=f"{GOLDEN_DATA_FOLDER}/work/{case.work_item_id}",
             **inputs,  # type: ignore[arg-type]
         )
 
 
 def golden_path(case: TaskCase) -> Path:
     return GOLDEN_DIR / f"{case.name}.txt"
+
+
+def normalized(text: str, case: TaskCase) -> str:
+    """The golden with its work folder replaced by ``<WORK>``: the measure the size gate uses (US-D30, plan §9.8.2).
+
+    0.1.7 tasks name their work folder absolutely; how long a path is depends on the machine, so the gate
+    measures the text around it.
+    """
+    return text.replace(f"{GOLDEN_DATA_FOLDER}/work/{case.work_item_id}", "<WORK>")
 
 
 def read_golden(case: TaskCase) -> str:

@@ -51,7 +51,7 @@ export const COMMANDS = {
   // --- artifacts ---
   openAgentTask: "bugpilot.openAgentTask",
   copyHandoffPrompt: "bugpilot.copyHandoffPrompt",
-  /** Reveal `.ai/<work_item>/` in the explorer. */
+  /** Reveal `work/<work_item>/` in the explorer. */
   openArtifactsFolder: "bugpilot.openArtifactsFolder",
   /**
    * Hand the prepared package to a coding agent and let it start working.

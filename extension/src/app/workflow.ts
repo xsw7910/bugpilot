@@ -524,7 +524,7 @@ export interface WorkflowInput {
   /** Absent until the AI step has been attempted. */
   readonly fix?: FixWithAiOutcome;
   /**
-   * The file names currently in `.ai/<work_item>/`.
+   * The file names currently in `work/<work_item>/`.
    *
    * What decides whether a row can offer an artifact or an action: an action is
    * offered because the file it opens is there, and — together with the row's

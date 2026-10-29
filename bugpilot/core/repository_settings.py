@@ -43,6 +43,7 @@ identity record), then writes the file inside it.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import TypeVar
@@ -161,3 +162,23 @@ def write_text(repo_root: Path, name: storage.SettingsName, text: str) -> Path:
     path = settings_file(repo_root, name, create=True)
     guarded("write", lambda: storage.display_path(path), lambda: atomic_write_text(path, text))
     return path
+
+
+def remove_file(repo_root: Path, name: storage.SettingsName) -> bool:
+    """Delete ``settings/<name>``; ``False`` when nothing is there (E-5). Creates nothing.
+
+    Located as a read locates it (``settings_file(create=False)``), so a refusal propagates as storage's
+    ``StorageError`` and unavailability as ``StorageAccessError``. ``unlink`` never follows a link, and an
+    ``OSError`` is one sentence naming the display path, never an absolute one. Only ``settings/<name>``: never a
+    folder, and never anything in the repository. The callers keep their own wording and their "is not a regular
+    file" check; nothing else is caught here.
+    """
+    path = settings_file(repo_root, name, create=False)
+    if not os.path.lexists(path):
+        return False
+
+    def unlink() -> bool:
+        os.unlink(path)
+        return True
+
+    return guarded("remove", lambda: storage.display_path(path), unlink)

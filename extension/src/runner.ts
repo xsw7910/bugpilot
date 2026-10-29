@@ -26,6 +26,14 @@ import type { Envelope, StreamEvent } from "./protocol.ts";
 /** The slice of `child_process.spawn` this module needs, so tests can supply one. */
 export type SpawnFn = (command: string, args: string[], options: SpawnOptions) => ChildProcess;
 
+/**
+ * What every process this extension starts is told: it reads work items in BugPilot's data folder (0.1.7).
+ * A bugpilot 0.1.7 or later started from a VS Code extension without it takes that extension for one older
+ * than 0.1.7, which looks for them in the repository, and refuses its `doctor --json` and its runs
+ * (`bugpilot/core/extension_compat.py`). Not a secret; set last, so no caller's environment can drop it.
+ */
+export const CLIENT_STORAGE_ENVIRONMENT: Readonly<Record<string, string>> = { BUGPILOT_CLIENT_STORAGE: "unified" };
+
 /** Grace period before a polite kill becomes SIGKILL / a second taskkill. */
 const KILL_ESCALATION_MS = 2_000;
 /** After this the run is settled as aborted even if the child never closed. */
@@ -229,6 +237,7 @@ export class Runner {
       ...process.env,
       ...options.env,
       ...(this.#policy === undefined ? {} : childEnvironmentAdditions(this.#platform)),
+      ...CLIENT_STORAGE_ENVIRONMENT,
     };
     const child = this.#spawn(this.#program(this.#executable, env), [...args], {
       cwd: options.cwd,

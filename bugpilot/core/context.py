@@ -93,7 +93,7 @@ def build_context(
         "### Search Terms\n\n"
         f"{_search_terms_markdown(keywords)}\n\n"
         "### Relevant Files\n\n"
-        f"See `.ai/{issue.id}/{RETRIEVAL_ARTIFACT}` for the ranked files, their matched lines "
+        f"See `{RETRIEVAL_ARTIFACT}`, beside this file, for the ranked files, their matched lines "
         "and the search terms.\n\n"
         f"{_relevant_files_markdown(retrieval)}\n\n"
         "### Relevant Snippets\n\n"

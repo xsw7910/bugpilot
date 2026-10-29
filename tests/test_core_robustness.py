@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core.config import data_dir, issue_dir, memory_dir
 from bugpilot.core import search, workflow
-from bugpilot.core.git_ops import artifact_directories_ignored
 from bugpilot.core.issue import IssueArtifact
 from bugpilot.core import artifact_io
 from bugpilot.core.artifact_io import atomic_write_text
@@ -48,7 +48,7 @@ def test_status_is_written_atomically(tmp_path, monkeypatch):
     monkeypatch.setattr(artifact_io.os, "replace", watched)
     workflow._mark_step(tmp_path, "JR-1", "doctor", "pass")
 
-    status = tmp_path / ".ai" / "JR-1" / "run.json"
+    status = issue_dir(tmp_path, "JR-1") / "run.json"
     assert json.loads(status.read_text(encoding="utf-8"))["steps"]["doctor"] == "pass"
     assert seen, "the run state was written in place, not renamed into place"
     assert seen[-1][1] == "run.json"
@@ -263,7 +263,7 @@ def test_supplied_keywords_are_capped_and_the_rest_recorded(tmp_path, monkeypatc
     abandoned by the caller's own timeout — and every entry point now lets a
     person type that list by hand.
     """
-    target = tmp_path / ".ai" / "JR-1"
+    target = issue_dir(tmp_path, "JR-1")
     target.mkdir(parents=True)
     issue = IssueArtifact(id="JR-1", source="jira", title="crash on save")
 
@@ -299,75 +299,30 @@ def test_a_hand_edited_config_does_not_break_every_command(user_config_folder):
     assert loaded.jira_email and "ller@example.com" in loaded.jira_email
 
 
-# --- .ai/ in someone else's repository -------------------------------------
+# --- where a repository's BugPilot files are (0.1.7) -------------------------
 
 
-def test_artifacts_ignored_answers_before_the_directories_exist(tmp_path):
-    """The advice is worth giving *before* the first run, which is the case that
-    broke both earlier attempts at this check.
+def test_doctor_says_where_the_files_are_and_asks_no_gitignore_question(tmp_path, monkeypatch):
+    """0.1.7 writes nothing into the repository, so there is no `.ai/` rule for `.gitignore` to have.
 
-    `.gitignore` patterns ending in `/` only match a path git knows is a
-    directory, so asking about `.ai` answered "not ignored" until `.ai` existed.
+    `doctor` reports where the repository's work items, memory and settings are
+    instead — the folder the extension reads them from — and creates nothing.
     """
-    _git(tmp_path, "init", "-q")
-    assert artifact_directories_ignored(tmp_path) == {".ai": False, ".ai_memory": False}
+    import os
 
-    (tmp_path / ".gitignore").write_text(".ai/\n.ai_memory/\n", encoding="utf-8")
-    assert artifact_directories_ignored(tmp_path) == {".ai": True, ".ai_memory": True}, (
-        "neither directory exists yet, and that is the point"
-    )
-
-
-def test_artifacts_ignored_is_unknown_outside_a_checkout(tmp_path):
-    """None, not False: there is nothing to advise about without git."""
-    assert artifact_directories_ignored(tmp_path) is None
-
-
-def test_artifact_directories_ignored_answers_per_directory_with_gits_own_semantics(tmp_path):
-    """What the extension's quick fix reads to add only the missing rule.
-
-    Git decides, so the spellings a person actually writes all count: without
-    a trailing slash, anchored at the root, or kept out of `.gitignore` in
-    `.git/info/exclude`.
-    """
-    _git(tmp_path, "init", "-q")
-    assert artifact_directories_ignored(tmp_path) == {".ai": False, ".ai_memory": False}
-
-    (tmp_path / ".gitignore").write_text(".ai/\n", encoding="utf-8")
-    assert artifact_directories_ignored(tmp_path) == {".ai": True, ".ai_memory": False}
-
-    (tmp_path / ".gitignore").write_text("/.ai_memory/\n", encoding="utf-8")
-    assert artifact_directories_ignored(tmp_path) == {".ai": False, ".ai_memory": True}
-
-    (tmp_path / ".gitignore").write_bytes(b"# ours\r\n.ai\r\n/.ai_memory\r\n")
-    assert artifact_directories_ignored(tmp_path) == {".ai": True, ".ai_memory": True}
-
-    (tmp_path / ".gitignore").unlink()
-    (tmp_path / ".git" / "info").mkdir(exist_ok=True)
-    (tmp_path / ".git" / "info" / "exclude").write_text(".ai/\n.ai_memory/\n", encoding="utf-8")
-    assert artifact_directories_ignored(tmp_path) == {".ai": True, ".ai_memory": True}
-
-
-def test_doctor_reports_it(tmp_path, monkeypatch):
-    """So the extension and `doctor` both surface it without a second mechanism."""
     from bugpilot.core.doctor import collect_doctor_report
+    from bugpilot.core.storage import repository_storage
 
     _git(tmp_path, "init", "-q")
     monkeypatch.chdir(tmp_path)
     report = collect_doctor_report(tmp_path)
-    assert report["ai_artifacts_ignored"] is False
-    assert report["ai_artifacts_ignored_paths"] == {".ai": False, ".ai_memory": False}
-
-    # Half-configured is not configured: .ai_memory would still be committed.
-    (tmp_path / ".gitignore").write_text(".ai/\n", encoding="utf-8")
-    report = collect_doctor_report(tmp_path)
-    assert report["ai_artifacts_ignored"] is False
-    assert report["ai_artifacts_ignored_paths"] == {".ai": True, ".ai_memory": False}
-
-    (tmp_path / ".gitignore").write_text(".ai/\n.ai_memory/\n", encoding="utf-8")
-    report = collect_doctor_report(tmp_path)
-    assert report["ai_artifacts_ignored"] is True
-    assert report["ai_artifacts_ignored_paths"] == {".ai": True, ".ai_memory": True}
+    assert "ai_artifacts_ignored" not in report and "ai_artifacts_ignored_paths" not in report
+    assert "unified-storage" in report["capabilities"]
+    storage = report["storage"]
+    assert storage["repository_dir"] == repository_storage(tmp_path).diagnostics()["repository_dir"]
+    assert (storage["state"], storage["problem"]) == ("uninitialized", None)
+    assert not os.path.lexists(storage["repository_dir"])
+    assert not ((data_dir(tmp_path) / "work")).exists() and not (memory_dir(tmp_path)).exists()
 
 
 # --- a test file is a lead, not an implementation ---------------------------

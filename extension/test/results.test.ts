@@ -214,9 +214,9 @@ test("nothing open: Current is one row saying so, which opens nothing", async ()
 
 test("Current's loading, empty and unreadable states are one row each, as the Artifacts view had them", async () => {
   const cases: [ArtifactList, string][] = [
-    [{ kind: "loading" }, "Scanning .ai/ …"],
+    [{ kind: "loading" }, "Reading the work items …"],
     [buildArtifactList({ names: [] }), "No artifacts yet. Run BugPilot on this work item to produce them."],
-    [{ kind: "error", detail: ".ai/JR-1/ could not be read: EACCES" }, ".ai/JR-1/ could not be read: EACCES"],
+    [{ kind: "error", detail: "work/JR-1/ could not be read: EACCES" }, "work/JR-1/ could not be read: EACCES"],
   ];
   for (const [list, text] of cases) {
     assert.deepEqual(await resultsChildren(CURRENT_GROUP, sources(list).sources), [{ kind: "message", text }]);

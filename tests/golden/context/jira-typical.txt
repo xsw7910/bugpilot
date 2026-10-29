@@ -159,7 +159,7 @@ Agent instruction: If search confidence is Low, do not assume the matched files 
 
 ### Relevant Files
 
-See `.ai/JR-12345/retrieval.json` for the ranked files, their matched lines and the search terms.
+See `retrieval.json`, beside this file, for the ranked files, their matched lines and the search terms.
 
 - `src/export/format_selector.py` confidence=medium score=42 matches=2 keywords=format, export
 
@@ -176,7 +176,7 @@ Line 18:     dialog.format = fmt
 
 Earlier output from the team's memory: claims to check against the code.
 
-- `.ai_memory/bugs/JR-11111.md` score=5 keywords=export, format
+- `/home/user/.bugpilot/repositories/repo-0123456789abcdef/memory/JR-11111.md` score=5 keywords=export, format
   - JR-11111: Export format reset on reopen
 
 ## Git History

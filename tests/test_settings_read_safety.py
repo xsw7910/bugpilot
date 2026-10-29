@@ -369,7 +369,9 @@ def test_saved_is_what_the_one_storage_read_found(tmp_path: Path, monkeypatch, c
 
     monkeypatch.setattr(repository_settings, "read_settings", counted)
     assert project_settings.resolve_project_settings(repo).saved is saved
-    assert reads == ["project_settings.json"]  # the settings and whether they are saved: one read
+    # The settings and whether they are saved: one read. The Verification Policy file beside them is read through
+    # storage too since 0.1.7 (it was a direct read of the repository's `.bugpilot/`), once.
+    assert reads == ["project_settings.json", "verification.md"]
 
 
 # --- the file's own failure: each reader's handling, as before ---------------------------------------------

@@ -48,7 +48,7 @@ import { feedbackFromVerification } from "../src/app/nextAction.ts";
 import { parseVerificationReport } from "../src/app/verificationReport.ts";
 import type { WorkflowStepId, WorkflowStepResult } from "../src/app/workflow.ts";
 import type { UserFacingError } from "../src/app/failures.ts";
-import { GITIGNORE_ACTION_NAME, GITIGNORE_FAILED } from "../src/app/controller.ts";
+import { DATA_FOLDER_UNKNOWN, GITIGNORE_ACTION_NAME, GITIGNORE_FAILED } from "../src/app/controller.ts";
 import { SUPPORTING_FILE_MISSING, SUPPORTING_FILE_NOT_A_FILE, SUPPORTING_FILE_UNCHECKED } from "../src/app/controller.ts";
 import { SESSION_FEEDBACK_MS } from "../src/app/controller.ts";
 import { RESET_WAITS_FOR_HANDOFF } from "../src/app/controller.ts";
@@ -92,13 +92,21 @@ const runErrorOf = (state: PanelState): UserFacingError | undefined =>
   state.workflow.find((step) => step.id !== "fixWithAI" && step.error !== undefined)?.error;
 
 const ROOT = "/work/app";
+/** The repository's folder in BugPilot's data folder, as `doctor --json` reports it (0.1.7). */
+const DATA = "/home/dev/.bugpilot/repositories/app-0123456789abcdef";
+/** What a 0.1.7 `doctor` report says about storage: every ready environment carries it. */
+const STORAGE = { storage: { repository_dir: DATA, state: "usable", problem: null } };
+/** Fix with AI's handoff: the work item's task.md, named absolutely (the agent runs in the repository). */
+const TASK_PROMPT = `Read ${DATA}/work/JR-12345/task.md and complete the workflow.`;
+/** A new attempt's handoff: the retry package, named the same way. */
+const RETRY_PROMPT = `Read ${DATA}/work/JR-12345/agent_retry_prompt.md and continue the workflow.`;
 const TOKEN = "ATATT3xFfGF0abcdef1234567890";
 
 const READY: Environment = {
   kind: "ready",
   root: ROOT,
   executable: "bugpilot",
-  report: { python_ok: true },
+  report: { ...STORAGE, python_ok: true },
 };
 
 interface StreamRun {
@@ -193,7 +201,7 @@ interface HarnessOptions {
   readonly taskPreview?: NonNullable<ControllerPorts["taskPreview"]>;
   readonly contextPreview?: NonNullable<ControllerPorts["contextPreview"]>;
   readonly protectedRules?: NonNullable<ControllerPorts["protectedRules"]>;
-  /** The `.bugpilot/` watcher; absent means the host has none. */
+  /** The settings folder's watcher; absent means the host has none. */
   readonly watchPolicies?: NonNullable<ControllerPorts["watchPolicies"]>;
   /** The Jira site the fake CLI reports, whether the environment sets it, and a refusal to save one. */
   readonly jiraSite?: { readonly site?: string; readonly fromEnvironment?: boolean; readonly refuse?: string };
@@ -631,8 +639,13 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
 
 /** The n-th session id the harness hands out: one per fix handoff, in order. */
 const sessionUuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
-/** Claude CLI's fix handoff: started under the n-th session id, so it can be resumed by it. */
-const claudeFix = (prompt: string, n = 1) => `claude --session-id ${sessionUuid(n)} ${JSON.stringify(prompt)}`;
+/** The work folder a handoff names, as Claude CLI is given it: one `--add-dir=<folder>` word (0.1.7). */
+const claudeGrant = (prompt: string) =>
+  `--add-dir=${JSON.stringify(/^Read (.+)\/[^/]+ and (?:complete|continue) the workflow\.$/.exec(prompt)![1]!)}`;
+/** Claude CLI's fix handoff: given the work folder, started under the n-th session id, so it can be resumed by it. */
+const claudeFix = (prompt: string, n = 1) => `claude ${claudeGrant(prompt)} --session-id ${sessionUuid(n)} ${JSON.stringify(prompt)}`;
+/** Resuming the n-th session: the same work folder again. */
+const claudeResume = (n: number) => `claude --resume ${sessionUuid(n)} ${claudeGrant(TASK_PROMPT)}`;
 
 const jiraForm = (overrides: Partial<FormState> = {}): FormState => ({
   ...DEFAULT_FORM,
@@ -663,7 +676,7 @@ const successfulRun: readonly StreamEvent[] = [
   { type: "step_completed", step: "context" },
   { type: "step_started", step: "prompt" },
   { type: "step_completed", step: "prompt" },
-  { type: "artifact", path: ".ai/JR-12345/task.md" },
+  { type: "artifact", path: "work/JR-12345/task.md" },
   { type: "completed", ok: true },
 ];
 
@@ -701,7 +714,7 @@ test("a valid run streams, finishes, and refreshes what the editor shows", async
   assert.equal(h.streamRuns[0]!.options.cwd, ROOT);
   assert.equal(h.last().progress.state, "done");
   assert.equal(h.last().artifacts.kind, "ready");
-  assert.equal(h.refreshes.count - refreshesBefore, 1, "the trees must be re-read after a run changes .ai/");
+  assert.equal(h.refreshes.count - refreshesBefore, 1, "the trees must be re-read after a run changes the work item's folder");
   assert.equal(h.last().primary.action, "fixWithAI", "a prepared task is the next thing to hand over");
 });
 
@@ -1078,7 +1091,36 @@ test("the handoff prompt is the one sentence pointing at task.md, whatever else 
   await h.controller.run(jiraForm());
   await h.controller.copyHandoff();
 
-  assert.equal(h.clipboard[0], "Read .ai/JR-12345/task.md and complete the workflow.");
+  assert.equal(h.clipboard[0], TASK_PROMPT);
+});
+
+test("no handoff is copied once BugPilot's data folder is unknown: a relative task path would lead into the repository", async () => {
+  let checks = 0;
+  const h = harness({
+    events: successfulRun,
+    directory: ["task.md"],
+    environment: (): Environment => {
+      checks += 1;
+      return checks === 1
+        ? { kind: "ready", executable: "bugpilot", root: ROOT, report: { ...STORAGE } }
+        : {
+            kind: "unusable-cli",
+            root: ROOT,
+            verdict: { kind: "not-found", executable: "bugpilot", detail: "not on PATH" },
+            summary: "bugpilot was not found.",
+            action: "Install it.",
+            actions: [{ title: "Install Instructions", command: "bugpilot.showInstallInstructions" }],
+          };
+    },
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+  await h.controller.refreshEnvironment();
+  await h.controller.copyHandoff();
+
+  assert.deepEqual(h.clipboard, []);
+  assert.equal(h.notices.at(-1)?.kind, "warning");
+  assert.equal(h.notices.at(-1)?.message, DATA_FOLDER_UNKNOWN);
 });
 
 // --- reopening a past work item -------------------------------------------
@@ -1293,7 +1335,7 @@ test("Open Atlassian API tokens opens Atlassian's own page in the browser — th
 });
 
 
-test("an unreadable .ai/ directory is reported, not shown as empty", async () => {
+test("an unreadable work item folder is reported, not shown as empty", async () => {
   // §5.4 asks for this state explicitly. Returning an empty list for a
   // permission problem tells the developer their run produced nothing, which
   // sends them looking in the wrong place entirely.
@@ -1362,7 +1404,7 @@ test("a command from outside the editor's own vocabulary is refused", async () =
 test("refreshing artifacts on its own leaves the panel showing the result", async () => {
   // refreshArtifacts pushes a loading state first. When it is invoked as its
   // own command, nothing else pushes afterwards, so the panel would sit on
-  // "Scanning .ai/ …" forever.
+  // "Reading the work items …" forever.
   const h = harness({ events: successfulRun, directory: ["task.md"] });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
@@ -1648,13 +1690,14 @@ test("the handoff fallback matches the sentence bugpilot itself uses", () => {
   // string, so it is compared against that source the same way the error-code
   // table is.
   const source = readFileSync(new URL("../../bugpilot/core/handoff.py", import.meta.url), "utf8");
-  const template = /return f"(Read \.ai\/\{issue_key\}\/[^"]+)"/.exec(source);
+  const template = /def handoff_prompt\(task_file: str\) -> str:[\s\S]*?return f"(Read \{task_file\} [^"]+)"/.exec(source);
   assert.ok(template, "could not find handoff_prompt's text in handoff.py");
-  // The file name is a constant in artifacts.py, so it is resolved from there.
+  // The task file is named absolutely, with forward slashes (`prompt_path` in config.py): the work item's
+  // folder in BugPilot's data folder, which `doctor` reported, and the task file's name from artifacts.py.
   const artifacts = readFileSync(new URL("../../bugpilot/core/artifacts.py", import.meta.url), "utf8");
   const task = /^TASK_ARTIFACT = "([^"]+)"/m.exec(artifacts);
   assert.ok(task, "could not find TASK_ARTIFACT in artifacts.py");
-  const expected = template[1]!.replace("{issue_key}", "JR-12345").replace("{TASK_ARTIFACT}", task[1]!);
+  const expected = template[1]!.replace("{task_file}", `${DATA}/work/JR-12345/${task[1]!}`);
 
   const h = harness({ events: successfulRun, directory: ["task.md"] });
   return h.controller
@@ -1676,7 +1719,7 @@ test("the doctor report becomes a warning the panel can show", async () => {
       kind: "ready",
       root: ROOT,
       executable: "bugpilot",
-      report: { python_ok: true, ai_artifacts_ignored: false },
+      report: { ...STORAGE, python_ok: true, ai_artifacts_ignored: false },
     },
   });
   await h.controller.refreshEnvironment();
@@ -1693,7 +1736,7 @@ test("a repository that already ignores the artifacts is not nagged", async () =
       kind: "ready",
       root: ROOT,
       executable: "bugpilot",
-      report: { python_ok: true, ai_artifacts_ignored: true },
+      report: { ...STORAGE, python_ok: true, ai_artifacts_ignored: true },
     },
   });
   await h.controller.refreshEnvironment();
@@ -1709,7 +1752,7 @@ test("an unknown answer is not a warning", async () => {
       kind: "ready",
       root: ROOT,
       executable: "bugpilot",
-      report: { ai_artifacts_ignored: null },
+      report: { ...STORAGE, ai_artifacts_ignored: null },
     },
   });
   await h.controller.refreshEnvironment();
@@ -1725,7 +1768,7 @@ test("a missing Jira site is said out loud, not discovered at the fetch step", a
       kind: "ready",
       root: ROOT,
       executable: "bugpilot",
-      report: { python_ok: true, jira_base_url_present: false, ai_artifacts_ignored: true },
+      report: { ...STORAGE, python_ok: true, jira_base_url_present: false, ai_artifacts_ignored: true },
     },
   });
   await h.controller.refreshEnvironment();
@@ -1745,7 +1788,7 @@ test("a configured Jira site is not mentioned", async () => {
       kind: "ready",
       root: ROOT,
       executable: "bugpilot",
-      report: { python_ok: true, jira_base_url_present: true, ai_artifacts_ignored: true },
+      report: { ...STORAGE, python_ok: true, jira_base_url_present: true, ai_artifacts_ignored: true },
     },
   });
   await h.controller.refreshEnvironment();
@@ -1779,9 +1822,10 @@ test("Fix with AI starts the agent in the repository root", async () => {
   assert.match(terminal.name, /JR-12345/);
   // One argument, quoted: the handoff contains spaces and a path. The session
   // id is BugPilot's, so Open AI Session can resume this conversation later.
+  // The work folder, outside the repository, is one more quoted word (0.1.7).
   assert.equal(
     terminal.commandLine,
-    'claude --session-id 00000000-0000-4000-8000-000000000001 "Read .ai/JR-12345/task.md and complete the workflow."',
+    `claude --add-dir=${JSON.stringify(`${DATA}/work/JR-12345`)} --session-id 00000000-0000-4000-8000-000000000001 ${JSON.stringify(TASK_PROMPT)}`,
   );
 });
 
@@ -1905,7 +1949,7 @@ test("a custom agent command is used verbatim, with the prompt substituted", asy
 
   assert.equal(
     h.terminals[0]!.commandLine,
-    'my-agent --yolo --prompt "Read .ai/JR-12345/task.md and complete the workflow."',
+    `my-agent --yolo --prompt ${JSON.stringify(TASK_PROMPT)}`,
   );
   // Probed by its own first word, not by "claude".
   assert.deepEqual(h.probed, ["my-agent"]);
@@ -2068,7 +2112,7 @@ test("two notices about two subjects stay two notices", async () => {
       kind: "ready",
       root: ROOT,
       executable: "bugpilot",
-      report: { jira_base_url_present: false, ai_artifacts_ignored: false },
+      report: { ...STORAGE, jira_base_url_present: false, ai_artifacts_ignored: false },
     },
   });
   await h.controller.refreshEnvironment();
@@ -5073,7 +5117,7 @@ test("Open Fix Report opens fix_report.md in the current work item, and nothing 
   const message = parsePanelMessage({ type: "openArtifact", name: fixResultOf(h.last())!.artifact });
   assert.ok(message);
   await h.controller.handle(message);
-  assert.equal(h.opened.at(-1), nodePath.join(ROOT, ".ai", "JR-1", "fix_report.md"));
+  assert.equal(h.opened.at(-1), nodePath.join(DATA, "work", "JR-1", "fix_report.md"));
 
   // What a page could try instead never reaches a file open.
   const before = h.opened.length;
@@ -5579,7 +5623,7 @@ test("Review with AI uses the agent selected now, the same one Fix with AI uses"
   // One selection, two handoffs: the review first, then the fix.
   assert.deepEqual(h.probed, ["my-reviewer", "my-reviewer"]);
   assert.equal(h.terminals[0]?.commandLine, `my-reviewer --prompt ${JSON.stringify(oneLine(REVIEW_PROMPT))}`);
-  assert.equal(h.terminals[1]?.commandLine, `my-reviewer --prompt ${JSON.stringify("Read .ai/JR-12345/task.md and complete the workflow.")}`);
+  assert.equal(h.terminals[1]?.commandLine, `my-reviewer --prompt ${JSON.stringify(TASK_PROMPT)}`);
 });
 
 test("with no agent available, no reviewer starts and the row says why, beside a Copy Review Prompt that still works", async () => {
@@ -5861,7 +5905,7 @@ test("Review with AI and Fix with AI keep their own outcomes", async () => {
   assert.equal(fixRow(h.last()).error?.title, "AI agent unavailable");
   assert.equal(reviewOf(h.last())?.state, "failed");
   // Fix's fallback put its own sentence on the clipboard; the review added nothing.
-  assert.deepEqual(h.clipboard, ["Read .ai/JR-12345/task.md and complete the workflow."]);
+  assert.deepEqual(h.clipboard, [TASK_PROMPT]);
 
   // The review succeeds: Fix with AI's card stays.
   options.agentOnPath = true;
@@ -6176,7 +6220,7 @@ test("a work item id that is not one is refused on the way in, and never reaches
   // A handoff afterwards is for the work item on screen, and only it.
   await h.controller.handle(FIX);
   assert.deepEqual(h.terminals.map((terminal) => terminal.commandLine), [
-    claudeFix("Read .ai/JR-12345/task.md and complete the workflow."),
+    claudeFix(TASK_PROMPT),
   ]);
 });
 
@@ -6306,7 +6350,7 @@ const RECORDED: Envelope = {
   command: "record-review",
   warnings: [],
   work_item_id: "JR-12345",
-  review_report: ".ai/JR-12345/review_report.md",
+  review_report: `${DATA}/work/JR-12345/review_report.md`,
   replaced: false,
 };
 
@@ -6682,7 +6726,7 @@ test("Open Review Report opens the canonical file of the work item on screen, an
   const { h } = capturable({ review: true });
   await opened(h);
   await h.controller.handle(parsePanelMessage({ type: "action", id: "openReviewReport" })!);
-  assert.deepEqual(h.opened.map((file) => file.split(/[\\/]/).slice(-3).join("/")), [".ai/JR-12345/review_report.md"]);
+  assert.deepEqual(h.opened.map((file) => file.split(/[\\/]/).slice(-3).join("/")), ["work/JR-12345/review_report.md"]);
   // The page cannot name a file through it.
   assert.equal(parsePanelMessage({ type: "action", id: "openReviewReport", name: "../../secret" })?.type, "action");
   assert.equal(parsePanelMessage({ type: "recordReview", review: "not an object" }), undefined);
@@ -7332,7 +7376,7 @@ const VERIFICATION_RECORDED: Envelope = {
   command: "record-verification",
   warnings: [],
   work_item_id: "JR-12345",
-  verification_report: ".ai/JR-12345/verification_report.md",
+  verification_report: `${DATA}/work/JR-12345/verification_report.md`,
   replaced: false,
 };
 
@@ -7617,7 +7661,7 @@ test("Open Verification Report opens the canonical file of the work item on scre
   const { h } = verifiable({ evidence: true });
   await opened(h);
   await h.controller.handle(parsePanelMessage({ type: "action", id: "openVerificationReport" })!);
-  assert.deepEqual(h.opened.map((file) => file.split(/[\\/]/).slice(-3).join("/")), [".ai/JR-12345/verification_report.md"]);
+  assert.deepEqual(h.opened.map((file) => file.split(/[\\/]/).slice(-3).join("/")), ["work/JR-12345/verification_report.md"]);
   assert.equal(parsePanelMessage({ type: "recordVerification", checks: "not a list", replace: false }), undefined);
   assert.equal(parsePanelMessage({ type: "recordVerification", checks: [{ ...CHECKS[0], status: "verified" }], replace: false }), undefined);
   assert.equal(parsePanelMessage({ type: "recordVerification", checks: [{ ...CHECKS[0], status: "skipped" }], replace: false }), undefined);
@@ -8100,8 +8144,8 @@ test("finding the repository re-reads the Artifacts and History trees", async ()
 // check what the host decided, did, and refused.
 
 /** The n-th fix handoff's command line: each attempt starts its own session. */
-const TASK_HANDOFF = (n = 1) => claudeFix("Read .ai/JR-12345/task.md and complete the workflow.", n);
-const RETRY_HANDOFF = (n = 2) => claudeFix("Read .ai/JR-12345/agent_retry_prompt.md and continue the workflow.", n);
+const TASK_HANDOFF = (n = 1) => claudeFix(TASK_PROMPT, n);
+const RETRY_HANDOFF = (n = 2) => claudeFix(RETRY_PROMPT, n);
 const RETRY_BUILT: Envelope = { ok: true, command: "bug", warnings: [], retry: true, feedback_created: false };
 
 const next = (action: "run" | "fixWithAI" | "openSession" | "rebuildContext" | "startNewAttempt", form: FormState = jiraForm()) =>
@@ -8175,7 +8219,7 @@ test("next action 3: Fix with AI uses the agent the form has selected now", asyn
   await h.controller.handle(next("run", custom));
   await h.controller.handle(next("fixWithAI", custom));
   assert.equal(h.terminals.length, 1);
-  assert.equal(h.terminals[0]!.commandLine, `my-agent --prompt ${JSON.stringify("Read .ai/JR-12345/task.md and complete the workflow.")}`);
+  assert.equal(h.terminals[0]!.commandLine, `my-agent --prompt ${JSON.stringify(TASK_PROMPT)}`);
   // The agent is not a preparation input: choosing it did not make the context stale.
   assert.equal(h.streamRuns.length, 1);
 });
@@ -8206,7 +8250,7 @@ test("next action 4: a session whose terminal was closed is resumed in a new ter
   assert.deepEqual(h.revealed, []);
   assert.equal(h.terminals.length, 2);
   // Same name, same repository, and Claude's own resume of the session it was started under.
-  assert.deepEqual(h.terminals[1], { name: "Fix with AI · JR-12345", cwd: ROOT, commandLine: `claude --resume ${sessionUuid(1)}` });
+  assert.deepEqual(h.terminals[1], { name: "Fix with AI · JR-12345", cwd: ROOT, commandLine: claudeResume(1) });
   // Said under the button, neutrally (§37.87): not a toast, not a failure.
   assert.deepEqual(
     { kind: h.last().sessionFeedback?.kind, message: h.last().sessionFeedback?.message },
@@ -8289,11 +8333,11 @@ test("next action 7: feedback goes into user_feedback.md, bug --retry builds the
 
   assert.deepEqual(h.written, [
     {
-      path: nodePath.join(ROOT, ".ai", "JR-12345", "user_feedback.md"),
+      path: nodePath.join(DATA, "work", "JR-12345", "user_feedback.md"),
       contents: "# User Feedback: JR-12345\n\n## Required Next Attempt\n\nThe previous fix changed the wrong class.\nKeep the public API.\n",
       // Named as a work item file, so the host writes it only through real
       // directories inside the repository.
-      workItem: { root: ROOT, workItemId: "JR-12345" },
+      workItem: { base: DATA, workItemId: "JR-12345" },
     },
   ]);
   // The CLI's own retry path, the same invocation the palette's Retry uses —
@@ -8991,7 +9035,7 @@ test("refresh 1–2: a fix_report.md written by another process shows up, with R
   assert.equal(fixResultOf(h.last()), undefined);
   assert.equal(fixEntry(h)?.written, false, "fix_report.md was not listed as not written yet");
   assert.equal(r.live().length, 1);
-  assert.equal(r.live()[0]!.directory, nodePath.join(ROOT, ".ai", "JR-12345"));
+  assert.equal(r.live()[0]!.directory, nodePath.join(DATA, "work", "JR-12345"));
   const refreshesBefore = h.refreshes.count;
 
   // The agent writes it; the watcher says so.
@@ -9806,7 +9850,7 @@ function gitRepo(initial: string | undefined, options: { stuck?: boolean; docume
       kind: "ready",
       root: ROOT,
       executable: "bugpilot",
-      report: { python_ok: true, ai_artifacts_ignored: paths[".ai"] && paths[".ai_memory"], ai_artifacts_ignored_paths: paths },
+      report: { ...STORAGE, python_ok: true, ai_artifacts_ignored: paths[".ai"] && paths[".ai_memory"], ai_artifacts_ignored_paths: paths },
     };
   };
   const io: GitignoreIo = {
@@ -10012,7 +10056,7 @@ test("gitignore fix: a .gitignore saved by hand is re-checked by itself — no r
 
 test("gitignore fix: a CLI without the per-directory answer shows the warning and no button", async () => {
   const h = harness({
-    environment: { kind: "ready", root: ROOT, executable: "bugpilot", report: { ai_artifacts_ignored: false } },
+    environment: { kind: "ready", root: ROOT, executable: "bugpilot", report: { ...STORAGE, ai_artifacts_ignored: false } },
     gitignore: gitRepo(undefined).io,
   });
   await h.controller.refreshEnvironment();
@@ -10150,7 +10194,7 @@ test("Open AI Session after Claude CLI exited (Ctrl+C): resumed in its own termi
 
   // Typed into the same terminal, which the host brings forward: Claude's resume
   // of the session BugPilot started it under — not a new terminal, not the prompt again.
-  assert.deepEqual(h.typed, [{ name: FIX_TERMINAL, commandLine: `claude --resume ${sessionUuid(1)}` }]);
+  assert.deepEqual(h.typed, [{ name: FIX_TERMINAL, commandLine: claudeResume(1) }]);
   assert.equal(h.terminals.length, 1, "a second terminal was opened for an exited agent");
   assert.deepEqual(
     { kind: h.last().sessionFeedback?.kind, message: h.last().sessionFeedback?.message },
@@ -10191,7 +10235,7 @@ test("a new attempt's session is the one Open AI Session resumes, by its own ses
   await h.controller.handle(startAttempt(""));
   h.agentActivity.set(`${FIX_TERMINAL} (2)`, "exited");
   await open();
-  assert.deepEqual(h.typed, [{ name: `${FIX_TERMINAL} (2)`, commandLine: `claude --resume ${sessionUuid(2)}` }]);
+  assert.deepEqual(h.typed, [{ name: `${FIX_TERMINAL} (2)`, commandLine: claudeResume(2) }]);
 });
 
 test("Open AI Session after Codex CLI exited: the same task again, from the same prepared files — its session cannot be identified", async () => {
@@ -10200,7 +10244,7 @@ test("Open AI Session after Codex CLI exited: the same task again, from the same
   await h.controller.refreshEnvironment();
   await h.controller.handle(next("run", codex));
   await h.controller.handle(next("fixWithAI", codex));
-  const handoff = `codex ${JSON.stringify("Read .ai/JR-12345/task.md and complete the workflow.")}`;
+  const handoff = `codex ${JSON.stringify(TASK_PROMPT)}`;
   // No session id for Codex: `codex resume` takes the last session or asks, which is not this one reliably.
   assert.deepEqual(h.terminals, [{ name: FIX_TERMINAL, cwd: ROOT, commandLine: handoff }]);
 
@@ -10257,7 +10301,7 @@ test("an accepted offer resumes the session in a new terminal; one accepted afte
   await settle();
   assert.deepEqual(h.typed, []);
   assert.equal(h.terminals.length, 2);
-  assert.deepEqual(h.terminals[1], { name: FIX_TERMINAL, cwd: ROOT, commandLine: `claude --resume ${sessionUuid(1)}` });
+  assert.deepEqual(h.terminals[1], { name: FIX_TERMINAL, cwd: ROOT, commandLine: claudeResume(1) });
   assert.equal(h.last().sessionFeedback?.message, "Resuming Claude CLI in a new terminal");
 
   // The second offer, accepted after the restart: already done.
@@ -10387,7 +10431,7 @@ for (const api of ["absent", "gated"] as const) {
     assert.equal(vscode.terminals.length, 2, "two acceptances started the agent twice");
     const restarted = vscode.terminals[1]!;
     assert.equal(restarted.name, "Fix with AI · JR-12345");
-    assert.deepEqual(restarted.sent, [`claude --resume ${sessionUuid(1)}`]);
+    assert.deepEqual(restarted.sent, [claudeResume(1)]);
     assert.deepEqual(agent.sent, [TASK_HANDOFF()]);
     assert.equal(h.last().sessionFeedback?.message, "Resuming Claude CLI in a new terminal");
   });
@@ -10395,9 +10439,12 @@ for (const api of ["absent", "gated"] as const) {
 
 test("a Claude CLI without --session-id/--resume: started as it always was, and started fresh on the same task after it exits", async () => {
   const { h, open } = await sessionHarness({ claudeFlags: false });
-  const plain = `claude ${JSON.stringify("Read .ai/JR-12345/task.md and complete the workflow.")}`;
+  const plain = `claude ${JSON.stringify(TASK_PROMPT)}`;
   // Asked, and told no: no flag it might not know is passed.
-  assert.deepEqual(h.flagChecks, [{ command: "claude", flags: ["--session-id", "--resume"] }]);
+  assert.deepEqual(h.flagChecks, [
+    { command: "claude", flags: ["--add-dir"] },
+    { command: "claude", flags: ["--session-id", "--resume"] },
+  ]);
   assert.deepEqual(h.terminals, [{ name: FIX_TERMINAL, cwd: ROOT, commandLine: plain }]);
 
   h.agentActivity.set(FIX_TERMINAL, "exited");
@@ -10413,7 +10460,7 @@ test("a Claude CLI without --session-id/--resume: started as it always was, and 
 
 test("a Claude capability check that fails leaves BugPilot usable: the plain command, no unsupported flag, a fresh restart", async () => {
   const { h, open } = await sessionHarness({ claudeFlags: new Error("spawn EPERM") });
-  const plain = `claude ${JSON.stringify("Read .ai/JR-12345/task.md and complete the workflow.")}`;
+  const plain = `claude ${JSON.stringify(TASK_PROMPT)}`;
   assert.deepEqual(h.terminals, [{ name: FIX_TERMINAL, cwd: ROOT, commandLine: plain }]);
   assert.equal(fixRow(h.last()).status, "success");
   assert.equal(h.notices.length, 0);
@@ -10425,14 +10472,17 @@ test("a Claude capability check that fails leaves BugPilot usable: the plain com
 
 test("a modern Claude CLI is asked once per handoff, and its restart reuses that attempt's own session id", async () => {
   const { h, open } = await sessionHarness();
-  assert.deepEqual(h.flagChecks, [{ command: "claude", flags: ["--session-id", "--resume"] }]);
+  assert.deepEqual(h.flagChecks, [
+    { command: "claude", flags: ["--add-dir"] },
+    { command: "claude", flags: ["--session-id", "--resume"] },
+  ]);
   h.agentActivity.set(FIX_TERMINAL, "exited");
   await open();
   await open();
   await open();
   // Restarting asks nothing: the relaunch was decided when the attempt started.
-  assert.equal(h.flagChecks.length, 1);
-  assert.deepEqual(h.typed, [{ name: FIX_TERMINAL, commandLine: `claude --resume ${sessionUuid(1)}` }]);
+  assert.equal(h.flagChecks.length, 2);
+  assert.deepEqual(h.typed, [{ name: FIX_TERMINAL, commandLine: claudeResume(1) }]);
 });
 
 test("Open AI Session's word goes with a new attempt, another work item, or a panel that no longer offers it", async () => {
@@ -10516,14 +10566,14 @@ test("flat artifacts: a work item reopened from History ends on its list, never 
   const { h } = twoWorkItems();
   await h.controller.refreshEnvironment();
   await h.controller.showWorkItem("JR-1");
-  assert.equal(h.controller.artifacts.kind, "ready", "left on loading — the tree would say Scanning .ai/ …");
+  assert.equal(h.controller.artifacts.kind, "ready", "left on loading — the tree would say Reading the work items …");
   assert.deepEqual(artifactNames(h).slice(0, 3), ["issue.json:written", "context.md:written", "task.md:written"]);
 });
 
 // --- §37.94: the AI Agent layer, through the controller ----------------------------
 
 const CODEX_ONLY = (command: string) => Promise.resolve(command === "codex");
-const HANDOFF = "Read .ai/JR-12345/task.md and complete the workflow.";
+const HANDOFF = TASK_PROMPT;
 
 test("Codex CLI is runnable: an explicit choice starts `codex` in the repository root", async () => {
   const form = jiraForm({ agent: "codex-cli" });
@@ -11012,7 +11062,7 @@ test("reset 1: Keep puts every session field back, keeps the AI Agent, detaches 
   const h = harness({
     ...WITH_FILES,
     fixModes: CATALOG,
-    deleteArtifacts: async (_root, id) => {
+    deleteArtifacts: async (_root, _repositoryDir, id) => {
       deletes.push(id);
       return { kind: "deleted" };
     },
@@ -11109,12 +11159,12 @@ test("reset 4: from a typed-but-never-run session, or one already fresh, Reset i
 });
 
 test("reset 5: Delete removes only the current work item's files, through the port, then resets", async () => {
-  const deletes: [string, string][] = [];
+  const deletes: [string, string, string][] = [];
   const h = harness({
     ...WITH_FILES,
     fixModes: CATALOG,
-    deleteArtifacts: async (root, id) => {
-      deletes.push([root, id]);
+    deleteArtifacts: async (root, repositoryDir, id) => {
+      deletes.push([root, repositoryDir, id]);
       return { kind: "deleted" };
     },
   });
@@ -11123,7 +11173,7 @@ test("reset 5: Delete removes only the current work item's files, through the po
 
   await h.controller.handle(RESET_DELETE);
 
-  assert.deepEqual(deletes, [[ROOT, "JR-12345"]], "anything but the current work item was asked for");
+  assert.deepEqual(deletes, [[ROOT, DATA, "JR-12345"]], "anything but the current work item was asked for");
   assertFresh(h.last());
   assert.ok(h.notices.some((notice) => notice.message === "Session reset. Generated files deleted."));
   assert.ok(h.logged.includes("Session reset; generated artifacts deleted."), h.logged.join("\n"));
@@ -11549,7 +11599,7 @@ function resultsHarness() {
   const h = harness({
     ...WITH_FILES,
     fixModes: CATALOG,
-    deleteArtifacts: async (_root, id) => {
+    deleteArtifacts: async (_root, _repositoryDir, id) => {
       deletes.push(id);
       folders.delete(id);
       return { kind: "deleted" };
@@ -11581,7 +11631,7 @@ test("Results 1: nothing open, Current says so; a run fills it with the work ite
   const refreshes = h.refreshes.count;
   await h.controller.handle(next("run", SESSION_FORM()));
 
-  assert.ok(h.refreshes.count > refreshes, "Results was not told the run changed .ai/");
+  assert.ok(h.refreshes.count > refreshes, "Results was not told the run changed the work item's folder");
   assert.deepEqual(await tree.current(), CURRENT_FILES);
   assert.equal(tree.currentRow().description, "JR-12345");
   assert.deepEqual(await tree.root(), ["Current", "History", "Diagnostics"]);
@@ -11714,7 +11764,7 @@ test("a CLI that vanished since start-up is said to be missing, and the environm
     environment: (): Environment => {
       checks += 1;
       return checks === 1
-        ? { kind: "ready", executable: "bugpilot", root: ROOT, report: {} }
+        ? { kind: "ready", executable: "bugpilot", root: ROOT, report: { ...STORAGE } }
         : {
             kind: "unusable-cli",
             root: ROOT,
@@ -12486,7 +12536,7 @@ test("a site JIRA_BASE_URL sets is shown, not required, and not written", async 
 });
 
 test("credentials without a site: the Jira row says No Jira site and offers Configure", async () => {
-  const h = harness({ environment: { ...READY, report: { python_ok: true, jira_base_url_present: false } } });
+  const h = harness({ environment: { ...READY, report: { ...STORAGE, python_ok: true, jira_base_url_present: false } } });
   await h.controller.refreshEnvironment();
   const jira = h.last().jira;
   assert.equal(jira.state, "notConfigured");
@@ -12627,9 +12677,9 @@ test("Start New Attempt replaces it: a manual one with its own text, a terminal 
   const second = guidance(h.last())!;
   assert.notEqual(second.seq, first.seq);
   assert.equal(second.title, "Context copied.");
-  assert.equal(h.clipboard.at(-1), "Read .ai/JR-12345/agent_retry_prompt.md and continue the workflow.");
+  assert.equal(h.clipboard.at(-1), RETRY_PROMPT);
   await h.controller.handle(COPY_AGAIN);
-  assert.equal(h.clipboard.at(-1), "Read .ai/JR-12345/agent_retry_prompt.md and continue the workflow.");
+  assert.equal(h.clipboard.at(-1), RETRY_PROMPT);
 
   // Then Claude CLI: a terminal, nothing to paste.
   const cli = jiraForm({ agent: "claude-cli" });
@@ -12724,8 +12774,8 @@ test("parsePanelMessage accepts Copy Again as an action", () => {
 
 // --- The Verification Policy and policy freshness (0.1.3, §42.2) -----------------------
 
-/** A CLI whose doctor report says it reads `.bugpilot/verification.md`. */
-const READS_VERIFICATION: Environment = { ...READY, report: { python_ok: true, capabilities: ["verification-text"] } };
+/** A CLI whose doctor report says it reads `settings/verification.md`. */
+const READS_VERIFICATION: Environment = { ...READY, report: { ...STORAGE, python_ok: true, capabilities: ["verification-text"] } };
 
 /**
  * A fake `bugpilot verification`: a source, and a hash of the effective policy
@@ -12857,10 +12907,10 @@ test("verification policy: a file that cannot be used is a problem on the row, n
   await h.controller.refreshEnvironment();
 
   const row = h.last().verificationPolicy;
-  assert.equal(row.source, "Source: BugPilot default (.bugpilot/verification.md is not used)");
+  assert.equal(row.source, "Source: BugPilot default (settings/verification.md is not used)");
   assert.equal(
     row.problem,
-    ".bugpilot/verification.md is not used: it has no front matter. BugPilot's default applies until it is fixed. Edit opens the file; Reset removes it.",
+    "settings/verification.md is not used: it has no front matter. BugPilot's default applies until it is fixed. Edit opens the file; Reset removes it.",
   );
   assert.equal(row.lint, "", "a problem is not a lint warning");
   assert.deepEqual([row.canEdit, row.canReset, row.canPreview], [true, true, true], "the file must stay fixable and removable");
@@ -12875,7 +12925,7 @@ test("verification policy: a CLI that cannot read verification.md is out of date
   assert.equal(readiness.kind, "blocked");
   if (readiness.kind === "blocked") {
     assert.equal(readiness.summary, "BugPilot CLI is out of date.");
-    assert.match(readiness.action ?? "", /cannot read \.bugpilot\/verification\.md.*verification-text capability/);
+    assert.match(readiness.action ?? "", /cannot read settings\/verification\.md.*verification-text capability/);
   }
   assert.equal(file.loads(), 0, "an old CLI was asked a command it does not have");
   assert.deepEqual(h.last().verificationPolicy, VERIFICATION_ROW_EMPTY, "a second incompatibility state on the row");
@@ -12894,7 +12944,7 @@ test("verification policy: without verification.md an older CLI still prepares a
   const row = h.last().verificationPolicy;
   assert.equal(row.source, "");
   assert.deepEqual([row.canEdit, row.canReset, row.canPreview], [false, false, false]);
-  assert.match(row.unavailable, /cannot read \.bugpilot\/verification\.md\. Update it to edit the Verification Policy here\./);
+  assert.match(row.unavailable, /cannot read settings\/verification\.md\. Update it to edit the Verification Policy here\./);
   await h.controller.editVerificationPolicy();
   assert.deepEqual(none.creates, [], "an old CLI was asked to write the file");
 });
@@ -13002,7 +13052,7 @@ test("policy freshness: Start New Attempt reads the policies first, and starts n
   );
 });
 
-test("policy freshness: a .bugpilot/ file change rereads once a burst of events is over", async () => {
+test("policy freshness: a settings file change rereads once a burst of events is over", async () => {
   const policy = verificationPolicyPort({ source: "verification-file", text: "Run the unit tests." });
   const watchers: { directory: string; fire: (name: string) => void; disposed: boolean }[] = [];
   const timers: { callback: () => void; cancelled: boolean; ran: boolean }[] = [];
@@ -13021,7 +13071,7 @@ test("policy freshness: a .bugpilot/ file change rereads once a burst of events 
   });
   const live = watchers.filter((watcher) => !watcher.disposed);
   assert.equal(live.length, 1);
-  assert.equal(live[0]!.directory, nodePath.join(ROOT, ".bugpilot"));
+  assert.equal(live[0]!.directory, nodePath.join(DATA, "settings"));
   const loadsBefore = policy.loads();
 
   policy.state.text = "Switched with a branch.";
@@ -13062,8 +13112,8 @@ test("policy freshness: once verification.md decides, switches an older BugPilot
 
 // --- AI Behavior and policy freshness (0.1.4) --------------------------------------------
 
-/** A CLI whose doctor report says it reads both `.bugpilot/verification.md` and `.bugpilot/ai_behavior.md`. */
-const READS_AI_BEHAVIOR: Environment = { ...READY, report: { python_ok: true, capabilities: ["verification-text", "ai-behavior-text"] } };
+/** A CLI whose doctor report says it reads both `settings/verification.md` and `settings/ai_behavior.md`. */
+const READS_AI_BEHAVIOR: Environment = { ...READY, report: { ...STORAGE, python_ok: true, capabilities: ["verification-text", "ai-behavior-text"] } };
 
 /**
  * A fake `bugpilot ai-behavior show`: a source and a hash of what a task would
@@ -13131,12 +13181,12 @@ test("ai behavior: a CLI that reads the file is asked at the environment check; 
   behavior.state.problem = "it has no front matter.";
   await h.controller.windowFocused();
   await h.controller.windowFocused();
-  const said = h.logged.filter((line) => line.startsWith("AI Behavior: .bugpilot/ai_behavior.md is not used:"));
-  assert.deepEqual(said, ["AI Behavior: .bugpilot/ai_behavior.md is not used: it has no front matter."]);
+  const said = h.logged.filter((line) => line.startsWith("AI Behavior: settings/ai_behavior.md is not used:"));
+  assert.deepEqual(said, ["AI Behavior: settings/ai_behavior.md is not used: it has no front matter."]);
   delete behavior.state.problem;
   behavior.state.lint = 2;
   await h.controller.windowFocused();
-  assert.ok(h.logged.some((line) => line.startsWith("AI Behavior: 2 line(s) of .bugpilot/ai_behavior.md may need a second look")));
+  assert.ok(h.logged.some((line) => line.startsWith("AI Behavior: 2 line(s) of settings/ai_behavior.md may need a second look")));
 });
 
 test("ai behavior: a CLI that cannot read ai_behavior.md is out of date while the repository has one", async () => {
@@ -13150,7 +13200,7 @@ test("ai behavior: a CLI that cannot read ai_behavior.md is out of date while th
   if (readiness.kind === "blocked") {
     // The existing out-of-date state, its actions included: nothing of AI Behavior's own.
     assert.equal(readiness.summary, "BugPilot CLI is out of date.");
-    assert.match(readiness.action ?? "", /cannot read \.bugpilot\/ai_behavior\.md.*ai-behavior-text capability/);
+    assert.match(readiness.action ?? "", /cannot read settings\/ai_behavior\.md.*ai-behavior-text capability/);
     assert.ok(readiness.actions.length > 0);
   }
   assert.equal(behavior.loads(), 0, "an old CLI was asked a command it does not have");
@@ -13272,7 +13322,7 @@ test("policy freshness: Start New Attempt reads AI Behavior first, and starts no
   );
 });
 
-test("policy freshness: an ai_behavior.md change in .bugpilot/ rereads through the one watcher", async () => {
+test("policy freshness: an ai_behavior.md change in the settings folder rereads through the one watcher", async () => {
   const behavior = aiBehaviorPort({ additions: "- Keep exports stable." });
   const watchers: { directory: string; fire: (name: string) => void; disposed: boolean }[] = [];
   const timers: { callback: () => void; cancelled: boolean; ran: boolean }[] = [];
@@ -13304,13 +13354,13 @@ test("policy freshness: an ai_behavior.md change in .bugpilot/ rereads through t
 
   assert.equal(behavior.loads(), loadsBefore + 1);
   assert.equal(h.last().primary.action, "rebuildContext");
-  assert.ok(h.logged.some((line) => line === "Policy reread scheduled (.bugpilot/ai_behavior.md changed)."));
+  assert.ok(h.logged.some((line) => line === "Policy reread scheduled (settings/ai_behavior.md changed)."));
 });
 
 
 // --- The Verification Policy row: Edit, Reset, Preview (0.1.3, §42.5) ------------------
 
-const POLICY_FILE = nodePath.join(ROOT, ".bugpilot", "verification.md");
+const POLICY_FILE = nodePath.join(DATA, "settings", "verification.md");
 const EDIT_POLICY = { type: "editVerificationPolicy" } as const;
 const RESET_POLICY = { type: "resetVerificationPolicy" } as const;
 const PREVIEW_POLICY = { type: "previewVerificationPolicy" } as const;
@@ -13342,7 +13392,7 @@ test("verification row: Edit from the default has the CLI create the file from t
   assert.equal(h.last().verificationPolicy.canReset, true);
   assert.equal(h.last().verificationPolicy.busy, false);
   // The log says where it came from, never what it says.
-  assert.ok(h.logged.some((line) => /created \.bugpilot\/verification\.md from the BugPilot default policy/.test(line)), JSON.stringify(h.logged));
+  assert.ok(h.logged.some((line) => /created settings\/verification\.md from the BugPilot default policy/.test(line)), JSON.stringify(h.logged));
   assert.equal(h.logged.some((line) => line.includes("the default policy")), false, "the policy text reached the log");
 });
 
@@ -13430,7 +13480,7 @@ test("verification row: Reset asks first, and Keep File keeps it", async () => {
   await h.controller.handle(RESET_POLICY);
 
   assert.equal(h.confirms.length, 1);
-  assert.match(h.confirms[0]!.message, /This deletes \.bugpilot\/verification\.md\./);
+  assert.match(h.confirms[0]!.message, /This deletes settings\/verification\.md\./);
   assert.deepEqual([h.confirms[0]!.confirmLabel, h.confirms[0]!.keepLabel], ["Delete File", "Keep File"]);
   // Keep File is the dialog's default: Enter keeps; deleting takes choosing Delete File.
   assert.equal(h.confirms[0]!.keepFocused, true);
@@ -13509,7 +13559,7 @@ test("verification row: Preview reads the policy now, holds it read-only, and ne
   assert.equal(preview.text, "Run the unit tests.");
   assert.deepEqual(preview.facts, [
     { label: "Source", value: "Repository verification.md" },
-    { label: "File", value: ".bugpilot/verification.md" },
+    { label: "File", value: "settings/verification.md" },
     { label: "Based on default", value: "version 1" },
     { label: "Current default", value: "version 1" },
     { label: "Same as default", value: "No" },
@@ -13530,7 +13580,7 @@ test("verification row: Preview reads the policy now, holds it read-only, and ne
 });
 
 test("verification row: lint is a count on the row and the CLI's lines in the Preview, never in the log", async () => {
-  const line = "Line 7 of .bugpilot/verification.md may conflict with a BugPilot rule (force push). The BugPilot rule still applies; the policy is kept as written.";
+  const line = "Line 7 of settings/verification.md may conflict with a BugPilot rule (force push). The BugPilot rule still applies; the policy is kept as written.";
   const policy = verificationPolicyPort({ source: "verification-file", text: "Force push when CI is red." });
   policy.state.lint = [line, line.replace("Line 7", "Line 9")];
   const h = harness(policyHarnessOptions(policy));
@@ -13570,7 +13620,7 @@ test("verification row: default_changed is a note with Reset beside it, and the 
 test("verification row: a link or anything but a regular file is never opened", async () => {
   const policy = verificationPolicyPort({ source: "verification-file" });
   policy.state.kind = "other";
-  policy.state.problem = ".bugpilot/verification.md is a link; the Verification Policy is never read through a link.";
+  policy.state.problem = "settings/verification.md is a link; the Verification Policy is never read through a link.";
   const h = harness(policyHarnessOptions(policy));
   await h.controller.refreshEnvironment();
 
@@ -13578,7 +13628,7 @@ test("verification row: a link or anything but a regular file is never opened", 
 
   assert.deepEqual(h.opened, []);
   assert.deepEqual(policy.creates, []);
-  assert.ok(h.notices.some((notice) => notice.kind === "warning" && /does not open \.bugpilot\/verification\.md: it is a link or not a regular file/.test(notice.message)));
+  assert.ok(h.notices.some((notice) => notice.kind === "warning" && /does not open settings\/verification\.md: it is a link or not a regular file/.test(notice.message)));
 });
 
 test("verification row: a refused create is said in the CLI's words, and opens nothing", async () => {
@@ -13590,7 +13640,7 @@ test("verification row: a refused create is said in the CLI's words, and opens n
   await h.controller.handle(EDIT_POLICY);
 
   assert.deepEqual(h.opened, []);
-  assert.ok(h.notices.some((notice) => notice.kind === "error" && notice.message === ".bugpilot/verification.md was not created: The Verification Policy was not saved: .bugpilot is a link."), JSON.stringify(h.notices));
+  assert.ok(h.notices.some((notice) => notice.kind === "error" && notice.message === "settings/verification.md was not created: The Verification Policy was not saved: .bugpilot is a link."), JSON.stringify(h.notices));
   assert.equal(h.last().verificationPolicy.busy, false);
   assert.equal(h.last().verificationPolicy.source, "Source: BugPilot default");
 });
@@ -13628,7 +13678,7 @@ test("verification row: Edit's create and Reset wait for a run in flight; openin
 
   await h.controller.handle(EDIT_POLICY);
   assert.deepEqual(policy.creates, [], "the file was written under a running preparation");
-  assert.ok(h.notices.some((notice) => /\.bugpilot\/verification\.md was not created\./.test(notice.message)), JSON.stringify(h.notices));
+  assert.ok(h.notices.some((notice) => /settings\/verification\.md was not created\./.test(notice.message)), JSON.stringify(h.notices));
 
   // A file that is there opens: nothing is written.
   policy.state.source = "verification-file";
@@ -13762,7 +13812,7 @@ test("parsePanelMessage accepts the Verification Policy row's four bare messages
 /** A CLI that answers every 0.1.4 view. */
 const READS_EVERYTHING: Environment = {
   ...READY,
-  report: { python_ok: true, capabilities: ["verification-text", "ai-behavior-text", "protected-rules", "task-preview", "context-preview"] },
+  report: { ...STORAGE, python_ok: true, capabilities: ["verification-text", "ai-behavior-text", "protected-rules", "task-preview", "context-preview"] },
 };
 
 /** The prepared work item's folder, with its issue.json: what makes the Effective AI Task the work item's, not the template. */
@@ -13894,7 +13944,7 @@ test("effective output: the rows say what the panel knows, and View is off for a
   assert.equal(views.taskCalls.length + views.contextCalls.length + views.rulesCalls(), 0, "drawing the rows asked the CLI");
 
   // 0.1.3: none of the three capabilities — each row says so, and nothing is blocked.
-  const old = harness({ environment: { ...READY, report: { python_ok: true, capabilities: ["verification-text"] } }, ...readOnlyPorts().ports });
+  const old = harness({ environment: { ...READY, report: { ...STORAGE, python_ok: true, capabilities: ["verification-text"] } }, ...readOnlyPorts().ports });
   await old.controller.refreshEnvironment();
   assert.equal(old.last().readiness.kind, "ready", "an optional view blocked preparing");
   for (const key of ["task", "context", "rules"] as const) {
@@ -14327,8 +14377,8 @@ test("AI Behavior row: Edit creates the file from the CLI's template — not a c
 
   await h.controller.handle({ type: "editAiBehavior" });
   assert.deepEqual(created, ["## Code Change Conventions\n\n## Evidence Standards\n\n## Reporting Standards"]);
-  assert.deepEqual(h.opened, [nodePath.join(ROOT, ".bugpilot", "ai_behavior.md")]);
-  assert.equal(h.last().aiBehavior.source, "Source: BugPilot default (.bugpilot/ai_behavior.md has no additions yet)");
+  assert.deepEqual(h.opened, [nodePath.join(DATA, "settings", "ai_behavior.md")]);
+  assert.equal(h.last().aiBehavior.source, "Source: BugPilot default (settings/ai_behavior.md has no additions yet)");
   assert.equal(h.last().primary.action, "fixWithAI", "creating the empty template made the context stale");
   assert.equal(h.last().aiBehavior.stale, false);
 
@@ -14349,7 +14399,7 @@ test("AI Behavior row: Edit creates the file from the CLI's template — not a c
 
   await h.controller.handle({ type: "resetAiBehavior" });
   assert.equal(resets, 1);
-  assert.match(h.confirms.at(-1)!.message, /^Reset AI Behavior\? This deletes \.bugpilot\/ai_behavior\.md\./);
+  assert.match(h.confirms.at(-1)!.message, /^Reset AI Behavior\? This deletes settings\/ai_behavior\.md\./);
   assert.deepEqual(
     [h.confirms.at(-1)!.confirmLabel, h.confirms.at(-1)!.keepLabel, h.confirms.at(-1)!.keepFocused],
     ["Delete File", "Keep File", true],
@@ -14381,7 +14431,7 @@ function aiBehaviorWritePort(initial: { additions?: string; exists?: boolean } =
   return { behavior, created, resets: () => resets, port };
 }
 
-const AI_BEHAVIOR_PATH = nodePath.join(ROOT, ".bugpilot", "ai_behavior.md");
+const AI_BEHAVIOR_PATH = nodePath.join(DATA, "settings", "ai_behavior.md");
 
 test("AI Behavior row: a run in flight holds Edit's create and Reset — the host refuses them, not only the page — and both come back when it ends (L-2)", async () => {
   const w = aiBehaviorWritePort();
@@ -14398,7 +14448,7 @@ test("AI Behavior row: a run in flight holds Edit's create and Reset — the hos
   await h.controller.handle({ type: "editAiBehavior" });
   assert.deepEqual(w.created, [], "the file was created under a running preparation");
   assert.deepEqual(h.opened, []);
-  assert.ok(h.notices.some((notice) => /^\.bugpilot\/ai_behavior\.md was not created\./.test(notice.message)), JSON.stringify(h.notices));
+  assert.ok(h.notices.some((notice) => /^settings\/ai_behavior\.md was not created\./.test(notice.message)), JSON.stringify(h.notices));
 
   // A file that is there opens — reading writes nothing — but Reset waits, and is not even asked.
   w.behavior.state.exists = true;
@@ -14482,14 +14532,14 @@ test("AI Behavior row: an older CLI offers nothing, and a link is not opened", a
   await old.controller.refreshEnvironment();
   const row = old.last().aiBehavior;
   assert.deepEqual([row.canEdit, row.canReset, row.canPreview], [false, false, false]);
-  assert.match(row.unavailable, /cannot read \.bugpilot\/ai_behavior\.md/);
+  assert.match(row.unavailable, /cannot read settings\/ai_behavior\.md/);
 
   const linked = aiBehaviorPort({ additions: "- x" });
   const h = harness({ ...aiBehaviorHarnessOptions(linked), aiBehaviorPolicy: { ...linked.port, fileKind: async () => "other" as const } });
   await h.controller.refreshEnvironment();
   await h.controller.handle({ type: "editAiBehavior" });
   assert.deepEqual(h.opened, []);
-  assert.match(h.notices.at(-1)!.message, /does not open \.bugpilot\/ai_behavior\.md: it is a link or not a regular file/);
+  assert.match(h.notices.at(-1)!.message, /does not open settings\/ai_behavior\.md: it is a link or not a regular file/);
 });
 
 
@@ -14525,7 +14575,7 @@ test("O-1: every work item read, listing and open names its repository and work 
   assert.ok(seen.length >= 3);
   for (const workItem of seen) {
     assert.equal(workItem?.workItemId, "JR-12345");
-    assert.ok((workItem?.root ?? "") !== "");
+    assert.equal(workItem?.base, DATA);
   }
 });
 

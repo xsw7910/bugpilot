@@ -665,7 +665,7 @@ export type PanelMessage =
   /** The instruction editor's Back, Cancel or Escape: close it, write nothing. */
   | { readonly type: "closeInstructions" }
   /**
-   * The Verification Policy row's Edit (§42.5): open `.bugpilot/verification.md`
+   * The Verification Policy row's Edit (§42.5): open `settings/verification.md`
    * in an editor tab, the CLI creating it first if it is not there. Bare: the
    * host knows the file, and the page never names a path or sends policy text.
    */
@@ -1010,7 +1010,7 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
     }
     case "openArtifact": {
       const name = asString(message?.["name"], 256);
-      // Artifact names are plain file names inside `.ai/<work_item>/`. Anything
+      // Artifact names are plain file names inside `work/<work_item>/`. Anything
       // else — a separator, `..`, an empty string, a bare `.` — either escapes
       // the directory or names the directory itself, and the host opens what it
       // is given.

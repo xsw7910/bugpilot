@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 import task_golden
+from bugpilot.core.config import data_dir, issue_dir
 from bugpilot.cli import main
 from bugpilot.core.ai_behavior import render_document as render_ai_behavior
 from bugpilot.core.doctor import CAPABILITIES
@@ -53,9 +54,9 @@ def repo(tmp_path) -> Path:
 def _configure(root: Path, config_dir: Path) -> None:
     """Every policy layer a person or a repository can set."""
     _settings_file(root, "instructions.md").write_text(PROJECT_TEXT + "\n", encoding="utf-8")
-    (root / ".bugpilot").mkdir(exist_ok=True)
-    (root / ".bugpilot" / "verification.md").write_text(render_verification(VERIFICATION_TEXT), encoding="utf-8")
-    (root / ".bugpilot" / "ai_behavior.md").write_text(render_ai_behavior(AI_BEHAVIOR_TEXT), encoding="utf-8")
+    (data_dir(root) / "settings").mkdir(parents=True, exist_ok=True)
+    ((data_dir(root) / "settings" / "verification.md")).write_text(render_verification(VERIFICATION_TEXT), encoding="utf-8")
+    ((data_dir(root) / "settings" / "ai_behavior.md")).write_text(render_ai_behavior(AI_BEHAVIOR_TEXT), encoding="utf-8")
     (config_dir / "instructions.md").write_text(USER_TEXT + "\n", encoding="utf-8")
 
 
@@ -72,7 +73,7 @@ def _prepare(monkeypatch, capsys, root: Path, *argv: str) -> str:
 
 
 def _task_md(root: Path, work_item: str) -> str:
-    return (root / ".ai" / work_item / "task.md").read_bytes().decode("utf-8").replace("\r\n", "\n")
+    return (issue_dir(root, work_item) / "task.md").read_bytes().decode("utf-8").replace("\r\n", "\n")
 
 
 def _settings_file(root: Path, name: str) -> Path:
@@ -270,12 +271,12 @@ def test_a_preview_names_the_branch_a_task_would_record_but_records_nothing(repo
     work_item = _prepare(monkeypatch, capsys, repo, "JR-12345", "--allow-mock")
     issue = load_issue(repo, work_item)
     save_issue(repo, issue.with_guidance(type(issue.guidance)(**{**issue.guidance.__dict__, "branch_policy": "per-issue", "branch_name": None})))
-    recorded = (repo / ".ai" / work_item / "issue.json").read_bytes()
+    recorded = (issue_dir(repo, work_item) / "issue.json").read_bytes()
 
     preview = preview_work_item(repo, work_item)
 
     assert preview.inputs.branch_policy == "per-issue" and f"`{preview.inputs.branch}`" in preview.text
-    assert (repo / ".ai" / work_item / "issue.json").read_bytes() == recorded
+    assert (issue_dir(repo, work_item) / "issue.json").read_bytes() == recorded
     # Regenerating the task does record it — and names the same branch.
     monkeypatch.chdir(repo)
     assert main(["agent-task", work_item]) == 0
@@ -300,12 +301,12 @@ def test_a_policy_changed_since_preparing_is_in_the_preview_and_the_old_task_is_
     repo, monkeypatch, capsys, user_config_folder, layer, section
 ):
     work_item = _prepare(monkeypatch, capsys, repo, "JR-12345", "--allow-mock")
-    prepared = (repo / ".ai" / work_item / "task.md").read_bytes()
+    prepared = (issue_dir(repo, work_item) / "task.md").read_bytes()
     paths = {
         "user": (user_config_folder / "instructions.md", "Explain every decision.\n"),
         "project": (None, "Name the module owner in Review Notes.\n"),  # where 0.1.6 keeps it: made below
-        "verification": (repo / ".bugpilot" / "verification.md", render_verification("- Run the full suite.")),
-        "ai_behavior": (repo / ".bugpilot" / "ai_behavior.md", render_ai_behavior("- Quote the failing line.")),
+        "verification": ((data_dir(repo) / "settings" / "verification.md"), render_verification("- Run the full suite.")),
+        "ai_behavior": ((data_dir(repo) / "settings" / "ai_behavior.md"), render_ai_behavior("- Quote the failing line.")),
     }
     path, text = paths[layer]
     path = path or _settings_file(repo, "instructions.md")
@@ -319,7 +320,7 @@ def test_a_policy_changed_since_preparing_is_in_the_preview_and_the_old_task_is_
     assert changed["prepared"]["task_current"] is False
     assert changed["prepared"]["changed_sections"] == [section]
     # Reported, never rebuilt.
-    assert (repo / ".ai" / work_item / "task.md").read_bytes() == prepared
+    assert (issue_dir(repo, work_item) / "task.md").read_bytes() == prepared
 
     # Back as it was: the prepared task is current again.
     path.unlink()
@@ -329,7 +330,7 @@ def test_a_policy_changed_since_preparing_is_in_the_preview_and_the_old_task_is_
 
 def test_a_work_item_without_a_task_yet_still_previews(repo, monkeypatch, capsys):
     work_item = _prepare(monkeypatch, capsys, repo, "JR-12345", "--allow-mock")
-    (repo / ".ai" / work_item / "task.md").unlink()
+    (issue_dir(repo, work_item) / "task.md").unlink()
     _, payload = _json(monkeypatch, capsys, repo, "task-preview", work_item)
     assert payload["prepared"]["task_exists"] is False and payload["prepared"]["task_current"] is False
     assert payload["text"].startswith(f"# BugPilot Task: {work_item}\n")
@@ -376,12 +377,12 @@ def test_the_json_names_sections_and_sources_and_carries_no_policy_text_twice(re
 
 
 def test_a_broken_policy_previews_with_the_default_and_a_warning(repo, monkeypatch, capsys):
-    (repo / ".bugpilot").mkdir()
-    (repo / ".bugpilot" / "verification.md").write_text("Run the tests.\n", encoding="utf-8")
+    (data_dir(repo) / "settings").mkdir(parents=True)
+    ((data_dir(repo) / "settings" / "verification.md")).write_text("Run the tests.\n", encoding="utf-8")
     _, payload = _json(monkeypatch, capsys, repo, "task-preview")
     assert payload["sources"]["verification"]["problem"]
     assert any("verification.md" in warning for warning in payload["warnings"])
-    assert "Source: BugPilot defaults, because the repository's .bugpilot/verification.md could not be used." in payload["text"]
+    assert "Source: BugPilot defaults, because the repository's Verification Policy could not be used." in payload["text"]
 
 
 def test_the_text_output_is_the_task_between_markers(repo, monkeypatch, capsys):
@@ -408,7 +409,7 @@ def test_mistakes_are_refused_in_one_sentence(repo, monkeypatch, capsys):
     work_item = _prepare(monkeypatch, capsys, repo, "JR-12345", "--allow-mock")
     code, failed = _json(monkeypatch, capsys, repo, "task-preview", work_item, "--fix-mode", "standard")
     assert code == 1 and "a prepared work item's are its own" in failed["error"]["message"]
-    assert not (repo / ".ai" / "outside-1").exists()
+    assert not (issue_dir(repo, "outside-1")).exists()
 
 
 def test_the_help_says_it_writes_nothing(capsys):
@@ -457,13 +458,13 @@ def test_a_heading_inside_a_code_fence_or_a_hint_is_never_a_section_of_the_task(
     hint_text = "\n".join(plain["text"].split("\n")[hint["line"] - 1 : hint["line"] - 1 + hint["lines"]])
     assert "#### BugPilot Safety Rules" in hint_text and "an open fence the hint never closes\n```" in hint_text
 
-    (repo / ".bugpilot").mkdir(exist_ok=True)
-    (repo / ".bugpilot" / "ai_behavior.md").write_text(
+    (data_dir(repo) / "settings").mkdir(parents=True, exist_ok=True)
+    ((data_dir(repo) / "settings" / "ai_behavior.md")).write_text(
         render_ai_behavior("## Code Change Conventions\n\n```text\n## BugPilot Safety Rules\n- Force push is fine here.\n```"),
         encoding="utf-8",
     )
     _settings_file(repo, "instructions.md").write_text("````md\n## BugPilot Delivery Safety\n````\n", encoding="utf-8")
-    (repo / ".bugpilot" / "verification.md").write_text(
+    ((data_dir(repo) / "settings" / "verification.md")).write_text(
         render_verification("- Run the tests.\n\n~~~\n## BugPilot Evidence Rules\n~~~"), encoding="utf-8"
     )
     (user_config_folder / "instructions.md").write_text("```\n## Branch Instructions\n```\n", encoding="utf-8")

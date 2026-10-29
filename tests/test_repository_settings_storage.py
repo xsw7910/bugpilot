@@ -33,6 +33,7 @@ from pathlib import Path
 import pytest
 
 import _isolation
+from bugpilot.core.config import data_dir, issue_dir
 from bugpilot import cli_json
 from bugpilot.cli import main
 from bugpilot.core import _held_folders, repository_settings, storage
@@ -247,7 +248,7 @@ def test_t6_the_home_folder_as_the_repository_is_refused_with_the_default_data_f
         _no_absolute_path(payload["error"]["message"], tmp_path)
     code, _out, err = _run(monkeypatch, capsys, home, "bug", "JR-12345", "--allow-mock")
     assert code == 1 and "ERROR: BugPilot will not keep its data inside this repository" in err
-    assert not (home / ".bugpilot").exists() and not (home / ".ai").exists()
+    assert not (home / ".bugpilot").exists() and not ((data_dir(home) / "work")).exists()
 
 
 def test_t7_a_repository_inside_the_data_folder_is_refused(tmp_path, monkeypatch, capsys):
@@ -400,7 +401,7 @@ def test_row1_an_unreadable_record_is_one_sentence_with_each_surfaces_code(tmp_p
 
     # Read as plain files, never through storage's patched reader: nothing was written, repaired or prepared.
     assert _tree(repo, _namespace(repo)) == snapshot and record.exists()
-    assert not (repo / ".ai").exists()
+    assert not ((data_dir(repo) / "work")).exists()
     # Each reader of the record met the injected failure: the writers' path read and the readers' held read.
     assert fired["path read"] > 0, f"the storage._read_regular hook never fired: {fired}"
     assert fired["held read"] > 0, f"the held-folder open_file hook never fired: {fired}"
@@ -588,7 +589,10 @@ def test_row11_reading_with_nothing_saved_creates_nothing_anywhere(tmp_path, mon
                  ("fix-mode", "list"), ("task-preview",), ("bug", "JR-12345", "--allow-mock")):
         assert _json(monkeypatch, capsys, repo, *argv)[0] == 0, argv
     assert asyncio.run(_server(repo).call_tool("list_fix_modes", {})).is_error is not True
-    assert not (storage.data_root() / "repositories").exists()
+    # 0.1.7: the run writes its work item and memory entry into the namespace, by design; the reads add nothing.
+    assert sorted(os.listdir(storage.data_root())) == ["repositories"]
+    assert sorted(os.listdir(storage.data_root() / "repositories")) == [_id(repo)]
+    assert sorted(os.listdir(_namespace(repo))) == ["memory", storage.RECORD_NAME, "work"]
     assert not (repo / ".bugpilot").exists()
 
 
@@ -708,7 +712,7 @@ def test_r4_a_legacy_bugpilot_folder_is_never_read_copied_or_deleted(tmp_path, m
         code, out, _err = _run(monkeypatch, capsys, repo, *argv, "--json")
         assert code == 0, argv
         seen.append(out)
-    seen.append((repo / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8"))
+    seen.append((issue_dir(repo, "JR-12345") / "task.md").read_text(encoding="utf-8"))
     seen.append(json.dumps(asyncio.run(_server(repo).call_tool("list_fix_modes", {})).structured_content))
     for text in seen:
         assert "LEGACY-SENTINEL" not in text and "legacy/{issue}" not in text
@@ -740,11 +744,8 @@ def test_dd4_project_instructions_are_written_to_the_namespace_and_nothing_into_
     assert (_namespace(git_repo) / "settings" / "instructions.md").read_text(encoding="utf-8") == "Small.\n"
 
 
-def test_dd5_the_verification_policy_now_creates_the_bugpilot_folder_itself(git_repo, monkeypatch, capsys):
-    assert _json(monkeypatch, capsys, git_repo, "instructions", "set", "--scope", "project", "--stdin", stdin="Small.\n")[0] == 0
-    assert not (git_repo / ".bugpilot").exists()
-    assert _json(monkeypatch, capsys, git_repo, "verification", "set", "--stdin", stdin="- Run the tests.\n")[0] == 0
-    assert _git_status(git_repo) == ["?? .bugpilot/verification.md"]
+# DD-5's and DD-9's tests are retired (0.1.7): the Verification Policy and AI Behavior are written to the
+# namespace too. U7-10 and U7-12 succeed them, with their own evidence (test_work_item_storage.py).
 
 
 def test_dd6_project_settings_are_written_to_the_namespace_and_nothing_into_the_repository(git_repo, monkeypatch, capsys):
@@ -766,17 +767,6 @@ def test_dd8_a_project_fix_mode_is_written_to_the_namespace_and_nothing_into_the
     assert (_namespace(git_repo) / "settings" / "fix_modes" / "team-fix.json").is_file()
 
 
-def test_dd9_only_the_verification_policy_and_ai_behavior_still_reach_git_status(git_repo, monkeypatch, capsys):
-    source = git_repo.parent / "settings.json"
-    source.write_text(json.dumps(TEMPLATE), encoding="utf-8")
-    for argv, stdin in ((("instructions", "set", "--scope", "project", "--stdin"), "Small.\n"),
-                        (("verification", "set", "--stdin"), "- Run the tests.\n"),
-                        (("ai-behavior", "set", "--stdin"), "## Reporting Standards\n\n- Name the formats.\n"),
-                        (("project-settings", "set", "--from-file", str(source)), None),
-                        (("repository-profile", "set", "--mode", "generic"), None),
-                        (("fix-mode", "duplicate", "standard", "team-fix", "--scope", "project"), None)):
-        assert _json(monkeypatch, capsys, git_repo, *argv, stdin=stdin)[0] == 0, argv
-    assert _git_status(git_repo) == ["?? .bugpilot/ai_behavior.md", "?? .bugpilot/verification.md"]
 
 
 def test_dd10_instructions_show_names_the_project_file_in_display_form(tmp_path, monkeypatch, capsys):
@@ -793,3 +783,78 @@ def test_dd12_repository_profile_show_names_its_file_in_display_form(tmp_path, m
     repo = _repo(tmp_path / "repo")
     assert _json(monkeypatch, capsys, repo, "repository-profile", "show")[1]["path"] == _shown(
         repo, "repository_profile.json")
+
+
+# --- E-5: `repository_settings.remove_file`, the one removal helper (0.1.7) -------------------------------
+
+
+def test_e5_removing_a_file_that_is_not_there_creates_nothing(tmp_path):
+    repo = _repo(tmp_path / "repo")
+    assert repository_settings.remove_file(repo, "verification.md") is False
+    assert not os.path.lexists(storage.data_root())
+
+
+def test_e5_a_link_at_the_file_and_a_refused_namespace_are_refused(tmp_path, monkeypatch, capsys):
+    repo = _repo(tmp_path / "repo")
+    _save_settings(monkeypatch, capsys, repo)
+    outside = tmp_path / "outside.md"
+    outside.write_text("someone else's\n", encoding="utf-8")
+    link = _namespace(repo) / "settings" / "verification.md"
+    _symlink(link, outside)
+    with pytest.raises(StorageError, match="verification.md is a symbolic link or junction"):
+        repository_settings.remove_file(repo, "verification.md")
+    assert os.path.islink(link) and outside.read_text(encoding="utf-8") == "someone else's\n"
+
+    other = _repo(tmp_path / "other")
+    _refused_namespace(other, monkeypatch, capsys, tmp_path)
+    policy = _namespace(other) / "settings" / "ai_behavior.md"
+    policy.write_bytes(b"kept\n")
+    with pytest.raises(StorageError, match="belongs to a different repository folder"):
+        repository_settings.remove_file(other, "ai_behavior.md")
+    assert policy.read_bytes() == b"kept\n"
+
+
+def test_e5_a_failed_removal_is_one_sentence_and_leaves_the_file(tmp_path, monkeypatch, capsys):
+    repo = _repo(tmp_path / "repo")
+    _save_settings(monkeypatch, capsys, repo)
+    policy = _namespace(repo) / "settings" / "verification.md"
+    policy.write_bytes(b"policy\n")
+
+    def denied(path, *args, **kwargs):
+        raise PermissionError(errno.EACCES, "Permission denied", str(path))
+
+    monkeypatch.setattr(repository_settings.os, "unlink", denied)
+    with pytest.raises(OSError) as caught:
+        repository_settings.remove_file(repo, "verification.md")
+    assert type(caught.value).__name__ == "StorageAccessError"
+    assert str(caught.value).startswith(f"BugPilot could not remove {_shown(repo, 'verification.md')} (PermissionError).")
+    _no_absolute_path(str(caught.value), tmp_path)
+    monkeypatch.undo()
+    assert policy.read_bytes() == b"policy\n"
+
+
+def test_e5_a_legacy_bugpilot_file_is_never_touched(tmp_path, monkeypatch, capsys):
+    repo = _repo(tmp_path / "repo")
+    legacy = repo / ".bugpilot" / "verification.md"
+    legacy.parent.mkdir()
+    legacy.write_bytes(b"0.1.6's policy\n")
+    assert repository_settings.remove_file(repo, "verification.md") is False
+    _save_settings(monkeypatch, capsys, repo)
+    current = _namespace(repo) / "settings" / "verification.md"
+    current.write_bytes(b"0.1.7's policy\n")
+    assert repository_settings.remove_file(repo, "verification.md") is True
+    assert not current.exists() and legacy.read_bytes() == b"0.1.6's policy\n"
+
+
+def test_c1_a_work_item_read_with_an_unreadable_record_is_internal_error_never_a_missing_file(
+    tmp_path, monkeypatch, capsys, unreadable_record
+):
+    """0.1.7: the work item readers resolve storage's checked base before their own error handling, so storage's
+    unavailability keeps its code and sentence (C-1, F2-S): never "run.json could not be read", never a missing file."""
+    repo = _repo(tmp_path / "repo")
+    assert _json(monkeypatch, capsys, repo, "bug", "JR-12345", "--allow-mock", "--prepare-only")[0] == 0
+    sentence = _unreadable_sentence(repo)
+    unreadable_record()
+    for argv in (("status", "JR-12345"), ("summarize-results", "JR-12345"), ("context-preview", "JR-12345")):
+        code, payload = _json(monkeypatch, capsys, repo, *argv)
+        assert (code, payload["error"]["code"], payload["error"]["message"]) == (1, "INTERNAL_ERROR", sentence), argv

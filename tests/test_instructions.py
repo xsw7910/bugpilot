@@ -24,6 +24,7 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core.config import issue_dir, prompt_path
 from bugpilot.cli import main
 from bugpilot.core import storage, workflow
 from bugpilot.core.input_adapters import bug_spec_from_description
@@ -170,9 +171,16 @@ def test_no_absolute_path_reaches_the_task(tmp_path, monkeypatch, capsys, user_c
     repo = repo_a_cpp_qt(tmp_path / "a")
     task, _ = _prepare(repo, monkeypatch, capsys)
 
+    # The one absolute path a task names is its own work folder (0.1.7, plan §9.8.1): stated in Execution Location
+    # and as the report's destination. Nothing else — the repository, the user's configuration, the home folder —
+    # reaches it.
+    work_item = re.search(r"^# BugPilot Task: (\S+)$", task, re.M).group(1)
+    folder = prompt_path(issue_dir(repo, work_item))
+    assert f"`{folder}/`" in task and f"`{folder}/fix_report.md`" in task
+    rest = task.replace(folder, "<work folder>")
     for absolute in (str(tmp_path), str(user_config_folder), str(Path.home())):
-        assert absolute not in task
-        assert absolute.replace("\\", "/") not in task
+        assert absolute not in rest
+        assert absolute.replace("\\", "/") not in rest
 
 
 # --- the task's layering and the precedence ------------------------------------------------------
@@ -212,7 +220,7 @@ def test_the_precedence_is_the_six_layers_safety_first():
         "AI Fix Mode",
         "Developer hint",
     )
-    section = _section(generate_task("JR-1", "Saving crashes"), "## BugPilot Rule Precedence")
+    section = _section(generate_task("JR-1", "Saving crashes", work_folder="/data/work"), "## BugPilot Rule Precedence")
     assert "1. BugPilot safety rules\n2. Repository context\n3. Project / team instructions\n4. User instructions\n5. AI Fix Mode\n6. Developer hint\n" in section
     assert "BugPilot safety rules have the highest precedence." in section
     assert "where two layers conflict, follow the earlier one" in section
@@ -477,7 +485,7 @@ def test_the_log_says_loaded_and_never_the_content(tmp_path, monkeypatch, capsys
     _user(user_config_folder, "SECRET-USER-GUIDANCE\n")
     repo = repo_a_cpp_qt(tmp_path / "a")
     _task, payload = _prepare(repo, monkeypatch, capsys)
-    item = repo / ".ai" / payload["work_item_id"]
+    item = issue_dir(repo, payload["work_item_id"])
 
     log = execution_trace.text
     assert "[INFO] user instructions: loaded (20 characters)" in log
@@ -509,7 +517,7 @@ def test_the_cli_and_the_core_entry_point_write_the_same_sections(tmp_path, monk
     core_repo = repo_a_cpp_qt(tmp_path / "core")
     spec = bug_spec_from_description("Saving a record crashes", repo_root=core_repo)
     workflow.run_investigation(core_repo, InvestigationRequest(spec=spec))
-    core_task = (core_repo / ".ai" / spec.work_item_id / "task.md").read_text(encoding="utf-8")
+    core_task = (issue_dir(core_repo, spec.work_item_id) / "task.md").read_text(encoding="utf-8")
 
     for heading in ("## User Instructions", "## Project / Team Instructions", "## BugPilot Rule Precedence"):
         assert _section(cli_task, heading) == _section(core_task, heading)
@@ -522,7 +530,7 @@ def test_the_mcp_prepare_tool_reads_the_same_files(tmp_path, user_config_folder)
     _user(user_config_folder, "Prefer small focused changes.\n")
     repo = repo_b_python(tmp_path / "b")
     result = mcp_server._run("prepare", repo, InvestigationRequest(spec=bug_spec_from_description("crash", repo_root=repo)))
-    task = (repo / ".ai" / result.issue_key / "task.md").read_text(encoding="utf-8")
+    task = (issue_dir(repo, result.issue_key) / "task.md").read_text(encoding="utf-8")
 
     assert "Prefer small focused changes." in _section(task, "## User Instructions")
     assert PYTEST_ADVICE in _section(task, "## Project / Team Instructions")
@@ -530,5 +538,5 @@ def test_the_mcp_prepare_tool_reads_the_same_files(tmp_path, user_config_folder)
 
 def test_no_qt_advice_is_built_in():
     """The removed C++/Qt advice stays removed: it is project configuration now."""
-    task = generate_task("JR-1", "Saving crashes")
+    task = generate_task("JR-1", "Saving crashes", work_folder="/data/work")
     assert not re.search(r"\bQt\b|QObject|UI thread|legacy C\+\+", task, re.IGNORECASE)

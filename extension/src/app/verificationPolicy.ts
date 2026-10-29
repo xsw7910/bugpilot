@@ -2,9 +2,9 @@
  * The repository's Verification Policy, as the panel holds it (0.1.3, §42.2,
  * §42.5).
  *
- * Since 0.1.3 the policy can be text, `.bugpilot/verification.md`, which
+ * Since 0.1.3 the policy can be text, `settings/verification.md`, which
  * replaces BugPilot's default whole and wins over the Verification switches in
- * `.bugpilot/project_settings.json` (which older versions still read and write).
+ * `settings/project_settings.json` (which older versions still read and write).
  * The CLI owns every part of that — the file, its front matter, which source is
  * effective, the policy's text and the lint — and this module only reads what
  * `bugpilot verification show --json` says, and asks the CLI to write: `set
@@ -16,7 +16,7 @@
  * editor tab, pulled with git or switched with a branch makes a prepared context
  * "Needs rebuild" the next time the host reads it — at an environment check, a
  * Run, Fix with AI, Start New Attempt, the window coming back to focus, or a
- * `.bugpilot/` file changing.
+ * file in the repository's settings folder changing.
  *
  * A CLI too old to read the file would ignore it silently, so the host asks the
  * CLI first: `doctor --json` lists `verification-text` among its capabilities.
@@ -34,11 +34,11 @@ import type { ProcessExit } from "./cliCompatibility.ts";
 import { rejectedByOutdatedCli } from "./cliCompatibility.ts";
 import { MAX_INSTRUCTION_CHARS } from "./instructions.ts";
 
-/** The `doctor --json` capability a CLI reports when it reads `.bugpilot/verification.md`. */
+/** The `doctor --json` capability a CLI reports when it reads `settings/verification.md`. */
 export const VERIFICATION_TEXT_CAPABILITY = "verification-text";
 
 /** The file, as a person names it. */
-export const VERIFICATION_FILE = ".bugpilot/verification.md";
+export const VERIFICATION_FILE = "settings/verification.md";
 
 export const VERIFICATION_SOURCES = ["bugpilot-default", "legacy-project-settings", "verification-file"] as const;
 export type VerificationSource = (typeof VERIFICATION_SOURCES)[number];
@@ -66,7 +66,7 @@ export interface VerificationSnapshot {
   readonly lint: readonly string[];
   /** The effective policy's text: what a task carries, and what Edit seeds a new file with. Never logged. */
   readonly text: string;
-  /** Whether `.bugpilot/verification.md` is there, usable or not. */
+  /** Whether `settings/verification.md` is there, usable or not. */
   readonly fileExists: boolean;
   /** The default's version the file was written from, while the file is the policy. */
   readonly basedOnVersion?: number;
@@ -98,7 +98,7 @@ export function verificationArgs(command: VerificationCommand = { kind: "show" }
   }
 }
 
-/** Whether the CLI behind a `doctor --json` report reads `.bugpilot/verification.md`. */
+/** Whether the CLI behind a `doctor --json` report reads `settings/verification.md`. */
 export function readsVerificationText(report: Readonly<Record<string, unknown>> | undefined): boolean {
   const capabilities = report?.["capabilities"];
   return Array.isArray(capabilities) && capabilities.includes(VERIFICATION_TEXT_CAPABILITY);

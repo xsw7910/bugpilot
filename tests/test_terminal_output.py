@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core.config import issue_dir
 from bugpilot.cli import main
 from bugpilot.core.terminal import terminal_safe
 
@@ -78,7 +79,7 @@ def repo(tmp_path) -> Path:
 
 def test_context_preview_text_mode_escapes_the_issues_words_and_keeps_the_file(repo, monkeypatch, capsys):
     work_item = _prepare(monkeypatch, capsys, repo, "--description", HOSTILE, "--hint", "Look at \x1b[2Jsave")
-    stored = (repo / ".ai" / work_item / "context.md").read_bytes()
+    stored = (issue_dir(repo, work_item) / "context.md").read_bytes()
     # The authoritative context keeps the issue's own characters: since 0.1.5 its evidence writes each control
     # character as a visible escape, never dropping it (D2). The hint in Guidance is the developer's, on one line
     # as typed (unchanged), so a raw control character still reaches the file — and the terminal filter below.
@@ -90,7 +91,7 @@ def test_context_preview_text_mode_escapes_the_issues_words_and_keeps_the_file(r
     assert _raw_controls(out) == []
     assert "<U+001B>[31mRED<U+001B>[0m" in out and "<U+202E>gnp.exe" in out and "Look at \\x1b[2Jsave" in out
     # Presentation only: the file is untouched, and JSON still carries the text exactly.
-    assert (repo / ".ai" / work_item / "context.md").read_bytes() == stored
+    assert (issue_dir(repo, work_item) / "context.md").read_bytes() == stored
     assert main(["context-preview", work_item, "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["text"] == stored.decode("utf-8").replace("\r\n", "\n")

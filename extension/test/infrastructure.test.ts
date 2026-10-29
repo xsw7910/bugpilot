@@ -74,7 +74,7 @@ const doctorEnvelope = `${JSON.stringify({
   ok: true,
   command: "doctor",
   warnings: [],
-  report: { version: "0.1.0", python_ok: true, rg_available: true },
+  report: { version: "0.1.0", python_ok: true, rg_available: true, capabilities: ["unified-storage"] },
 })}\n`;
 
 test("a working bugpilot is reported ready with its doctor report", async () => {
@@ -152,6 +152,19 @@ test("a doctor failure means unhealthy, not incompatible", async () => {
   // Advice comes from the shared code table, not a second explanation.
   // The table points at Jira Setup, which also takes the site.
   assert.match(describeVerdict(verdict).action, /Open Jira Setup/);
+});
+
+test("a data folder doctor refuses is said in the CLI's words, not as rejected arguments (0.1.7)", async () => {
+  // `doctor` takes no arguments: its INVALID_INPUT refuses the environment — here BugPilot's data folder inside a
+  // Git working tree — and the CLI's sentence is the one that says what to change.
+  const message = "BugPilot will not keep its data inside a Git working tree: its data folder (BUGPILOT_HOME) is inside a folder that holds a .git entry, so BugPilot's files could be committed with it. Set BUGPILOT_HOME to a folder outside every Git working tree. Nothing was read or written.";
+  const failure = `${JSON.stringify({ schema_version: 1, ok: false, command: "doctor", error: { code: "INVALID_INPUT", message } })}
+`;
+  const { spawn } = spawnWith({ kind: "envelope", stdout: failure, code: 1 });
+  const verdict = await discover({ cwd: "/repo", spawn });
+
+  assert.equal(verdict.kind, "unhealthy");
+  assert.equal(describeVerdict(verdict).summary, `bugpilot runs, but its environment check failed: ${message}`);
 });
 
 test("a non-executable binary is not reported as absent", async () => {
@@ -463,6 +476,23 @@ test("the CLI's own version is captured and shown with the path", async () => {
   assert.match(describeVerdict(verdict).summary, /bugpilot 0\.1\.0/);
 });
 
+test("a CLI that keeps work items in the repository is too old for this extension (0.1.7)", async () => {
+  // Its doctor report lacks `unified-storage`: it writes .ai/ into the repository, where this extension no
+  // longer looks, so it is incompatible — and says why — however well it answers otherwise.
+  const before = `${JSON.stringify({
+    schema_version: 1,
+    ok: true,
+    command: "doctor",
+    warnings: [],
+    report: { version: "0.1.6", python_ok: true, capabilities: ["verification-text", "ai-behavior-text"] },
+  })}\n`;
+  const { spawn } = spawnWith({ kind: "envelope", stdout: before, code: 0 });
+  const verdict = await discover({ cwd: "/repo", spawn });
+
+  assert.equal(verdict.kind, "incompatible");
+  assert.match(describeVerdict(verdict).action, /\.ai\/ folder, and this extension reads them from BugPilot's data folder/);
+});
+
 test("a compatible CLI that reports no version is still ready", async () => {
   // The field is newer than the contract, so its absence must not downgrade a
   // working bugpilot.
@@ -471,7 +501,7 @@ test("a compatible CLI that reports no version is still ready", async () => {
     ok: true,
     command: "doctor",
     warnings: [],
-    report: { python_ok: true },
+    report: { python_ok: true, capabilities: ["unified-storage"] },
   })}\n`;
   const { spawn } = spawnWith({ kind: "envelope", stdout: withoutVersion, code: 0 });
   const verdict = await discover({ cwd: "/repo", spawn });

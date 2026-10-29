@@ -40,7 +40,7 @@ from .artifacts import (
     RUN_ARTIFACT,
     TASK_ARTIFACT,
 )
-from .config import issue_dir
+from .config import issue_dir, readable_data_dir
 from .context import CONTEXT_FORMAT, ContextQuality, read_context_quality
 from .fix_modes import FixModeError
 from .identity import validate_work_item_id
@@ -164,12 +164,15 @@ def preview_context(repo_root: Path, work_item_id: str | None) -> ContextPreview
     except ValueError as exc:
         raise ContextPreviewError(str(exc)) from exc
 
+    # Storage's checks of the data folder down to the namespace come first (0.1.7): a refused one fails here,
+    # never turned into a problem line while the files beside it are still read.
+    readable_data_dir(repo_root)
     folder = issue_dir(repo_root, work_item_id)
-    if is_link_or_junction(repo_root / ".ai") or is_link_or_junction(folder):
+    if is_link_or_junction(folder.parent) or is_link_or_junction(folder):
         return ContextPreview(
             state=STATE_UNREADABLE,
             work_item=work_item_id,
-            problems=(f".ai/{work_item_id} is behind a link or junction, so nothing in it was read.",),
+            problems=(f"work/{work_item_id} is behind a link or junction, so nothing in it was read.",),
         )
     if not folder.is_dir():
         return ContextPreview(state=STATE_NOT_GENERATED, work_item=work_item_id)
@@ -200,7 +203,7 @@ def preview_context(repo_root: Path, work_item_id: str | None) -> ContextPreview
 
     quality = read_context_quality(text)
     if quality is None:
-        warnings.append(f"The Context Quality section of .ai/{work_item_id}/{CONTEXT_ARTIFACT} could not be read.")
+        warnings.append(f"The Context Quality section of work/{work_item_id}/{CONTEXT_ARTIFACT} could not be read.")
     # Only from a run record that says: without one there is nothing to go on, and nothing is guessed.
     if run is not None and (run.context_format or 0) < CONTEXT_FORMAT:
         warnings.append(EARLIER_FORMAT_WARNING)

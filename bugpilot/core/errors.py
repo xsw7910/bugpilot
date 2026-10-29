@@ -52,6 +52,11 @@ ARTIFACT_EXISTS = "ARTIFACT_EXISTS"
 
 EMAIL_SEND_FAILED = "EMAIL_SEND_FAILED"
 INTERNAL_ERROR = "INTERNAL_ERROR"
+# 0.1.7: the BugPilot extension that started this CLI is older than 0.1.7 and
+# looks for work items in the repository, where this CLI no longer keeps them
+# (`extension_compat`). Unknown to those extensions on purpose: they show the
+# message as it is.
+EXTENSION_OUTDATED = "EXTENSION_OUTDATED"
 
 # jira.ERROR_MESSAGES keys -> codes. That vocabulary already exists and is
 # stable, so the mapping is a rename rather than a second classification.

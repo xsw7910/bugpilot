@@ -19,8 +19,9 @@ already assembled around them.
    For a bug with no issue key, run `bugpilot bug --description="..." --prepare-only`
    instead. Both flags are the defaults; pass them anyway, so the command stays
    safe with an older bugpilot, which launched a second agent itself and first
-   deleted `.ai/<ISSUE>/` unless told otherwise.
-2. Read `.ai/<ISSUE>/task.md` and `.ai/<ISSUE>/context.md`. They contain the
+   deleted the work item's files unless told otherwise.
+2. Read `task.md` and `context.md` in the work folder that command prints:
+   BugPilot keeps it in its own data folder, outside the repository. They contain the
    issue details, the ranked candidate files and the relevant git history —
    read them instead of searching the repository from scratch.
 3. Complete the workflow `task.md` describes for the selected AI Fix
@@ -36,9 +37,9 @@ of you.
 ## If the fix did not work
 
 Do not start over. Run `bugpilot bug <ISSUE> --retry --prepare-only`, which creates
-`.ai/<ISSUE>/user_feedback.md` and stops. The developer describes what went
+`user_feedback.md` in the work folder and stops. The developer describes what went
 wrong there; running the same command again then builds
-`.ai/<ISSUE>/agent_retry_prompt.md`, carrying that correction plus a summary of
+`agent_retry_prompt.md` beside it, carrying that correction plus a summary of
 the previous attempt.
 
 The feedback is the developer's, not yours. Ask for it rather than filling in

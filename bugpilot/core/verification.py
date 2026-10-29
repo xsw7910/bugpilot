@@ -1,4 +1,4 @@
-"""The repository's Verification Policy as text: ``<repo>/.bugpilot/verification.md``.
+"""The repository's Verification Policy as text: its ``verification.md`` setting.
 
 What a pass that changes source code is expected to verify, written in the
 words the task carries — not four switches. The file replaces BugPilot's
@@ -24,10 +24,10 @@ default applies, and the run and ``bugpilot verification show`` say why.
 
 Where the effective policy comes from, in order (``verification_source``):
 
-1. ``verification-file`` — ``.bugpilot/verification.md`` exists. It wins, even
+1. ``verification-file`` — the ``verification.md`` setting exists. It wins, even
    over saved switches; a file that cannot be used still wins, and the default
    applies until it is fixed.
-2. ``legacy-project-settings`` — no file, and ``.bugpilot/project_settings.json``
+2. ``legacy-project-settings`` — no file, and the ``project_settings.json`` setting
    is saved: its four switches (BugPilot 0.1.2 and earlier), rendered as text.
 3. ``bugpilot-default`` — neither: BugPilot's default text.
 
@@ -36,7 +36,7 @@ BugPilot versions, but once the file exists they no longer decide anything for
 this one — a teammate on 0.1.2 can change them, and 0.1.3 does not follow.
 
 The file is a repository's own text, so it is untrusted input to the task. It
-is read by the instructions' rules (`instructions.read_text_document`: no links,
+is read by the instructions' rules (`instructions.read_settings_document`: no links,
 UTF-8, 20,000 characters, normalized, never logged), its headings are kept
 below the task's own, and `lint_policy` points out lines that look like they
 contradict a BugPilot rule. The lint never blocks and is not a defense: the
@@ -48,22 +48,20 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from .artifact_io import atomic_write_text
+from . import repository_settings
 from .instructions import (
     MAX_INSTRUCTION_CHARS,
-    PROJECT_CONFIG_DIR,
     TextDocument,
     contained_markdown,
     link_problem,
     normalize_instructions,
-    read_text_document,
+    read_settings_document,
 )
 
 VERIFICATION_FILE_NAME = "verification.md"
-SHOWN_PATH = f"{PROJECT_CONFIG_DIR}/{VERIFICATION_FILE_NAME}"
 SCHEMA_VERSION = 1
 #: The version of BugPilot's default policy text (`DEFAULT_TEXT`). Raised
 #: whenever that text changes, so a file written from an older one can be told.
@@ -129,7 +127,7 @@ DEFAULT_TEXT = text_for_switches(True, True, False, True)
 
 @dataclass(frozen=True)
 class VerificationFile:
-    """``.bugpilot/verification.md`` as read: its policy text and front matter, or why it cannot be used."""
+    """``settings/verification.md`` as read: its policy text and front matter, or why it cannot be used."""
 
     exists: bool = False
     #: The policy itself — the body after the front matter — normalized.
@@ -140,14 +138,23 @@ class VerificationFile:
     mode: str | None = None
     #: The file's line number of the body's first line, so a warning can point at it.
     first_line: int = 1
+    #: Where the file is, as messages name it (display form, E-2): ``~/.bugpilot/.../settings/verification.md``.
+    #: Never compared, never hashed, never in the task (E-1).
+    shown: str = field(default="", compare=False)
 
     @property
     def characters(self) -> int:
         return len(self.text)
 
 
+def shown_path(repo_root: Path) -> str:
+    """``settings/verification.md`` as messages name it: ``~/.bugpilot/repositories/<id>/settings/...`` (E-2)."""
+    return repository_settings.shown_path(repo_root, VERIFICATION_FILE_NAME)
+
+
 def verification_path(repo_root: Path) -> Path:
-    return repo_root / PROJECT_CONFIG_DIR / VERIFICATION_FILE_NAME
+    """``settings/verification.md`` in the repository's namespace, from storage's checked accessor; creates nothing."""
+    return repository_settings.settings_file(repo_root, VERIFICATION_FILE_NAME, create=False)
 
 
 def parse_document(
@@ -208,15 +215,15 @@ def parse_document(
 
 def read_verification_file(repo_root: Path) -> VerificationFile:
     """The repository's file, as a task would use it. Never raises for the file's own state."""
-    path = verification_path(repo_root)
-    document: TextDocument = read_text_document(path, link_problem(path, SHOWN_PATH, _LINK_RULE))
+    document: TextDocument = read_settings_document(repo_root, VERIFICATION_FILE_NAME)
+    shown = shown_path(repo_root)
     if not document.exists:
-        return VerificationFile()
+        return VerificationFile(shown=shown)
     if document.problem:
-        return VerificationFile(exists=True, problem=document.problem)
+        return VerificationFile(exists=True, problem=document.problem, shown=shown)
     meta, body, problem = parse_document(document.text)
     if problem:
-        return VerificationFile(exists=True, problem=problem)
+        return VerificationFile(exists=True, problem=problem, shown=shown)
     # The body is the end of the normalized document, so what precedes it is
     # the front matter and the blank lines after it.
     first_line = document.text[: len(document.text) - len(body)].count("\n") + 1
@@ -227,6 +234,7 @@ def read_verification_file(repo_root: Path) -> VerificationFile:
         based_on_version=int(meta["based_on_version"]),  # type: ignore[arg-type]
         mode=str(meta["mode"]),
         first_line=first_line,
+        shown=shown,
     )
 
 
@@ -239,7 +247,7 @@ def render_document(body: str, based_on_version: int = DEFAULT_POLICY_VERSION) -
 
 
 def save_verification(repo_root: Path, text: str) -> VerificationFile:
-    """Write ``.bugpilot/verification.md`` from a policy body, or from a whole document with its front matter.
+    """Write ``settings/verification.md`` from a policy body, or from a whole document with its front matter.
 
     A body gets front matter naming the current default's version. A whole
     document keeps its own, which must parse. Refuses through a link, over the
@@ -266,30 +274,30 @@ def save_verification(repo_root: Path, text: str) -> VerificationFile:
             f"more than the {MAX_INSTRUCTION_CHARS:,} BugPilot includes."
         )
     path = verification_path(repo_root)
-    _refuse_link(path, "saved")
+    shown = shown_path(repo_root)
+    _refuse_link(path, "saved", shown)
     if path.exists() and not path.is_file():
-        raise VerificationError(f"The Verification Policy was not saved: {SHOWN_PATH} is not a regular file.")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # Checked again now that the folder exists: it may have been created as a link meanwhile.
-    _refuse_link(path, "saved")
-    atomic_write_text(path, document)
+        raise VerificationError(f"The Verification Policy was not saved: {shown} is not a regular file.")
+    # Storage makes the namespace ready (``0700``, its record) and refuses a link there; the write is atomic.
+    repository_settings.write_text(repo_root, VERIFICATION_FILE_NAME, document)
     return read_verification_file(repo_root)
 
 
 def remove_verification(repo_root: Path) -> bool:
     """Remove the repository's override, so the switches or BugPilot's default apply. True when a file was removed."""
     path = verification_path(repo_root)
-    _refuse_link(path, "removed")
+    shown = shown_path(repo_root)
+    _refuse_link(path, "removed", shown)
     if not path.exists():
         return False
     if not path.is_file():
-        raise VerificationError(f"The Verification Policy was not removed: {SHOWN_PATH} is not a regular file.")
-    path.unlink()
-    return True
+        raise VerificationError(f"The Verification Policy was not removed: {shown} is not a regular file.")
+    # Storage locates it again and removes it; an OSError is one sentence (E-5).
+    return repository_settings.remove_file(repo_root, VERIFICATION_FILE_NAME)
 
 
-def _refuse_link(path: Path, verb: str) -> None:
-    problem = link_problem(path, SHOWN_PATH, _LINK_RULE)
+def _refuse_link(path: Path, verb: str, shown: str) -> None:
+    problem = link_problem(path, shown, _LINK_RULE)
     if problem:
         raise VerificationError(f"The Verification Policy was not {verb}: {problem}.")
 
@@ -346,7 +354,7 @@ _LINT_RULES: tuple[tuple[str, re.Pattern[str], bool], ...] = (
 )
 
 
-def lint_policy(text: str, first_line: int = 1, shown_path: str = SHOWN_PATH) -> tuple[str, ...]:
+def lint_policy(text: str, first_line: int = 1, shown_path: str = f"settings/{VERIFICATION_FILE_NAME}") -> tuple[str, ...]:
     """Lines that look like they contradict a BugPilot rule. Warnings only — the text is kept as written.
 
     Deliberately narrow: a policy that says "never force push" is the rule, not
@@ -418,16 +426,16 @@ class ResolvedVerification:
     def warnings(self) -> tuple[str, ...]:
         found = []
         if self.problem:
-            found.append(f"The Verification Policy ({SHOWN_PATH}) was not used: {self.problem} BugPilot's default applies.")
+            found.append(f"The Verification Policy ({self.file.shown}) was not used: {self.problem} BugPilot's default applies.")
         return (*found, *self.lint)
 
     @property
     def log_line(self) -> str:
         """For ``bugpilot.log``: the source and a length, never the text."""
         if self.problem:
-            return f"[WARN] verification policy: {SHOWN_PATH} not used ({self.problem}); the default applies"
+            return f"[WARN] verification policy: {self.file.shown} not used ({self.problem}); the default applies"
         if self.source == SOURCE_FILE:
-            return f"[INFO] verification policy: {SHOWN_PATH} ({self.file.characters} characters)"
+            return f"[INFO] verification policy: {self.file.shown} ({self.file.characters} characters)"
         return f"[INFO] verification policy: {self.source}"
 
 
@@ -446,10 +454,12 @@ def resolve_verification(repo_root: Path, switches: ResolvedVerification) -> Res
     """The effective policy: the repository's file when there is one, else what the switches gave."""
     file = read_verification_file(repo_root)
     if not file.exists:
-        return switches
+        return replace(switches, file=file)  # where the file would be, for show --json's path (E-9)
     if file.problem:
         return ResolvedVerification(source=SOURCE_FILE, text=DEFAULT_TEXT, file=file)
-    return ResolvedVerification(source=SOURCE_FILE, text=file.text, file=file, lint=lint_policy(file.text, file.first_line))
+    return ResolvedVerification(
+        source=SOURCE_FILE, text=file.text, file=file, lint=lint_policy(file.text, file.first_line, file.shown)
+    )
 
 
 # --- task.md --------------------------------------------------------------------------------
@@ -457,7 +467,7 @@ def resolve_verification(repo_root: Path, switches: ResolvedVerification) -> Res
 _SOURCE_LINES = {
     SOURCE_DEFAULT: "BugPilot defaults (no project settings saved)",
     SOURCE_LEGACY: "repository configuration (project settings)",
-    SOURCE_FILE: f"repository Verification Policy ({SHOWN_PATH})",
+    SOURCE_FILE: "repository Verification Policy",
 }
 
 
@@ -469,9 +479,9 @@ def verification_section(resolved: ResolvedVerification) -> str:
     never allowed — the policy decides what to verify, not whether to be honest.
     """
     if resolved.problem:
-        source = f"BugPilot defaults, because the repository's {SHOWN_PATH} could not be used"
+        source = "BugPilot defaults, because the repository's Verification Policy could not be used"
         notice = (
-            f"The repository's Verification Policy ({SHOWN_PATH}) was not included: {resolved.problem} "
+            f"The repository's Verification Policy was not included: {resolved.problem} "
             "Until it is fixed, BugPilot's default applies.\n\n"
         )
     else:
@@ -497,7 +507,7 @@ def verification_payload(resolved: ResolvedVerification) -> dict[str, object]:
     file = resolved.file
     return {
         "source": resolved.source,
-        "path": SHOWN_PATH,
+        "path": file.shown,
         "text": resolved.text,
         "sha256": resolved.sha256,
         "file": {

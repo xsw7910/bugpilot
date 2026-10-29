@@ -129,7 +129,7 @@ test("a program the policy cannot find is ENOENT, and an untrusted value is its 
 });
 
 test("discovery resolves once and reports the absolute path it will run, or why it will not", async () => {
-  const doctor = `${JSON.stringify({ schema_version: 1, ok: true, command: "doctor", warnings: [], report: { version: "0.1.0" } })}\n`;
+  const doctor = `${JSON.stringify({ schema_version: 1, ok: true, command: "doctor", warnings: [], report: { version: "0.1.0", capabilities: ["unified-storage"] } })}\n`;
   const spawned: string[] = [];
   const spawn = ((command: string) => {
     spawned.push(command);

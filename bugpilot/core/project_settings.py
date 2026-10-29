@@ -31,7 +31,7 @@ how this attempt investigates, implements and verifies; the policy is the
 project's floor, rendered as four short lines in ``task.md``. It names no
 commands — the repository's own, or its Project / Team Instructions, do.
 
-Since 0.1.3 the policy is text: ``.bugpilot/verification.md`` (`verification.py`)
+Since 0.1.3 the policy is text: ``settings/verification.md`` (`verification.py`)
 replaces it whole when it exists, and the switches here are its legacy source —
 used when there is no file, kept readable and writable for BugPilot 0.1.2 and
 earlier, and deciding nothing once the file is there (``verification_source``).
@@ -298,8 +298,8 @@ def warnings_mean_defaults(warnings: list[str]) -> bool:
 #: Said with a `project-settings set` once ``verification.md`` exists: the
 #: switches are still saved, for BugPilot 0.1.2 and earlier, but decide nothing here.
 VERIFICATION_FILE_WINS = (
-    "The Verification switches were saved for BugPilot 0.1.2 and earlier, but .bugpilot/verification.md "
-    "is this repository's effective Verification Policy: the switches do not change it."
+    "The Verification switches were saved for BugPilot 0.1.2 and earlier, but this repository's Verification "
+    "Policy file is its effective Verification Policy: the switches do not change it."
 )
 
 

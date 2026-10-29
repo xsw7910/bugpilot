@@ -1,8 +1,8 @@
 /**
  * User Instructions and Project / Team Instructions, as the panel holds them.
  *
- * Two optional Markdown files: `~/.bugpilot/instructions.md` (the developer's,
- * for every repository) and `<repo>/.bugpilot/instructions.md` (the
+ * Two optional Markdown files: `~/.bugpilot/config/instructions.md` (the developer's,
+ * for every repository) and the repository's `instructions.md` setting (the
  * repository's, meant to be committed). `task.md` carries each as a section
  * below BugPilot's safety rules; every run — CLI, MCP or this panel — reads the
  * same two files. The panel never sends them on a run's command line.

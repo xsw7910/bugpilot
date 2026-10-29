@@ -15,14 +15,15 @@
  *    that (`resetSessionForm`);
  *  - the dialog's wording, one copy, which the markup renders and tests read;
  *  - deleting the current work item's generated files, when asked to
- *    (`deleteWorkItemArtifacts`): only `.ai/<work item>/`, only when it is a
- *    real directory inside the repository's own `.ai/`, and through the CLI's
+ *    (`deleteWorkItemArtifacts`): only `work/<work item>/`, only when it is a
+ *    real directory inside the repository's own work folder in BugPilot's data folder, and through the CLI's
  *    `clean` — the one delete BugPilot already has for that folder.
  */
 
-import { lstat, mkdir, realpath, writeFile } from "node:fs/promises";
+import { lstat, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { WORK_FOLDER } from "./dataFolder.ts";
 import { DEFAULT_FORM, isWorkItemId } from "./form.ts";
 import type { FormState } from "./form.ts";
 
@@ -42,7 +43,7 @@ export interface ResetSessionOptions {
  * command, and of branch policy — how they work with branches — which say
  * nothing about this issue and are kept. So is the Repository Profile, which
  * is not even the developer's alone: it is a copy of the repository's own
- * `.bugpilot/repository_profile.json`, and a session reset leaves that file,
+ * `settings/repository_profile.json`, and a session reset leaves that file,
  * and so the copy, as they are.
  *
  * A `Record` over `keyof FormState`, so a field added to the form without being
@@ -125,7 +126,7 @@ export const KEEP_FILES_HELPER = "History will be kept.";
 export const DELETE_FILES_HELPER =
   "The current generated context and artifacts will be permanently deleted. Repository source files will not be deleted.";
 /**
- * History lists the work item folders under `.ai/`, so deleting this one's
+ * History lists the work item folders under the work folder, so deleting this one's
  * removes its row. Said, rather than discovered afterwards.
  */
 export const DELETE_FILES_HISTORY = "This work item will no longer appear in History; other History entries are kept.";
@@ -151,7 +152,7 @@ export type DeletionRefusal = "invalid-id" | "link" | "not-a-directory" | "outsi
 
 export type ArtifactDeletion =
   | { readonly kind: "deleted" }
-  /** There was no `.ai/<work item>/` to delete. */
+  /** There was no `work/<work item>/` to delete. */
   | { readonly kind: "missing" }
   /** Not deleted: the folder is not one BugPilot can prove is its own. Nothing was touched. */
   | { readonly kind: "refused"; readonly reason: DeletionRefusal }
@@ -169,8 +170,8 @@ export interface DeletionFileSystem {
 
 const NODE_FS: DeletionFileSystem = { lstat, realpath };
 
-/** The artifacts folder, as `#itemFile` and the CLI name it. */
-const ARTIFACT_ROOT = ".ai";
+/** The work items' folder, below the repository's folder in BugPilot's data folder, as `#itemFile` and the CLI name it. */
+const ARTIFACT_ROOT = WORK_FOLDER;
 
 type DirectoryCheck =
   | { readonly kind: "ok"; readonly directory: string }
@@ -179,22 +180,23 @@ type DirectoryCheck =
   | { readonly kind: "failed"; readonly reason: string };
 
 /**
- * Whether `<root>/.ai/<work item>/` is a folder BugPilot may delete: the id is
+ * Whether `<base>/work/<work item>/` is a folder BugPilot may delete: the id is
  * one BugPilot could have created (`isWorkItemId`, shared with the CLI), and
- * both `.ai` and the work item folder are real directories — not a symbolic
- * link, not a junction — whose resolved path is the repository's own
- * `.ai/<work item>`. The attachment collector's rule (§37.100), applied to the
+ * both `work` and the work item folder are real directories — not a symbolic
+ * link, not a junction — whose resolved path is `base`'s own
+ * `work/<work item>`. `base` is the repository's folder in BugPilot's data
+ * folder (`doctor`'s `storage.repository_dir`, 0.1.7). The attachment collector's rule (§37.100), applied to the
  * artifacts folder: a link anywhere on the way could take a delete somewhere
  * else, so it is refused rather than followed.
  */
 export async function checkArtifactDirectory(
-  root: string,
+  base: string,
   workItemId: string,
   fs: DeletionFileSystem = NODE_FS,
   caseInsensitive = process.platform === "win32",
 ): Promise<DirectoryCheck> {
   if (!isWorkItemId(workItemId)) return { kind: "refused", reason: "invalid-id" };
-  const artifacts = path.join(root, ARTIFACT_ROOT);
+  const artifacts = path.join(base, ARTIFACT_ROOT);
   const directory = path.join(artifacts, workItemId);
   for (const entry of [artifacts, directory]) {
     let stat;
@@ -213,7 +215,7 @@ export async function checkArtifactDirectory(
   let resolved: string;
   let resolvedRoot: string;
   try {
-    [resolved, resolvedRoot] = await Promise.all([fs.realpath(directory), fs.realpath(root)]);
+    [resolved, resolvedRoot] = await Promise.all([fs.realpath(directory), fs.realpath(base)]);
   } catch (error) {
     return { kind: "failed", reason: errorCode(error) };
   }
@@ -229,20 +231,21 @@ export async function checkArtifactDirectory(
  * look again.
  *
  * `clean` is `bugpilot clean <work item>` — the Clean command's delete, which
- * removes `.ai/<work item>/` and nothing else (its memory entry is kept), and
+ * removes `work/<work item>/` and nothing else (its memory entry is kept), and
  * does not follow a link inside it. It runs only after the check passed. The
  * folder is looked at afterwards: success is the folder being gone, never an
  * exit code alone, and a delete that stopped half-way says so.
  */
 export async function deleteWorkItemArtifacts(options: {
-  readonly root: string;
+  /** The repository's folder in BugPilot's data folder, which `work/<work item>/` is below. */
+  readonly base: string;
   readonly workItemId: string;
   readonly clean: () => Promise<{ readonly code: number | null; readonly aborted?: boolean }>;
   readonly fs?: DeletionFileSystem;
   readonly caseInsensitive?: boolean;
 }): Promise<ArtifactDeletion> {
   const fs = options.fs ?? NODE_FS;
-  const check = await checkArtifactDirectory(options.root, options.workItemId, fs, options.caseInsensitive);
+  const check = await checkArtifactDirectory(options.base, options.workItemId, fs, options.caseInsensitive);
   if (check.kind !== "ok") return check;
 
   let exit: string | undefined;
@@ -265,20 +268,22 @@ export async function deleteWorkItemArtifacts(options: {
 }
 
 /**
- * Write one file into `.ai/<work item>/` under the rule the delete above uses:
- * `.ai` and the work item folder are real
- * directories whose resolved path is the repository's own, and the file itself
+ * Write one file into `work/<work item>/` under the rule the delete above uses:
+ * `work` and the work item folder are real
+ * directories whose resolved path is `base`'s own, and the file itself
  * is not a link — a link anywhere on the way could take the write somewhere
- * else, so it is refused and nothing is written. A missing folder is created,
- * and checked again once it is there. The CLI's writers follow the same rule
+ * else, so it is refused and nothing is written. The folder must be there: the
+ * CLI creates a work item's folder, private and recorded, when it prepares it,
+ * and this never creates one (0.1.7). The CLI's writers follow the same rule
  * (`bugpilot/core/safe_paths.py`); this is the extension's one writer into the
  * folder, `user_feedback.md`.
  *
- * Throws an Error whose message names only `.ai/<work item>/`, never an
+ * Throws an Error whose message names only `work/<work item>/`, never an
  * absolute path.
  */
 export async function writeWorkItemFile(options: {
-  readonly root: string;
+  /** The repository's folder in BugPilot's data folder, which `work/<work item>/` is below. */
+  readonly base: string;
   readonly workItemId: string;
   readonly name: string;
   readonly contents: string;
@@ -286,18 +291,12 @@ export async function writeWorkItemFile(options: {
   readonly caseInsensitive?: boolean;
 }): Promise<void> {
   const fs = options.fs ?? NODE_FS;
-  const { root, workItemId, name } = options;
-  const folder = `.ai/${workItemId}/`;
+  const { base, workItemId, name } = options;
+  const folder = `work/${workItemId}/`;
   if (name === "" || name === "." || name === ".." || /[\\/:]/.test(name)) {
     throw new Error(`${name} is not a file name BugPilot writes, so nothing was written.`);
   }
-  let check = await checkArtifactDirectory(root, workItemId, fs, options.caseInsensitive);
-  if (check.kind === "missing") {
-    // Only reached when `.ai` is a real directory or absent: a linked `.ai` is
-    // refused above, before anything is created through it.
-    await mkdir(path.join(root, ARTIFACT_ROOT, workItemId), { recursive: true });
-    check = await checkArtifactDirectory(root, workItemId, fs, options.caseInsensitive);
-  }
+  const check = await checkArtifactDirectory(base, workItemId, fs, options.caseInsensitive);
   if (check.kind !== "ok") throw new Error(writeProblem(check, folder, name));
   const target = path.join(check.directory, name);
   try {
@@ -318,14 +317,14 @@ function writeProblem(check: Exclude<DirectoryCheck, { kind: "ok" }>, folder: st
       case "invalid-id":
         return `This work item's id is not one BugPilot could have created, so ${name} was not written.`;
       case "link":
-        return `BugPilot does not write through a link or junction, and ${folder} or .ai/ is one, so ${name} was not written.`;
+        return `BugPilot does not write through a link or junction, and ${folder} or work/ is one, so ${name} was not written.`;
       case "not-a-directory":
         return `${folder} is not a folder BugPilot created, so ${name} was not written.`;
       case "outside":
-        return `${folder} resolves outside this repository's .ai/ folder, so ${name} was not written.`;
+        return `${folder} resolves outside this repository's folder in BugPilot's data folder, so ${name} was not written.`;
     }
   }
-  if (check.kind === "missing") return `${folder} could not be created, so ${name} was not written.`;
+  if (check.kind === "missing") return `${folder} is not there — prepare the work item again — so ${name} was not written.`;
   return `${folder} could not be checked (${check.reason}), so ${name} was not written.`;
 }
 
@@ -335,17 +334,17 @@ function writeProblem(check: Exclude<DirectoryCheck, { kind: "ok" }>, folder: st
  * shows.
  */
 export function deletionProblem(deletion: Exclude<ArtifactDeletion, { kind: "deleted" | "missing" }>, workItemId: string): string {
-  const folder = `.ai/${workItemId}/`;
+  const folder = `work/${workItemId}/`;
   if (deletion.kind === "refused") {
     switch (deletion.reason) {
       case "invalid-id":
         return "Session not reset: this work item's id is not one BugPilot could have created, so nothing was deleted.";
       case "link":
-        return `Session not reset: ${folder} or .ai/ is a link or junction, and BugPilot does not delete through one. Nothing was deleted.`;
+        return `Session not reset: ${folder} or work/ is a link or junction, and BugPilot does not delete through one. Nothing was deleted.`;
       case "not-a-directory":
         return `Session not reset: ${folder} is not a folder BugPilot created. Nothing was deleted.`;
       case "outside":
-        return `Session not reset: ${folder} resolves outside this repository's .ai/ folder. Nothing was deleted.`;
+        return `Session not reset: ${folder} resolves outside this repository's folder in BugPilot's data folder. Nothing was deleted.`;
     }
   }
   return `Session not reset: the generated files in ${folder} could not all be deleted. Some may already be gone — Current, in Results, shows what is left. Close any file open from that folder and try again, or keep the files.`;

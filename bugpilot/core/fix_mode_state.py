@@ -1,8 +1,8 @@
 """The Fix Mode selected for one work item: choosing it, and remembering it.
 
-The selection is persisted in `.ai/<work item>/issue.json`, as
+The selection is persisted in the work item's `issue.json`, as
 `guidance.fix_mode`, beside the hint the same run used. That is generated
-runtime state, not team policy — `.bugpilot/` is where team-owned mode
+runtime state, not team policy — the repository's settings are where its mode
 definitions live, and mixing the two would make a run's own bookkeeping look
 like something a developer should edit and commit.
 
@@ -209,4 +209,4 @@ def _drift_warnings(stored: dict[str, object], mode: FixMode) -> tuple[str, ...]
 
 
 def _display_path(work_item_id: str) -> str:
-    return f".ai/{work_item_id}/{ISSUE_ARTIFACT}"
+    return f"work/{work_item_id}/{ISSUE_ARTIFACT}"

@@ -29,6 +29,7 @@
  * is used or refused, never swapped for another agent (`AgentService.resolve`).
  */
 
+import { promptPath } from "./dataFolder.ts";
 import { resumeCommand } from "./session.ts";
 
 export type AgentId = "codex-cli" | "claude-cli" | "codex-extension" | "claude-extension" | "custom";
@@ -111,10 +112,16 @@ export interface AiFixRequest {
   /** The repository root: the terminal's cwd, the directory the prompt's paths are relative to. */
   readonly workspacePath: string;
   readonly workItemId: string;
-  /** "Read .ai/<id>/task.md and complete the workflow." — or a retry's, or Review with AI's prompt. */
+  /** "Read <work folder>/task.md and complete the workflow." — or a retry's, or Review with AI's prompt. */
   readonly prompt: string;
   /** The prepared file the prompt points at, absolute, for an integration that takes a file. */
   readonly preparedContextPath?: string;
+  /**
+   * The work item's folder, absolute, where the agent writes `fix_report.md` (0.1.7: outside the
+   * repository). Fix with AI's only: an agent that edits only in its working directory and the folders it
+   * is given needs this one (`CliAgentDefinition.workFolderFlag`). Review with AI writes nothing.
+   */
+  readonly workFolder?: string;
   /** What is being handed over, for the words a bridge uses. */
   readonly purpose: "fix" | "review";
   /**
@@ -260,7 +267,7 @@ export const PROMPT_PLACEHOLDER = "{prompt}";
  * The characters a handoff prompt may be made of: letters, digits, whitespace
  * and `. , : # / _ -` — opening with a letter, a digit or `#`, never a `-` an
  * agent would read as an option. Both of today's prompts fit: Fix with AI's
- * "Read .ai/<id>/task.md and complete the workflow." around a validated work
+ * "Read <work folder>/task.md and complete the workflow." around a validated work
  * item id, and Review with AI's canonical review prompt.
  */
 const PLAIN_PROMPT = /^\s*[A-Za-z0-9#][A-Za-z0-9\s.,:#/_-]*$/;
@@ -279,7 +286,42 @@ export function isPlainPrompt(prompt: string): boolean {
   return PLAIN_PROMPT.test(prompt);
 }
 
-const REFUSED_PROMPT = "The prompt holds characters a shell could act on, or starts like an option.";
+const REFUSED_PROMPT =
+  "The prompt holds characters a shell could act on, or starts like an option. It names the work folder in " +
+  "BugPilot's data folder: if that folder's path holds characters other than letters, digits, spaces and . , : # / _ -, " +
+  "set BUGPILOT_HOME to a plain folder, or use Copy Handoff Prompt.";
+
+/**
+ * A work folder as it may go on a command line: absolute, made of the prompt's own characters but with
+ * only plain spaces, and opening with `/` or a drive letter, never a `-`.
+ */
+const PLAIN_FOLDER = /^(?:\/|[A-Za-z]:\/)[A-Za-z0-9 .,:#/_-]*$/;
+
+const REFUSED_FOLDER =
+  "The work folder's path is not one BugPilot puts on a command line: it must be absolute and hold only letters, " +
+  "digits, spaces and . , : # / _ -. Set BUGPILOT_HOME to a plain folder, or use Copy Handoff Prompt.";
+
+/**
+ * The word that gives a CLI agent the work item's folder — `--add-dir=<folder>`, quoted — or why it cannot.
+ *
+ * `undefined` when there is nothing to give: an agent without the option, a request without a folder
+ * (Review with AI), or an installed CLI whose `--help` does not list the option, which is started as it
+ * always was. One word with `=`: the option takes several folders, and as two words the prompt after it
+ * would be read as one more. Forward slashes, as the prompt names the folder, so no shell reads a
+ * backslash as an escape.
+ */
+async function workFolderGrant(
+  definition: CliAgentDefinition,
+  request: AiFixRequest,
+  probes: AgentProbes,
+): Promise<{ readonly word?: string } | { readonly refused: string }> {
+  const flag = definition.workFolderFlag;
+  if (flag === undefined || request.workFolder === undefined) return {};
+  const folder = promptPath(request.workFolder);
+  if (!PLAIN_FOLDER.test(folder)) return { refused: REFUSED_FOLDER };
+  const supported = await (probes.supportsFlags?.(definition.command, [flag]) ?? Promise.resolve(false)).catch(() => false);
+  return supported === true ? { word: `${flag}=${quote(folder)}` } : {};
+}
 
 // --- CLI agents ------------------------------------------------------------------
 
@@ -303,6 +345,13 @@ export interface CliAgentDefinition {
     readonly flags: readonly string[];
     readonly resume: (sessionId: string) => string;
   };
+  /**
+   * The CLI's option for one more folder it may read and edit besides its working directory — Claude's
+   * `--add-dir` — given the work item's folder on Fix with AI's command line and its resume line (0.1.7).
+   * Only the work item's folder, never BugPilot's data folder; only where the installed CLI's `--help`
+   * lists it. Codex is not given one.
+   */
+  readonly workFolderFlag?: string;
 }
 
 /** A session id as BugPilot generates one, and the only shape put on a command line. */
@@ -325,6 +374,7 @@ export const CLI_AGENTS: readonly CliAgentDefinition[] = [
     vendor: "claude",
     capturedReview: CLAUDE_CAPTURED_REVIEW,
     session: { startFlag: "--session-id", flags: ["--session-id", "--resume"], resume: resumeCommand },
+    workFolderFlag: "--add-dir",
   },
   { id: "codex-cli", label: "Codex CLI", command: "codex", vendor: "codex" },
 ];
@@ -352,6 +402,9 @@ export function cliAgent(definition: CliAgentDefinition, probes: AgentProbes): A
     },
     async run(request, launch) {
       if (!isPlainPrompt(request.prompt)) return { kind: "failed", reason: REFUSED_PROMPT };
+      const grant = await workFolderGrant(definition, request, probes);
+      if ("refused" in grant) return { kind: "failed", reason: grant.refused };
+      const granted = grant.word === undefined ? "" : ` ${grant.word}`;
       // A session id goes on the command line only in the one shape BugPilot
       // makes, and only to a CLI whose own --help lists both flags: anything
       // else is left off, and the session is simply not resumable — started the
@@ -366,14 +419,15 @@ export function cliAgent(definition: CliAgentDefinition, probes: AgentProbes): A
           : undefined;
       const commandLine =
         sessionId === undefined
-          ? `${command} ${quote(flatten(request.prompt))}`
-          : `${command} ${session!.startFlag} ${sessionId} ${quote(flatten(request.prompt))}`;
+          ? `${command}${granted} ${quote(flatten(request.prompt))}`
+          : `${command}${granted} ${session!.startFlag} ${sessionId} ${quote(flatten(request.prompt))}`;
       launch.runInTerminal(commandLine);
       return {
         kind: "terminal",
         label,
         commandLine,
-        ...(sessionId === undefined ? {} : { resumeCommandLine: session!.resume(sessionId) }),
+        // Resumed with the same folder: whether a resumed session keeps it is the CLI's business.
+        ...(sessionId === undefined ? {} : { resumeCommandLine: `${session!.resume(sessionId)}${granted}` }),
       };
     },
   };

@@ -34,6 +34,8 @@ from pathlib import Path
 import _isolation
 import prompt_boundary_corpus as corpus
 import prompt_boundary_sources as sources
+import task_golden
+from bugpilot.core.config import data_dir, prompt_path
 from bugpilot.core.fix_modes import INVESTIGATE_FIRST_FIX
 
 GOLDEN = Path(__file__).resolve().parent / "golden"
@@ -87,8 +89,14 @@ def render_all() -> dict[Path, str]:
     _isolation.require_isolated()
     with tempfile.TemporaryDirectory() as directory:
         workspace = sources.Workspace(Path(directory))
-        texts = {CONTEXT_DIR / f"{name}.txt": build(workspace) for name, build in CONTEXT_CASES.items()}
-        texts.update({RETRY_DIR / f"{name}.txt": build(workspace) for name, build in RETRY_CASES.items()})
+        # The retry prompt names the work item's folder, and the context its memory matches, absolutely (0.1.7):
+        # the workspace's temporary folder in the data folder is shown as the task goldens' representative one, so
+        # a golden is the same on every machine and run.
+        with workspace.configured():
+            folder = prompt_path(data_dir(workspace.root))
+        shown = task_golden.GOLDEN_DATA_FOLDER
+        texts = {CONTEXT_DIR / f"{name}.txt": build(workspace).replace(folder, shown) for name, build in CONTEXT_CASES.items()}
+        texts.update({RETRY_DIR / f"{name}.txt": build(workspace).replace(folder, shown) for name, build in RETRY_CASES.items()})
     return texts
 
 

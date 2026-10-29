@@ -14,6 +14,7 @@ import json
 import re
 from pathlib import Path
 
+from bugpilot.core.config import data_dir, issue_dir, prompt_path
 from bugpilot.cli import main
 from bugpilot.core import workflow
 from bugpilot.core.issue import IssueArtifact, save_issue
@@ -48,7 +49,7 @@ def _work_item(
     work_item: str = "JR-12345",
     source: str = "jira",
 ) -> Path:
-    target = root / ".ai" / work_item
+    target = issue_dir(root, work_item)
     target.mkdir(parents=True)
     save_issue(root, IssueArtifact(id=work_item, source=source, title="CSV rejected"))
     (target / "context.md").write_text("# Bug Context\n", encoding="utf-8")
@@ -152,7 +153,7 @@ def test_a_missing_or_unsafe_work_item_is_refused_and_nothing_is_created(tmp_pat
         payload = _json(capsys)
         assert payload["ok"] is False
         assert payload["error"]["code"] == code, work_item
-    assert not (tmp_path / ".ai").exists(), "a query created a work item directory"
+    assert not ((data_dir(tmp_path) / "work")).exists(), "a query created a work item directory"
 
 
 def test_a_partial_report_or_none_still_has_a_checklist(tmp_path, monkeypatch, capsys):
@@ -165,7 +166,7 @@ def test_a_partial_report_or_none_still_has_a_checklist(tmp_path, monkeypatch, c
     assert len(partial["steps"]) == 5
     assert partial["review_risks"] == []
 
-    (tmp_path / ".ai" / "JR-12345" / "fix_report.md").unlink()
+    (issue_dir(tmp_path, "JR-12345") / "fix_report.md").unlink()
     assert main(["review-package", "JR-12345", "--json"]) == 0
     assert _json(capsys)["validation"]["review_risks"] == []
 
@@ -216,10 +217,11 @@ def test_the_prompt_is_neutral_about_where_the_bug_came_from_and_how_it_ended(tm
             assert claim not in prompt, (work_item, claim)
         assert "3. Whether the result matches the reported issue" in prompt
         assert "4. Whether any source change is minimal and safe" in prompt
-        assert f".ai/{work_item}/fix_report.md if present" in prompt
+        # The reviewer works in the repository; the work item's files are named absolutely (0.1.7).
+        assert f"{prompt_path(issue_dir(Path.cwd(), work_item))}/fix_report.md if present" in prompt
 
 
-def test_the_prompt_asks_for_review_report_sections_and_no_verdict():
+def test_the_prompt_asks_for_review_report_sections_and_no_verdict(tmp_path):
     # The answer comes back in review_report.md's own four sections, in its
     # order, so Paste Review Output can fill the Review Result form from it. No
     # verdict, approval or "verified" is asked for: BugPilot records what the
@@ -227,7 +229,7 @@ def test_the_prompt_asks_for_review_report_sections_and_no_verdict():
     # anything actually run.
     from bugpilot.core.review_report import REVIEW_SECTIONS
 
-    prompt = workflow._build_final_review_prompt("JR-12345")
+    prompt = workflow._build_final_review_prompt(tmp_path, "JR-12345")
     lines = prompt.split("\n")
     headings = [line for line in lines if line.startswith("## ")]
     assert headings == [heading for _key, heading in REVIEW_SECTIONS]
@@ -254,7 +256,7 @@ def test_the_json_prompt_is_the_human_prompt_for_every_kind_of_work_item(tmp_pat
 # --- the prompt Review with AI puts on a command line ---------------
 
 
-def test_the_prompt_stays_plain_enough_for_a_terminal_handoff():
+def test_the_prompt_stays_plain_enough_for_a_terminal_handoff(tmp_path):
     # The extension's Review with AI hands this prompt to an agent on a command
     # line, quoted the way every handoff is — which is safe only for text no
     # shell expands anything in. So the extension refuses anything outside this
@@ -262,7 +264,7 @@ def test_the_prompt_stays_plain_enough_for_a_terminal_handoff():
     # it: a `$`, a quote or a backtick added here would turn Review with AI into
     # an error, and this test says so first.
     for work_item in ("JR-12345", "local_20260926010922"):
-        prompt = workflow._build_final_review_prompt(work_item)
+        prompt = workflow._build_final_review_prompt(tmp_path, work_item)
         assert re.fullmatch(r"\s*[A-Za-z0-9#][A-Za-z0-9\s.,:#/_-]*", prompt), work_item
 
 
@@ -287,7 +289,7 @@ def test_status_never_reports_a_validation_or_a_review_that_did_not_happen(tmp_p
     assert "final_review_prompt" not in steps
     # Nothing else moved: the run is still prepared, and the report is there.
     assert payload["status"] == "prepared"
-    assert (tmp_path / ".ai" / "JR-12345" / "fix_report.md").exists()
+    assert (issue_dir(tmp_path, "JR-12345") / "fix_report.md").exists()
 
     assert main(["status", "JR-12345"]) == 0
     human = capsys.readouterr().out

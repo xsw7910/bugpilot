@@ -18,7 +18,7 @@ import pytest
 from bugpilot.cli import main
 from bugpilot.core import workflow
 from bugpilot.core.artifacts import CORE_ARTIFACTS
-from bugpilot.core.config import WORKFLOW_STEPS
+from bugpilot.core.config import WORKFLOW_STEPS, issue_dir
 from bugpilot.core.input_adapters import bug_spec_from_description
 from bugpilot.core.models import InvestigationOptions, InvestigationRequest
 from bugpilot.core.run import (
@@ -62,7 +62,7 @@ def _manual(root: Path) -> str:
 
 
 def _read(root: Path, work_item: str) -> dict:
-    return json.loads((root / ".ai" / work_item / "run.json").read_text(encoding="utf-8"))
+    return json.loads((issue_dir(root, work_item) / "run.json").read_text(encoding="utf-8"))
 
 
 # --- the schema and the lifecycle -------------------------------------------------
@@ -90,9 +90,9 @@ def test_generated_files_snapshot_the_canonical_artifacts(tmp_path):
     generated = _read(tmp_path, work_item)["generated_files"]
 
     for name in CORE_ARTIFACTS:
-        assert f".ai/{work_item}/{name}" in generated, name
+        assert f"work/{work_item}/{name}" in generated, name
     # A directory snapshot lists run.json itself; the memory entry rides along.
-    assert f".ai_memory/bugs/{work_item}.md" in generated
+    assert f"memory/{work_item}.md" in generated
     assert generated == sorted(generated)
 
 
@@ -118,7 +118,7 @@ def test_the_run_is_valid_and_running_while_steps_execute(tmp_path, monkeypatch)
 @needs_rg
 def test_a_standalone_step_updates_its_mark_and_leaves_the_lifecycle_alone(tmp_path, monkeypatch):
     work_item = _manual(_repo(tmp_path))
-    (tmp_path / ".ai" / work_item / "context.md").unlink()
+    (issue_dir(tmp_path, work_item) / "context.md").unlink()
     monkeypatch.chdir(tmp_path)
 
     assert main(["context", work_item]) == 0
@@ -181,7 +181,7 @@ def test_a_refine_failure_names_its_own_step_not_a_stale_mark(tmp_path, monkeypa
 
 
 def test_a_human_command_reports_an_unusable_run_file_without_a_traceback(tmp_path, monkeypatch, capsys):
-    target = tmp_path / ".ai" / "JR-1"
+    target = issue_dir(tmp_path, "JR-1")
     target.mkdir(parents=True)
     (target / "run.json").write_text("{ truncated", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -251,7 +251,7 @@ def test_a_missing_run_is_none(tmp_path):
     ],
 )
 def test_an_unusable_run_file_is_an_error_not_a_fallback(tmp_path, contents):
-    target = tmp_path / ".ai" / "JR-1"
+    target = issue_dir(tmp_path, "JR-1")
     target.mkdir(parents=True)
     (target / "run.json").write_text(contents, encoding="utf-8")
 
@@ -261,7 +261,7 @@ def test_an_unusable_run_file_is_an_error_not_a_fallback(tmp_path, contents):
 
 
 def test_the_status_command_reports_an_unusable_file_instead_of_guessing(tmp_path, monkeypatch, capsys):
-    target = tmp_path / ".ai" / "JR-1"
+    target = issue_dir(tmp_path, "JR-1")
     target.mkdir(parents=True)
     (target / "run.json").write_text("{ truncated", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -274,7 +274,7 @@ def test_the_status_command_reports_an_unusable_file_instead_of_guessing(tmp_pat
 
 
 def test_a_standalone_step_refuses_a_corrupt_run_file(tmp_path):
-    target = tmp_path / ".ai" / "JR-1"
+    target = issue_dir(tmp_path, "JR-1")
     target.mkdir(parents=True)
     (target / "run.json").write_text("{ truncated", encoding="utf-8")
 
@@ -286,7 +286,7 @@ def test_a_standalone_step_refuses_a_corrupt_run_file(tmp_path):
 def test_a_fresh_run_replaces_a_corrupt_run_file(tmp_path):
     """A run owns its file: re-preparing is the sanctioned recovery."""
     _repo(tmp_path)
-    target = tmp_path / ".ai" / "local_x"
+    target = issue_dir(tmp_path, "local_x")
     target.mkdir(parents=True)
     (target / "run.json").write_text("{ truncated", encoding="utf-8")
 
@@ -301,7 +301,7 @@ def test_a_fresh_run_replaces_a_corrupt_run_file(tmp_path):
 @needs_rg
 def test_no_runtime_file_but_run_json_is_written(tmp_path):
     work_item = _manual(_repo(tmp_path))
-    target = tmp_path / ".ai" / work_item
+    target = issue_dir(tmp_path, work_item)
 
     assert not (target / "workflow_status.json").exists()
     assert not (target / "execution.log").exists()
@@ -309,7 +309,7 @@ def test_no_runtime_file_but_run_json_is_written(tmp_path):
 
 def test_status_does_not_read_the_old_layout(tmp_path, monkeypatch, capsys):
     """A directory holding only workflow_status.json has no run state."""
-    target = tmp_path / ".ai" / "JR-1"
+    target = issue_dir(tmp_path, "JR-1")
     target.mkdir(parents=True)
     (target / "workflow_status.json").write_text(
         '{"issue_key": "JR-1", "steps": {"doctor": "pass"}}', encoding="utf-8"

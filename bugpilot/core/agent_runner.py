@@ -15,7 +15,7 @@ reason this path is going away rather than being extended.
 
 What to use instead:
 
-- ``bugpilot bug <ID>`` (prepare-only is the default), then hand ``.ai/<ID>/task.md`` to
+- ``bugpilot bug <ID>`` (prepare-only is the default), then hand the work item's ``task.md`` to
   whatever agent you use. The extension's "Copy handoff prompt" does exactly
   this, and the Claude Code skill in ``skills/`` tells the agent to do it
   itself.
@@ -32,20 +32,28 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import AppConfig, load_config
+from .config import AppConfig, load_config, prompt_path, shown, writable_issue_dir
+from .errors import StorageAccessError
 from .executables import child_environment, find_executable
-from .handoff import handoff_prompt, retry_handoff_prompt
+from .handoff import retry_handoff_prompt, work_item_handoff
+from .safe_paths import UnsafePathError
 
-# Kept as format strings because callers use `.format(...)` on them, but the
+# Kept as a format string because callers use `.format(...)` on it, but the
 # wording now comes from `handoff.py` — the one place that says what an agent is
 # told to do with a prepared package (design 5.5: a skill and an MCP prompt
-# carrying the same instructions in two files will drift).
-HANDOFF_PROMPT = handoff_prompt("{issue_key}")
+# carrying the same instructions in two files will drift). The first launch's
+# sentence is `handoff.work_item_handoff` (0.1.7: it names the task absolutely).
 RETRY_HANDOFF_PROMPT = retry_handoff_prompt("{prompt_file}")
 
 # What `bugpilot bug --launch-agent` accepts. The flag is the only way the CLI
 # starts an agent: there is no implicit default one.
 LAUNCHABLE_AGENTS: tuple[str, ...] = ("claude", "copilot")
+
+# Claude Code's option for one more folder it may read and edit, besides its
+# working directory (0.1.7). Given as one `--add-dir=<folder>` word: the option
+# takes several folders, so as two words the prompt after it would be read as
+# another one.
+CLAUDE_ADD_DIR = "--add-dir"
 
 
 @dataclass
@@ -58,14 +66,58 @@ class AgentRunResult:
 
 
 def build_agent_command(agent: str, issue_key: str, config: AppConfig, prompt: str | None = None) -> list[str]:
-    prompt = prompt or HANDOFF_PROMPT.format(issue_key=issue_key)
+    prompt = prompt or work_item_handoff(config.repo_root, issue_key)
     if agent == "claude":
-        base = [config.claude_command, *shlex.split(config.claude_args)]
+        args = shlex.split(config.claude_args)
+        base = [config.claude_command, *args, *_work_folder_grant(config.repo_root, issue_key, args)]
     elif agent == "copilot":
         base = [config.copilot_command, *shlex.split(config.copilot_args)]
     else:
         raise ValueError(f"Unknown agent: {agent}")
     return [*base, prompt]
+
+
+def _work_folder_grant(repo_root: Path, issue_key: str, args: list[str]) -> list[str]:
+    """``--add-dir=<work folder>`` for Claude Code, unless ``args`` grant that folder already.
+
+    0.1.7 keeps a work item outside the repository, and Claude Code edits only
+    in its working directory and the folders it is given: without this its
+    write of ``fix_report.md`` is refused under ``acceptEdits``. One folder,
+    the work item's own, never BugPilot's data folder. Checked by storage like
+    every other use of it — the id, and no link or junction on the way — and it
+    must be there, since Claude Code refuses a folder that is not. Raises
+    ``UnsafePathError`` (or ``StorageAccessError``) instead of launching
+    without it.
+    """
+    folder = writable_issue_dir(repo_root, issue_key, create=False)
+    if not folder.is_dir():
+        raise UnsafePathError(f"The work item's folder {shown(folder)} is not there. Prepare the work item first.")
+    if any(_same_folder(repo_root, granted, folder) for granted in _granted_folders(args)):
+        return []
+    return [f"{CLAUDE_ADD_DIR}={prompt_path(folder)}"]
+
+
+def _granted_folders(args: list[str]) -> list[str]:
+    """The folders ``args`` already give Claude Code: ``--add-dir=<folder>``, and every word after ``--add-dir`` up to the next option."""
+    folders: list[str] = []
+    taking = False
+    for arg in args:
+        if arg.startswith(f"{CLAUDE_ADD_DIR}="):
+            folders.append(arg.split("=", 1)[1])
+            taking = False
+        elif arg == CLAUDE_ADD_DIR:
+            taking = True
+        elif taking and not arg.startswith("-"):
+            folders.append(arg)
+        else:
+            taking = False
+    return folders
+
+
+def _same_folder(repo_root: Path, granted: str, folder: Path) -> bool:
+    """Whether a granted folder names ``folder``, as Claude Code resolves it: against the repository, in the system's case rules."""
+    resolved = os.path.normpath(os.path.join(repo_root, granted))
+    return os.path.normcase(resolved) == os.path.normcase(os.path.normpath(folder))
 
 
 def run_agent(
@@ -77,7 +129,11 @@ def run_agent(
 ) -> AgentRunResult:
     _warn_deprecated(agent)
     config = config if config is not None else load_config(repo_root)
-    command = build_agent_command(agent, issue_key, config, prompt)
+    try:
+        command = build_agent_command(agent, issue_key, config, prompt)
+    except (UnsafePathError, StorageAccessError) as exc:
+        # The work folder cannot be granted: the agent is not started without it.
+        return AgentRunResult(agent=agent, ran=False, command=[], skipped_reason=str(exc))
     launch = _resolve_launch_command(command)
     if launch is None:
         return AgentRunResult(

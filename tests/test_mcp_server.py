@@ -9,7 +9,8 @@ import pytest
 
 from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 
-from bugpilot.core import jira
+from bugpilot.core.config import data_dir, issue_dir, memory_dir
+from bugpilot.core import jira, storage
 from bugpilot.mcp_server import REPO_ROOT_ENV, build_server, resolve_repo_root
 
 EXPECTED_TOOLS = {
@@ -131,8 +132,8 @@ def test_artifacts_land_in_the_bound_repo_only(tmp_path, monkeypatch):
     monkeypatch.chdir(second)  # cwd deliberately differs from the bound root
 
     payload = _call(build_server(first), "prepare_bug_description", {"description": "crash"})
-    assert (first / ".ai" / payload["work_item_id"]).is_dir()
-    assert not (second / ".ai").exists()
+    assert (issue_dir(first, payload["work_item_id"])).is_dir()
+    assert not ((data_dir(second) / "work")).exists()
 
 
 # --- prepare / refine -------------------------------------------------------
@@ -175,9 +176,9 @@ def test_refine_reuses_the_prepared_work_item(tmp_path):
     )
     assert refined["work_item_id"] == work_item
 
-    retrieval = json.loads((tmp_path / ".ai" / work_item / "retrieval.json").read_text(encoding="utf-8"))
+    retrieval = json.loads((issue_dir(tmp_path, work_item) / "retrieval.json").read_text(encoding="utf-8"))
     assert {"value": "OpenCsvStatistics", "source": "user"}.items() <= retrieval["terms"][0].items()
-    issue = json.loads((tmp_path / ".ai" / work_item / "issue.json").read_text(encoding="utf-8"))
+    issue = json.loads((issue_dir(tmp_path, work_item) / "issue.json").read_text(encoding="utf-8"))
     assert issue["guidance"]["hint"] == "look in the writer"
 
 
@@ -231,7 +232,7 @@ def test_search_memory_finds_a_prior_investigation(tmp_path):
 def test_search_memory_does_not_treat_a_search_term_as_a_work_item(tmp_path):
     """The phase 1 regression, reachable through this entry point too."""
     _call(build_server(tmp_path), "search_memory", {"query": "utf-8"})
-    assert not (tmp_path / ".ai" / "utf-8").exists()
+    assert not (issue_dir(tmp_path, "utf-8")).exists()
 
 
 # --- summarize does not reach outward ---------------------------------------
@@ -323,7 +324,7 @@ def test_re_preparing_the_same_work_item_never_deletes_agent_results(tmp_path, m
     server = build_server(tmp_path)
     _call(server, "prepare_jira_bug", {"issue_key": "JR-12345"})
 
-    written_by_agent = tmp_path / ".ai" / "JR-12345" / "fix_report.md"
+    written_by_agent = issue_dir(tmp_path, "JR-12345") / "fix_report.md"
     written_by_agent.write_text("what the agent changed", encoding="utf-8")
 
     _call(server, "prepare_jira_bug", {"issue_key": "JR-12345"})
@@ -337,7 +338,7 @@ def test_preparing_a_description_twice_makes_two_work_items(tmp_path):
     second = _call(server, "prepare_bug_description", {"description": "crash on save"})
 
     assert first["work_item_id"] != second["work_item_id"]
-    assert len(list((tmp_path / ".ai").iterdir())) == 2
+    assert len(list(((data_dir(tmp_path) / "work")).iterdir())) == 2
 
 
 def test_prepare_bug_description_points_at_refine_for_rework(tmp_path):
@@ -350,7 +351,7 @@ def test_prepare_bug_description_points_at_refine_for_rework(tmp_path):
 def test_search_memory_is_read_only(tmp_path):
     """An id-shaped query used to mkdir a phantom work item."""
     _call(build_server(tmp_path), "search_memory", {"query": "JR-77777"})
-    assert not (tmp_path / ".ai").exists()
+    assert not ((data_dir(tmp_path) / "work")).exists()
 
 
 def test_artifact_excerpts_are_not_mangled_by_the_jira_redactor(tmp_path):
@@ -375,7 +376,7 @@ def test_tools_refuse_an_unprepared_work_item(tmp_path, tool):
     """Steps create their own directory, so an unchecked id conjures a phantom item."""
     message = _expect_tool_error(build_server(tmp_path), tool, {"work_item_id": "JR-99999"})
     assert "prepare" in message.lower()
-    assert not (tmp_path / ".ai" / "JR-99999").exists()
+    assert not (issue_dir(tmp_path, "JR-99999")).exists()
 
 
 def test_tool_errors_carry_a_stable_code(tmp_path, monkeypatch):
@@ -421,7 +422,7 @@ def test_refine_dispatches_every_resolved_step(tmp_path):
     prepared = _call(server, "prepare_bug_description", {"description": "crash"})
     work_item = prepared["work_item_id"]
 
-    memory_file = tmp_path / ".ai_memory" / "bugs" / f"{work_item}.md"
+    memory_file = memory_dir(tmp_path) / f"{work_item}.md"
     before = memory_file.read_text(encoding="utf-8")
     refine_investigation(tmp_path, work_item, plan=InvestigationPlan(issue_details=False))
     assert memory_file.read_text(encoding="utf-8") != before  # memory_add ran
@@ -662,7 +663,7 @@ def test_a_broken_project_definition_is_refused_by_prepare_and_show_and_still_li
         server, "prepare_bug_description", {"description": "crash", "fix_mode_id": "my-safe"}
     )
     assert "[INVALID_INPUT]: " + refused in prepared and "my-safe.json is not valid JSON: " in prepared
-    assert not list((repo / ".ai").glob("*/task.md"))
+    assert not list(((data_dir(repo) / "work")).glob("*/task.md"))
     shown = _expect_tool_error(server, "show_fix_mode", {"mode_id": "my-safe"})
     assert shown.startswith("Error executing tool show_fix_mode: " + refused)
     for message in (prepared, shown):
@@ -725,10 +726,10 @@ def test_a_selected_builtin_reaches_the_task_and_the_record(tmp_path, mock_jira,
     result = _prepare(build_server(tmp_path), fix_mode_id=mode_id)
 
     assert result["fix_mode"]["id"] == mode_id
-    task = (tmp_path / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
+    task = (issue_dir(tmp_path, "JR-12345") / "task.md").read_text(encoding="utf-8")
     assert f"- Mode ID: `{mode_id}`" in task
     status = json.loads(
-        (tmp_path / ".ai" / "JR-12345" / "run.json").read_text(encoding="utf-8")
+        (issue_dir(tmp_path, "JR-12345") / "run.json").read_text(encoding="utf-8")
     )
     assert status["fix_mode"]["id"] == mode_id
 
@@ -741,7 +742,7 @@ def test_a_custom_project_mode_is_selected_like_any_other(tmp_path, home, mock_j
     result = _prepare(build_server(repo), fix_mode_id="team-safe")
 
     assert result["fix_mode"]["source"] == "project"
-    assert "- Source: project" in (repo / ".ai" / "JR-12345" / "task.md").read_text(
+    assert "- Source: project" in (issue_dir(repo, "JR-12345") / "task.md").read_text(
         encoding="utf-8"
     )
 
@@ -753,7 +754,7 @@ def test_a_custom_investigate_mode_gets_the_investigation_task(tmp_path, home, m
     _store(repo, home).duplicate("investigate-first", "team-triage", "user")
 
     result = _prepare(build_server(repo), fix_mode_id="team-triage")
-    task = (repo / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
+    task = (issue_dir(repo, "JR-12345") / "task.md").read_text(encoding="utf-8")
 
     assert result["fix_mode"]["execution_kind"] == "investigate"
     assert "## Investigation Handoff" in task
@@ -774,7 +775,7 @@ def test_a_hostile_custom_mode_does_not_gain_authority_through_mcp(tmp_path, hom
     )
 
     _prepare(build_server(repo), fix_mode_id="hostile")
-    task = (repo / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
+    task = (issue_dir(repo, "JR-12345") / "task.md").read_text(encoding="utf-8")
 
     for heading in (
         "## BugPilot Safety Rules",
@@ -845,7 +846,7 @@ def test_an_explicit_mode_overrides_the_persisted_one(tmp_path, mock_jira):
     assert result["fix_mode"]["id"] == "standard"
     # Which is how an investigation becomes an implementation pass: the next
     # call names a fix mode. No workflow state to advance.
-    task = (tmp_path / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
+    task = (issue_dir(tmp_path, "JR-12345") / "task.md").read_text(encoding="utf-8")
     assert "Do you want me to commit and push this branch to origin?" in task
 
 
@@ -858,7 +859,7 @@ def test_refining_keeps_the_mode_the_work_item_was_prepared_with(tmp_path, home,
 
     _call(server, "refine_investigation", {"work_item_id": "JR-12345"})
 
-    assert "- Mode ID: `my-safe`" in (repo / ".ai" / "JR-12345" / "task.md").read_text(
+    assert "- Mode ID: `my-safe`" in (issue_dir(repo, "JR-12345") / "task.md").read_text(
         encoding="utf-8"
     )
 
@@ -980,7 +981,7 @@ def test_refine_reports_the_mode_it_regenerated_under(tmp_path, home, mock_jira)
     prepared = _prepare(server, fix_mode_id="team-triage")
 
     refined = _call(server, "refine_investigation", {"work_item_id": "JR-12345", "hint": "reader"})
-    task = (repo / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
+    task = (issue_dir(repo, "JR-12345") / "task.md").read_text(encoding="utf-8")
 
     assert refined["fix_mode"] == prepared["fix_mode"]
     assert refined["fix_mode"]["source"] == "project"
@@ -998,7 +999,7 @@ def test_summarize_results_and_get_status_claim_no_validation_or_review(tmp_path
     server = build_server(tmp_path)
     prepared = _call(server, "prepare_bug_description", {"description": "crash"})
     work_item = prepared["work_item_id"]
-    (tmp_path / ".ai" / work_item / "fix_report.md").write_text(
+    (issue_dir(tmp_path, work_item) / "fix_report.md").write_text(
         f"# Fix Report: {work_item}\n\n## Summary\n\nInvestigated only.\n", encoding="utf-8"
     )
 
@@ -1068,9 +1069,11 @@ _O1_SENTINEL = "o1-mcp-outside-sentinel-5d1f9c"
 
 def _o1_work_item(tmp_path):
     repo = tmp_path / "repo"
-    item = repo / ".ai" / _O1_ITEM
+    repo.mkdir()
+    storage.repository_storage(repo).ensure()  # its folder in the data folder, as a first run makes it (0.1.7)
+    item = issue_dir(repo, _O1_ITEM)
     item.mkdir(parents=True)
-    (repo / ".ai_memory" / "bugs").mkdir(parents=True)
+    (memory_dir(repo)).mkdir(parents=True)
     outside = tmp_path / "outside"
     outside.mkdir()
     secret = outside / "notes.md"
@@ -1100,7 +1103,7 @@ def test_o1_summarize_results_never_reads_a_report_through_a_link(tmp_path):
     _o1_link(item / "fix_report.md", secret)
     message = _expect_tool_error(build_server(repo), "summarize_results", {"work_item_id": _O1_ITEM})
     assert "[INVALID_INPUT]" in message
-    assert f"BugPilot will not read .ai/{_O1_ITEM}/fix_report.md: it is a symbolic link or junction" in message
+    assert f"BugPilot will not read work/{_O1_ITEM}/fix_report.md: it is a symbolic link or junction" in message
     _o1_clean(message, tmp_path)
 
 
@@ -1109,7 +1112,7 @@ def test_o1_check_results_and_get_status_follow_no_link(tmp_path, tool, linked):
     repo, item, secret = _o1_work_item(tmp_path)
     _o1_link(item / linked, secret)
     message = _expect_tool_error(build_server(repo), tool, {"work_item_id": _O1_ITEM})
-    assert f".ai/{_O1_ITEM}/{linked}: it is a symbolic link or junction" in message
+    assert f"work/{_O1_ITEM}/{linked}: it is a symbolic link or junction" in message
     _o1_clean(message, tmp_path)
 
 
@@ -1122,18 +1125,19 @@ def test_o1_a_linked_work_item_folder_is_refused_by_every_tool(tmp_path, tool):
     item.rmdir()
     _o1_link(item, elsewhere, folder=True)
     message = _expect_tool_error(build_server(repo), tool, {"work_item_id": _O1_ITEM})
-    assert f".ai/{_O1_ITEM} is a symbolic link or junction" in message
+    assert f"work/{_O1_ITEM} is a symbolic link or junction" in message
     _o1_clean(message, tmp_path)
 
 
 def test_o1_search_memory_reads_no_memory_through_a_link(tmp_path):
     repo, _item, secret = _o1_work_item(tmp_path)
-    bugs = repo / ".ai_memory" / "bugs"
+    bugs = memory_dir(repo)
     (bugs / f"{_O1_ITEM}.md").write_text("# A real memory\n\nselector format lost\n", encoding="utf-8")
     _o1_link(bugs / "notes.md", secret)
     server = build_server(repo)
     result = _call(server, "search_memory", {"query": "selector summary"})
-    assert [match["file"] for match in result["matches"]] == [f".ai_memory/bugs/{_O1_ITEM}.md"]
+    # A path field: absolute and native (0.1.7), so the client can open it.
+    assert [match["file"] for match in result["matches"]] == [str(bugs / f"{_O1_ITEM}.md")]
     assert "1 memory file(s) were not read" in result["report"]
     _o1_clean(json.dumps(result), tmp_path)
     (bugs / "notes.md").unlink()
@@ -1141,7 +1145,7 @@ def test_o1_search_memory_reads_no_memory_through_a_link(tmp_path):
     bugs.rmdir()
     _o1_link(bugs, secret.parent, folder=True)
     message = _expect_tool_error(server, "search_memory", {"query": "selector summary"})
-    assert "Memory search failed: BugPilot will not read .ai_memory/bugs: .ai_memory/bugs is a symbolic link" in message
+    assert "Memory search failed: BugPilot will not read memory: memory is a symbolic link" in message
     _o1_clean(message, tmp_path)
 
 
@@ -1149,13 +1153,14 @@ def test_o1_regular_and_missing_work_item_files_answer_as_before(tmp_path):
     repo, item, _secret = _o1_work_item(tmp_path)
     server = build_server(repo)
     missing = _call(server, "check_results", {"work_item_id": _O1_ITEM})
-    assert missing["missing"] == [f".ai/{_O1_ITEM}/fix_report.md"] and missing["complete"] is False
+    # Path fields: absolute and native (0.1.7).
+    assert missing["missing"] == [str(item / "fix_report.md")] and missing["complete"] is False
     summary = _call(server, "summarize_results", {"work_item_id": _O1_ITEM})
     assert summary["fix_report"] is None and summary["report_excerpt"] is None
     (item / "fix_report.md").write_text("## Summary\n\nfixed the selector\n", encoding="utf-8")
     assert _call(server, "check_results", {"work_item_id": _O1_ITEM})["complete"] is True
     summary = _call(server, "summarize_results", {"work_item_id": _O1_ITEM})
-    assert summary["fix_report"] == f".ai/{_O1_ITEM}/fix_report.md"
+    assert summary["fix_report"] == str(item / "fix_report.md")
     assert "fixed the selector" in summary["report_excerpt"]
 
 
@@ -1166,7 +1171,7 @@ def test_o1_prepare_refuses_a_linked_attachments_folder(tmp_path, mock_jira):
     _o1_link(item / "attachments", secret.parent, folder=True)
     message = _expect_tool_error(build_server(repo), "prepare_jira_bug", {"issue_key": _O1_ITEM})
     assert "[INVALID_INPUT]" in message
-    assert f".ai/{_O1_ITEM}/attachments is a symbolic link or junction" in message
+    assert f"work/{_O1_ITEM}/attachments is a symbolic link or junction" in message
     _o1_clean(message, tmp_path)
     task = item / "task.md"
     assert not task.exists() or _O1_SENTINEL not in task.read_text(encoding="utf-8")

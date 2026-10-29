@@ -27,6 +27,7 @@ import { childEnvironmentAdditions, locateExecutable } from "../executablePath.t
 import { pickLatestSession, sessionIdFromFileName } from "../app/session.ts";
 import { createAgentTerminals } from "./agentTerminals.ts";
 import { bugpilotFileKind } from "./bugpilotFiles.ts";
+import { WORK_FOLDER, settingsFile } from "../app/dataFolder.ts";
 import type { HostTerminalWindow } from "./agentTerminals.ts";
 import { trustedRunner } from "../runner.ts";
 import { checkArtifactDirectory, writeWorkItemFile } from "../app/sessionReset.ts";
@@ -54,8 +55,8 @@ export function createFilesPort(): FilesPort {
     writeFile: async (file, contents, workItem) => {
       if (workItem !== undefined) {
         const name = path.basename(file);
-        if (path.join(workItem.root, ".ai", workItem.workItemId, name) !== path.join(file)) {
-          throw new Error(`${name} is not in this work item's .ai folder, so nothing was written.`);
+        if (path.join(workItem.base, WORK_FOLDER, workItem.workItemId, name) !== path.join(file)) {
+          throw new Error(`${name} is not in this work item's folder, so nothing was written.`);
         }
         await writeWorkItemFile({ ...workItem, name, contents });
         return;
@@ -214,7 +215,7 @@ async function probeWorkItem(directory: string, mtimeMs: number, item: WorkItemF
  * outcome, and nothing else.
  */
 export async function loadHistory(
-  root: string,
+  repositoryDir: string,
   runJson: (args: readonly string[]) => Promise<unknown>,
 ): Promise<HistoryList> {
   let payload: unknown;
@@ -239,11 +240,11 @@ export async function loadHistory(
     if (typeof id !== "string") continue;
     try {
       // Only a folder proven the repository's own is looked at further (O-1); any other row stays listed, unprobed.
-      const check = await checkArtifactDirectory(root, id);
+      const check = await checkArtifactDirectory(repositoryDir, id);
       if (check.kind !== "ok") continue;
       const mtimeMs = (await stat(check.directory)).mtimeMs;
       times.set(id, mtimeMs);
-      probed.set(id, await probeWorkItem(check.directory, mtimeMs, { root, workItemId: id }));
+      probed.set(id, await probeWorkItem(check.directory, mtimeMs, { base: repositoryDir, workItemId: id }));
     } catch {
       // Deleted between listing and stat, or unreadable. It still gets listed.
     }
@@ -360,7 +361,7 @@ export async function canRun(executable: string): Promise<boolean> {
  * One issue's title and description, for improving a hint.
  *
  * `bugpilot issue-details --json` rather than `fetch`: the same Jira client and
- * the same parser, reading only. `fetch` writes `.ai/<issue>/` because a run
+ * the same parser, reading only. `fetch` writes `work/<issue>/` because a run
  * needs those artifacts, and creating a work item as a side effect of improving
  * a sentence would be a surprise.
  *
@@ -476,7 +477,7 @@ export function createGitignoreIo(): GitignoreIo {
 
 /**
  * Watch one work item's artifact directory (§37.81): the files directly in
- * `.ai/<id>/`, created, changed or deleted — not the repository, not
+ * `work/<id>/` in BugPilot's data folder, created, changed or deleted — not the repository, not
  * recursively, nothing under `.git` or `node_modules`. The callback gets the
  * file name only; the controller debounces and re-reads.
  */
@@ -492,19 +493,24 @@ export function watchArtifactDirectory(directory: string, onEvent: (name: string
   };
 }
 
-/** The `.bugpilot/` files a task is written from: what the policy watcher reports. */
+/** The repository's settings files a task is written from: what the policy watcher reports. */
 export const POLICY_FILE_NAMES = ["instructions.md", "verification.md", "ai_behavior.md", "project_settings.json"] as const;
 
 /**
- * Watch a repository's `.bugpilot/` folder for the policy files (§42.2; AI
- * Behavior's since 0.1.4) — created, changed or deleted, by an editor tab, `git
- * pull`, a branch switch or any other tool. Those names only, not recursively;
- * the callback gets the file name, and the controller debounces and rereads
- * through the CLI.
+ * Watch a repository's settings folder, in BugPilot's data folder (0.1.7), for
+ * the policy files (§42.2; AI Behavior's since 0.1.4) — created, changed or
+ * deleted, by an editor tab or any other tool. Those names only; the callback
+ * gets the file name, and the controller debounces and rereads through the CLI.
+ *
+ * Watched from the folder above, as `settings/<name>`: the settings folder is
+ * outside the workspace and is created with the first file written into it, and
+ * a watcher on a folder that is not there yet missed that first file in a real
+ * window (0.1.7). The repository's folder in the data folder is there once
+ * anything was prepared or saved.
  */
 export function watchPolicyDirectory(directory: string, onEvent: (name: string) => void): vscode.Disposable {
   const watcher = vscode.workspace.createFileSystemWatcher(
-    new vscode.RelativePattern(vscode.Uri.file(directory), `{${POLICY_FILE_NAMES.join(",")}}`),
+    new vscode.RelativePattern(vscode.Uri.file(path.dirname(directory)), `${path.basename(directory)}/{${POLICY_FILE_NAMES.join(",")}}`),
   );
   const fire = (uri: vscode.Uri) => onEvent(path.basename(uri.fsPath));
   const listeners = [watcher.onDidCreate(fire), watcher.onDidChange(fire), watcher.onDidDelete(fire)];
@@ -517,13 +523,13 @@ export function watchPolicyDirectory(directory: string, onEvent: (name: string) 
 }
 
 /**
- * Whether `.bugpilot/verification.md` is there at all — a file or anything
- * else, a link included. Asked only for a CLI too old to read it (§42.2); the
- * contents are never read here.
+ * Whether the repository's `verification.md` setting is there at all — a file
+ * or anything else, a link included. Asked only for a CLI too old to read it
+ * (§42.2); the contents are never read here.
  */
-export async function verificationFileExists(root: string): Promise<boolean> {
+export async function verificationFileExists(repositoryDir: string): Promise<boolean> {
   try {
-    await stat(path.join(root, ".bugpilot", "verification.md"));
+    await stat(settingsFile(repositoryDir, "verification.md"));
     return true;
   } catch {
     return false;
@@ -531,13 +537,13 @@ export async function verificationFileExists(root: string): Promise<boolean> {
 }
 
 /**
- * Whether `.bugpilot/ai_behavior.md` is there at all — a file or anything else,
- * a link included. Asked only for a CLI too old to read it (0.1.4); the
- * contents are never read here.
+ * Whether the repository's `ai_behavior.md` setting is there at all — a file or
+ * anything else, a link included. Asked only for a CLI too old to read it
+ * (0.1.4); the contents are never read here.
  */
-export async function aiBehaviorFileExists(root: string): Promise<boolean> {
+export async function aiBehaviorFileExists(repositoryDir: string): Promise<boolean> {
   try {
-    await stat(path.join(root, ".bugpilot", "ai_behavior.md"));
+    await stat(settingsFile(repositoryDir, "ai_behavior.md"));
     return true;
   } catch {
     return false;
@@ -545,18 +551,18 @@ export async function aiBehaviorFileExists(root: string): Promise<boolean> {
 }
 
 /**
- * What `.bugpilot/verification.md` is, without following a link (§42.5): a
+ * What the repository's `verification.md` setting is, without following a link (§42.5): a
  * regular file the settings row's Edit may open in an editor tab, nothing, or
  * something else — a link, a folder — which Edit leaves alone, as the CLI's
  * own writes refuse it. The contents are never read here.
  */
-export async function verificationFileKind(root: string): Promise<"absent" | "file" | "other"> {
-  return bugpilotFileKind(root, "verification.md");
+export async function verificationFileKind(repositoryDir: string): Promise<"absent" | "file" | "other"> {
+  return bugpilotFileKind(repositoryDir, "verification.md");
 }
 
-/** The same for `.bugpilot/ai_behavior.md` (0.1.4), for the AI Behavior row's Edit. */
-export async function aiBehaviorFileKind(root: string): Promise<"absent" | "file" | "other"> {
-  return bugpilotFileKind(root, "ai_behavior.md");
+/** The same for the `ai_behavior.md` setting (0.1.4), for the AI Behavior row's Edit. */
+export async function aiBehaviorFileKind(repositoryDir: string): Promise<"absent" | "file" | "other"> {
+  return bugpilotFileKind(repositoryDir, "ai_behavior.md");
 }
 
 /**
@@ -628,7 +634,7 @@ export function createExtensionsPort(): NonNullable<ControllerPorts["extensions"
 /**
  * Where pasted and dropped attachments are kept (§37.98): the extension's own
  * global storage, `attachments/<digest>/<name>` — outside every repository, so
- * nothing lands in a working tree until a run copies it into `.ai/<id>/`.
+ * nothing lands in a working tree; a run copies it into the work item's folder.
  * The same content is the same directory, so a second paste rewrites the same
  * file rather than making another.
  */

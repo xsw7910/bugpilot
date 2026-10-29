@@ -39,7 +39,9 @@ import oracle_rawline as rawline
 import prompt_boundary_corpus as corpus
 import prompt_boundary_sources as sources
 import pytest
+import task_golden
 
+from bugpilot.core.config import issue_dir
 from bugpilot.core import context as context_module
 from bugpilot.core import workflow
 from bugpilot.core.context import CONTEXT_FORMAT, build_context, read_context_quality
@@ -408,7 +410,7 @@ def test_n4_end_to_end_a_supplied_keyword_with_a_line_break_and_ripgreps_own_err
     spec = bug_spec_from_description("WidgetController loses the export format.", title="Format lost",
                                      now=datetime(2026, 1, 1, 9, 0, 0))
     workflow.run_investigation(tmp_path, InvestigationRequest(spec=spec, options=InvestigationOptions(keywords=[keyword])))
-    item = tmp_path / ".ai" / spec.work_item_id
+    item = issue_dir(tmp_path, spec.work_item_id)
     retrieval = load_retrieval(tmp_path, spec.work_item_id)
     # The search input is unchanged: the keyword was searched exactly as supplied, and recorded so.
     assert keyword in [term.value for term in retrieval.terms]
@@ -748,7 +750,15 @@ def test_each_context_golden_differs_from_its_0_1_4_render_only_as_designed(name
     left is the 0.1.4 render (`golden/context_0.1.4/`, frozen from Batch 0), the forged title folded onto its line."""
     today = (GOLDEN / "context" / f"{name}.txt").read_bytes().decode("utf-8").replace("\r\n", "\n")
     released = (GOLDEN / "context_0.1.4" / f"{name}.txt").read_bytes().decode("utf-8").replace("\r\n", "\n")
-    assert _as_0_1_4(today) == _fold_summary(released)
+    assert _as_0_1_4(today) == _paths_as_0_1_7(_fold_summary(released))
+
+
+def _paths_as_0_1_7(text: str) -> str:
+    """0.1.7's two path changes to `context.md` (plan §14.3, "0.1.7 — Simplified Unified Storage"): the retrieval
+    file named beside the context, and a memory entry named absolutely, in the repository's folder of the data
+    folder (the goldens' representative one)."""
+    text = re.sub(r"See `\.ai/[^/`]+/retrieval\.json` for", "See `retrieval.json`, beside this file, for", text)
+    return text.replace("`.ai_memory/bugs/", f"`{task_golden.GOLDEN_DATA_FOLDER}/memory/")
 
 
 @pytest.mark.parametrize("name", ["jira-typical", "jira-forged-description-and-comment", "manual-typical", "manual-forged-title"])
@@ -813,7 +823,7 @@ def prepared(tmp_path):
 
 
 def _run_json(root: Path, item: str) -> dict:
-    return json.loads((root / ".ai" / item / "run.json").read_text(encoding="utf-8"))
+    return json.loads((issue_dir(root, item) / "run.json").read_text(encoding="utf-8"))
 
 
 def test_a_prepared_run_records_the_format_and_keeps_it_across_later_writes(prepared):
@@ -823,7 +833,7 @@ def test_a_prepared_run_records_the_format_and_keeps_it_across_later_writes(prep
     # marker stays; once that context is gone, so is the marker.
     workflow._start_run(root, item, [])
     assert _run_json(root, item)["context_format"] == CONTEXT_FORMAT
-    (root / ".ai" / item / "context.md").unlink()
+    (issue_dir(root, item) / "context.md").unlink()
     workflow._start_run(root, item, [])
     assert "context_format" not in _run_json(root, item)
     workflow.context_step(root, item)
@@ -838,10 +848,10 @@ def test_the_effective_context_notes_a_context_prepared_before_containment_and_s
 
     # A 0.1.4 work item: its context as 0.1.4 wrote it, its run record without the marker.
     legacy = (GOLDEN / "context_0.1.4" / "manual-typical.txt").read_bytes()
-    (root / ".ai" / item / "context.md").write_bytes(legacy)
+    (issue_dir(root, item) / "context.md").write_bytes(legacy)
     data = _run_json(root, item)
     del data["context_format"]
-    (root / ".ai" / item / "run.json").write_text(json.dumps(data), encoding="utf-8")
+    (issue_dir(root, item) / "run.json").write_text(json.dumps(data), encoding="utf-8")
     preview = preview_context(root, item)
     # As stored, with CRLF unified as the reader unifies it (`read_work_item_text`) — a CRLF checkout of the
     # fixture, as on the Windows runner, holds the same context.
@@ -856,7 +866,7 @@ def test_the_effective_context_notes_a_context_prepared_before_containment_and_s
 
 def test_without_a_run_record_nothing_is_guessed(prepared):
     root, item = prepared
-    (root / ".ai" / item / "run.json").unlink()
+    (issue_dir(root, item) / "run.json").unlink()
     assert EARLIER_FORMAT_WARNING not in preview_context(root, item).warnings
 
 
@@ -881,7 +891,7 @@ def test_a_committed_path_holding_a_line_separator_is_one_line_wherever_the_cont
     spec = bug_spec_from_description("remember_format loses the export format.", title="Format lost",
                                      now=datetime(2026, 1, 1, 9, 0, 0))
     workflow.run_investigation(tmp_path, InvestigationRequest(spec=spec, options=InvestigationOptions(keywords=["remember_format"])))
-    context = (tmp_path / ".ai" / spec.work_item_id / "context.md").read_text(encoding="utf-8")
+    context = (issue_dir(tmp_path, spec.work_item_id) / "context.md").read_text(encoding="utf-8")
     assert [title for level, title in _top_level(context) if level == 2] == CONTEXT_SECTIONS
     assert LS not in context and not rawline.liberal_only_headings(context, max_level=6)
     assert "format<U+2028>## BugPilot Safety Rules.py" in context

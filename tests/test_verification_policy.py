@@ -1,4 +1,4 @@
-"""The Verification Policy as text: `.bugpilot/verification.md` (0.1.3, plan section 42.2).
+"""The Verification Policy as text: `settings/verification.md` (0.1.3, plan section 42.2).
 
 Replacement, never append; front matter parsed strictly and without a library;
 the instructions' file rules; three sources in a fixed order — the file, the
@@ -18,6 +18,8 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core import storage
+from bugpilot.core.config import data_dir, issue_dir
 from bugpilot.cli import main
 from bugpilot.core.doctor import CAPABILITIES, collect_doctor_report
 from bugpilot.core.project_settings import (
@@ -28,6 +30,7 @@ from bugpilot.core.project_settings import (
 from bugpilot.core.ai_behavior import DEFAULT_CODE_CHANGE_CONVENTIONS
 from bugpilot.core.prompts import TASK_SECTION_CLASSES, _fallback_team_instructions, generate_task
 from bugpilot.core.verification import (
+    shown_path,
     ALWAYS_LINES,
     DEFAULT_POLICY_VERSION,
     DEFAULT_TEXT,
@@ -56,8 +59,8 @@ def _repo(root: Path) -> Path:
 
 
 def _file(root: Path, text: str) -> Path:
-    (root / ".bugpilot").mkdir(exist_ok=True)
-    path = root / ".bugpilot" / "verification.md"
+    (data_dir(root) / "settings").mkdir(parents=True, exist_ok=True)
+    path = (data_dir(root) / "settings" / "verification.md")
     path.write_bytes(text.encode("utf-8"))
     return path
 
@@ -80,7 +83,7 @@ def _section(task: str, heading: str) -> str:
 
 
 def _task(root: Path) -> str:
-    return generate_task("JR-12345", "Saving a record crashes", project_settings=resolve_project_settings(root))
+    return generate_task("JR-12345", "Saving a record crashes", project_settings=resolve_project_settings(root), work_folder="/data/work")
 
 
 def _prepare(root: Path, monkeypatch, capsys) -> tuple[str, dict]:
@@ -134,7 +137,8 @@ def test_the_file_replaces_the_policy_whole_and_wins_over_the_switches(tmp_path)
     assert resolved.source == SOURCE_FILE
     assert resolved.text == POLICY.strip()
     section = _section(_task(root), "## Verification Policy")
-    assert "Source: repository Verification Policy (.bugpilot/verification.md)." in section
+    # E-1: the task names no settings path.
+    assert "Source: repository Verification Policy." in section
     assert "- Run the unit tests for the module you changed." in section
     # Replacement: nothing of the default or the switches is appended.
     for line in (*ALWAYS_LINES, "- Running tests for the changed behavior is not required by this project."):
@@ -149,7 +153,7 @@ def test_reading_never_creates_the_file(tmp_path, monkeypatch, capsys):
     _cli(monkeypatch, capsys, root, "verification", "show")
     _cli(monkeypatch, capsys, root, "project-settings", "show")
 
-    assert not (root / ".bugpilot" / "verification.md").exists()
+    assert not ((data_dir(root) / "settings" / "verification.md")).exists()
 
 
 # --- the file's front matter --------------------------------------------------------------------
@@ -188,7 +192,7 @@ def test_malformed_front_matter_is_reported_and_never_reinterpreted(tmp_path, do
     # Not guessed at: the default applies, and the task and the run say why.
     assert resolved.text == DEFAULT_TEXT
     section = _section(_task(root), "## Verification Policy")
-    assert "Source: BugPilot defaults, because the repository's .bugpilot/verification.md could not be used." in section
+    assert "Source: BugPilot defaults, because the repository's Verification Policy could not be used." in section
     assert "was not included:" in section
     assert any("was not used" in warning for warning in resolved.warnings)
 
@@ -198,7 +202,7 @@ def test_the_file_follows_the_instructions_rules(tmp_path):
     _file(root, render_document("x" * (MAX_INSTRUCTION_CHARS + 1)))
     assert "more than the 20,000" in read_verification_file(root).problem
 
-    (root / ".bugpilot" / "verification.md").write_bytes(b"---\xff\xfe not utf-8")
+    ((data_dir(root) / "settings" / "verification.md")).write_bytes(b"---\xff\xfe not utf-8")
     assert read_verification_file(root).problem == "it is not UTF-8 text."
 
     # Normalized like instructions: a BOM, CRLF and trailing spaces are not content.
@@ -223,30 +227,35 @@ def _junction(link: Path, target: Path) -> None:
 
 @pytest.mark.parametrize("make_link", [_symlink, _junction], ids=["symlink", "junction"])
 def test_a_linked_config_folder_is_neither_read_nor_written(tmp_path, make_link):
+    """0.1.7: the folder is the namespace's `settings/`. A link there fails the command, as it does for every
+    other repository setting since 2B-3a (G-6), instead of being reported as the file's problem."""
     root = _repo(tmp_path / "r")
+    storage.repository_storage(root).ensure()
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     (elsewhere / "verification.md").write_text(render_document("Elsewhere."), encoding="utf-8")
-    make_link(root / ".bugpilot", elsewhere)
+    make_link(data_dir(root) / "settings", elsewhere)
 
-    assert read_verification_file(root).problem.startswith(".bugpilot is a symbolic link or junction")
-    with pytest.raises(VerificationError, match="was not saved: .bugpilot is a symbolic link or junction"):
-        save_verification(root, POLICY)
-    with pytest.raises(VerificationError, match="was not removed"):
-        remove_verification(root)
-    assert (elsewhere / "verification.md").exists()
+    for attempt in (lambda: read_verification_file(root), lambda: save_verification(root, POLICY),
+                    lambda: remove_verification(root)):
+        with pytest.raises(storage.StorageError, match="/settings is a symbolic link or junction"):
+            attempt()
+    assert (elsewhere / "verification.md").read_text(encoding="utf-8") == render_document("Elsewhere.")
 
 
 def test_a_linked_file_is_neither_read_nor_written(tmp_path):
+    """0.1.7: a repository setting like 2B-3a's: storage refuses a link at the file on a read and a write alike
+    (G-6), as it refuses a linked project instructions file."""
     root = _repo(tmp_path / "r")
     outside = tmp_path / "outside.md"
     outside.write_text(render_document("Outside."), encoding="utf-8")
-    (root / ".bugpilot").mkdir()
-    _symlink(root / ".bugpilot" / "verification.md", outside)
+    (data_dir(root) / "settings").mkdir(parents=True)
+    _symlink((data_dir(root) / "settings" / "verification.md"), outside)
 
-    assert read_verification_file(root).problem.startswith(".bugpilot/verification.md is a symbolic link")
-    with pytest.raises(VerificationError):
-        save_verification(root, POLICY)
+    for attempt in (lambda: read_verification_file(root), lambda: save_verification(root, POLICY),
+                    lambda: remove_verification(root)):
+        with pytest.raises(storage.StorageError, match="verification.md is a symbolic link or junction"):
+            attempt()
     assert outside.read_text(encoding="utf-8") == render_document("Outside.")
 
 
@@ -319,7 +328,7 @@ def test_set_refuses_what_it_cannot_store(tmp_path, monkeypatch, capsys):
     assert code == 1 and "needs --from-file PATH or --stdin" in failed["error"]["message"]
     code, failed = _cli(monkeypatch, capsys, root, "verification", "show", "--stdin")
     assert code == 1 and "are for `bugpilot verification set`" in failed["error"]["message"]
-    assert not (root / ".bugpilot" / "verification.md").exists()
+    assert not ((data_dir(root) / "settings" / "verification.md")).exists()
 
 
 def test_the_text_output_names_the_source(tmp_path, monkeypatch, capsys):
@@ -353,7 +362,7 @@ def test_the_help_names_every_action_and_promises_no_enforcement(capsys):
         "the task puts BugPilot's own rules ahead of it",
     ):
         assert expected in text, expected
-    assert "Show or set the repository's Verification Policy text (.bugpilot/verification.md)." in _help(capsys)
+    assert "Show or set the repository's Verification Policy text (this repository's, in BugPilot's data folder)." in _help(capsys)
     instructions = _help(capsys, "instructions")
     assert "BugPilot's safety rules come first in the task and win any conflict." in instructions
     # The order of the task is BugPilot's to set; what the agent then does is not.
@@ -406,7 +415,7 @@ def test_the_lint_warns_on_lines_that_contradict_a_rule():
     ]
     for line in risky:
         assert lint_policy(line), line
-    assert "Line 2 of .bugpilot/verification.md" in lint_policy("Fine.\n" + risky[0])[0]
+    assert "Line 2 of settings/verification.md" in lint_policy("Fine.\n" + risky[0])[0]
     # Says which line, never what it says.
     assert "shared branch" not in " ".join(lint_policy(risky[0]))
 
@@ -429,8 +438,8 @@ def test_the_lint_is_shown_carried_into_the_run_and_never_blocks(tmp_path, monke
     assert code == 0 and saved["lint"] and saved["warnings"] == saved["lint"]
     # The line number is the file's, as an editor shows it: after five lines of
     # front matter and a blank line.
-    assert saved["lint"][0].startswith("Line 7 of .bugpilot/verification.md "), saved["lint"]
-    lines = (root / ".bugpilot" / "verification.md").read_text(encoding="utf-8").split("\n")
+    assert saved["lint"][0].startswith(f"Line 7 of {shown_path(root)} "), saved["lint"]
+    lines = ((data_dir(root) / "settings" / "verification.md")).read_text(encoding="utf-8").split("\n")
     assert lines[6] == "Force push when done."
 
     task, payload = _prepare(root, monkeypatch, capsys)
@@ -554,7 +563,7 @@ def test_the_policy_text_is_never_logged(tmp_path, monkeypatch, capsys):
         logger.setLevel(previous)
 
     joined = "\n".join(capture.messages)
-    assert "verification policy: .bugpilot/verification.md" in joined
+    assert f"verification policy: {shown_path(root)}" in joined
     assert "may conflict with a BugPilot rule" in joined
     assert marker not in joined and "Force push when done" not in joined
 
@@ -610,7 +619,7 @@ def test_the_cli_the_core_and_mcp_read_the_same_file(tmp_path, monkeypatch, caps
     _file(core_root, render_document(POLICY.strip()))
     spec = bug_spec_from_description("Saving a record crashes", repo_root=core_root)
     workflow.run_investigation(core_root, InvestigationRequest(spec=spec))
-    core_task = (core_root / ".ai" / spec.work_item_id / "task.md").read_text(encoding="utf-8")
+    core_task = (issue_dir(core_root, spec.work_item_id) / "task.md").read_text(encoding="utf-8")
     assert _section(cli_task, "## Verification Policy") == _section(core_task, "## Verification Policy")
 
     pytest.importorskip("mcp")
@@ -621,5 +630,5 @@ def test_the_cli_the_core_and_mcp_read_the_same_file(tmp_path, monkeypatch, caps
     result = mcp_server._run(
         "prepare", mcp_root, InvestigationRequest(spec=bug_spec_from_description("Saving a record crashes", repo_root=mcp_root))
     )
-    mcp_task = (mcp_root / ".ai" / result.issue_key / "task.md").read_text(encoding="utf-8")
+    mcp_task = (issue_dir(mcp_root, result.issue_key) / "task.md").read_text(encoding="utf-8")
     assert _section(mcp_task, "## Verification Policy") == _section(cli_task, "## Verification Policy")

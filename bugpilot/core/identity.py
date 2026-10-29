@@ -7,7 +7,7 @@ These are different concepts and are answered by different questions:
 - :func:`is_jira_issue_key` — "can this be written back to Jira?" It gates the
   Jira input adapter and every Jira write (comment draft, comment post).
 - :func:`is_work_item_id` — "is this a safe artifact directory name?" It gates
-  ``.ai/<work_item>/`` creation and cleanup containment.
+  the creation and cleanup containment of a work item's folder (``work/<work_item>/``).
 
 A local id deliberately fails :func:`is_jira_issue_key`: the ``local_`` prefix
 puts an underscore where a Jira key needs a dash before its digits, so nothing
@@ -80,7 +80,7 @@ def is_known_work_item_id(value: str) -> bool:
 
 
 def is_work_item_id(value: str) -> bool:
-    """True when ``value`` is safe to use as a ``.ai/<work_item>/`` directory name.
+    """True when ``value`` is safe to use as a work item's folder name (``work/<work_item>/``).
 
     Deliberately permissive: it must accept every id shape this tool can create,
     so it is a containment check, not a classifier. To decide whether a user typed

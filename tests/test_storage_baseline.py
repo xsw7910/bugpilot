@@ -64,9 +64,10 @@ def test_the_designed_differences_records_are_well_formed_and_made_against_the_f
         "ea9659cd39ccc16565a95ffce5937eee1bdbbf51",  # Batch 2B-2
         "5b66ffea28ee660599428453391cf32ad20a6818",  # Batch 2B-3a
         "93118926956464e6baa9c5c2631bc74166bf241c",  # Batch 2B-3b
+        "8d69f6fc66a1c5e4c76a958e9e692c770ee937d7",  # 0.1.7, Simplified Unified Storage
     ]
     assert [path.parent.name for path in baseline.DESIGNED_CHAIN] == [
-        "0.1.6-batch2b2", "0.1.6-batch2b3a", "0.1.6-batch2b3b"]
+        "0.1.6-batch2b2", "0.1.6-batch2b3a", "0.1.6-batch2b3b", "0.1.7"]
 
 
 def test_each_designed_difference_names_independent_evidence_that_exists():
@@ -89,8 +90,8 @@ def test_each_designed_difference_names_independent_evidence_that_exists():
 
 def test_the_supersession_table_is_exactly_the_two_approved_pairs_with_their_historical_evidence():
     assert baseline.SUPERSEDED == {
-        "DD-5": {"by": "DD-13", "verified_at": "743f542ad328b1af5eb9f0b494d07491f2b33ed7", "ci_run": "39675645316"},
-        "DD-9": {"by": "DD-15", "verified_at": "743f542ad328b1af5eb9f0b494d07491f2b33ed7", "ci_run": "39675645316"},
+        "DD-5": {"by": "U7-10", "verified_at": "743f542ad328b1af5eb9f0b494d07491f2b33ed7", "ci_run": "39675645316"},
+        "DD-9": {"by": "U7-12", "verified_at": "743f542ad328b1af5eb9f0b494d07491f2b33ed7", "ci_run": "39675645316"},
     }
 
 
@@ -288,7 +289,7 @@ def test_every_slice_must_be_made_against_the_frozen_records(synthetic):
 # --- superseded evidence (E-3, Batch 2B-3b), on synthetic records in memory -------------------------
 
 _OLD = {"DD-5": "tests/test_a.py::old_five", "DD-9": "tests/test_a.py::old_nine"}
-_NEW = {"DD-13": "tests/test_b.py::new_thirteen", "DD-15": "tests/test_b.py::new_fifteen"}
+_NEW = {"U7-10": "tests/test_b.py::new_thirteen", "U7-12": "tests/test_b.py::new_fifteen"}
 
 
 def _entry(ident: str, pointer: str, before, after, evidence: str, approved: str | None = "2026-10-21") -> dict:
@@ -296,12 +297,12 @@ def _entry(ident: str, pointer: str, before, after, evidence: str, approved: str
             "decision": "synthetic", "evidence": evidence, "approved": approved}
 
 
-def _dd13(**changes) -> dict:
-    return {**_entry("DD-13", "/steps/9/created", ["a", "b"], [], _NEW["DD-13"]), **changes}
+def _u7_10(**changes) -> dict:
+    return {**_entry("U7-10", "/steps/9/created", ["a", "b"], [], _NEW["U7-10"]), **changes}
 
 
-def _dd15(**changes) -> dict:
-    return {**_entry("DD-15", "/git_status", ["x"], [], _NEW["DD-15"]), **changes}
+def _u7_12(**changes) -> dict:
+    return {**_entry("U7-12", "/git_status", ["x"], [], _NEW["U7-12"]), **changes}
 
 
 def _record(name: str, *entries: dict) -> dict:
@@ -333,7 +334,7 @@ def test_an_inactive_pair_still_requires_its_historical_evidence():
     """No successor yet: a retired earlier test is a problem, not an exemption."""
     states, problems, _pending = _judge(_supersession_chain(), {_OLD["DD-9"]})
     assert states["DD-5"] == baseline.INACTIVE
-    assert problems == ["supersession DD-5 -> DD-13: inactive, so DD-5's evidence is still required, and it is missing"]
+    assert problems == ["supersession DD-5 -> U7-10: inactive, so DD-5's evidence is still required, and it is missing"]
 
 
 def test_a_missing_successor_never_excuses_retired_evidence_for_either_pair():
@@ -345,56 +346,56 @@ def test_a_pair_whose_earlier_entry_is_not_in_the_chain_is_a_problem():
     chain = [_record("earlier", _entry("DD-9", "/git_status", ["x", "y"], ["x"], _OLD["DD-9"])), _record("later")]
     states, problems, _pending = _judge(chain, set(_OLD.values()))
     assert "DD-5" not in states
-    assert problems == ["supersession DD-5 -> DD-13: DD-5 is not listed exactly once in the chain"]
+    assert problems == ["supersession DD-5 -> U7-10: DD-5 is not listed exactly once in the chain"]
 
 
 def test_a_duplicated_successor_is_a_problem():
-    chain = [*_supersession_chain(_dd13()), _record("third", _dd13())]
+    chain = [*_supersession_chain(_u7_10()), _record("third", _u7_10())]
     states, problems, _pending = _judge(chain, {*_OLD.values(), *_NEW.values()})
     assert "DD-5" not in states
-    assert "supersession DD-5 -> DD-13: DD-13 is listed more than once in the chain" in problems
+    assert "supersession DD-5 -> U7-10: U7-10 is listed more than once in the chain" in problems
 
 
 def test_an_unapproved_successor_is_pending_and_reported_never_treated_as_approved():
-    chain = _supersession_chain(_dd13(approved=None), _dd15())
+    chain = _supersession_chain(_u7_10(approved=None), _u7_12())
     states, problems, pending = _judge(chain, set(_NEW.values()))
     assert states == {"DD-5": baseline.PENDING, "DD-9": baseline.ACTIVE}
-    assert problems == [] and pending == ["DD-5 -> DD-13"]
+    assert problems == [] and pending == ["DD-5 -> U7-10"]
     # The approval gate reports both the unapproved value and the pending pair until the owner approves.
-    assert baseline.unapproved(chain) == ["DD-13"]
+    assert baseline.unapproved(chain) == ["U7-10"]
 
 
 @pytest.mark.parametrize("successor, message", [
-    (_dd13(record="cli_paths.json"), "DD-13 names another record than DD-5"),
-    (_dd13(pointer="/steps/10/created"), "DD-13 names another pointer than DD-5"),
-    (_dd13(**{"from": ["a"]}), "DD-13's `from` is not DD-5's `to`"),
-    (_dd13(evidence="tests/test_b.py::nowhere"), "DD-13's evidence does not exist"),
-    (_dd13(evidence=_OLD["DD-5"]), "DD-13 names DD-5's evidence, not its own"),
+    (_u7_10(record="cli_paths.json"), "U7-10 names another record than DD-5"),
+    (_u7_10(pointer="/steps/10/created"), "U7-10 names another pointer than DD-5"),
+    (_u7_10(**{"from": ["a"]}), "U7-10's `from` is not DD-5's `to`"),
+    (_u7_10(evidence="tests/test_b.py::nowhere"), "U7-10's evidence does not exist"),
+    (_u7_10(evidence=_OLD["DD-5"]), "U7-10 names DD-5's evidence, not its own"),
 ])
 def test_a_successor_that_does_not_match_is_a_problem_and_exempts_nothing(successor, message):
     states, problems, pending = _judge(_supersession_chain(successor), {*_OLD.values(), *_NEW.values()})
     assert "DD-5" not in states and pending == []
-    assert problems == [f"supersession DD-5 -> DD-13: {message}"]
+    assert problems == [f"supersession DD-5 -> U7-10: {message}"]
 
 
 @pytest.mark.parametrize("placement", ["same record", "earlier record"])
 def test_a_successor_out_of_chronological_order_is_a_problem(placement):
     chain = _supersession_chain()
     if placement == "same record":
-        chain[0]["differences"].append(_dd13())
+        chain[0]["differences"].append(_u7_10())
     else:
-        chain.insert(0, _record("before", _dd13()))
+        chain.insert(0, _record("before", _u7_10()))
     states, problems, _pending = _judge(chain, {*_OLD.values(), *_NEW.values()})
     assert "DD-5" not in states
-    assert "supersession DD-5 -> DD-13: DD-13 is not in a later slice's record than DD-5" in problems
+    assert "supersession DD-5 -> U7-10: U7-10 is not in a later slice's record than DD-5" in problems
 
 
 def test_an_active_pair_requires_its_old_test_retired_and_then_exempts_it():
-    chain = _supersession_chain(_dd13(), _dd15())
+    chain = _supersession_chain(_u7_10(), _u7_12())
     _states, problems, _pending = _judge(chain, {*_OLD.values(), *_NEW.values()})
     assert problems == [
-        "supersession DD-5 -> DD-13: active, so DD-5's retired evidence must be removed",
-        "supersession DD-9 -> DD-15: active, so DD-9's retired evidence must be removed",
+        "supersession DD-5 -> U7-10: active, so DD-5's retired evidence must be removed",
+        "supersession DD-9 -> U7-12: active, so DD-9's retired evidence must be removed",
     ]
     states, problems, pending = _judge(chain, set(_NEW.values()))
     assert states == {"DD-5": baseline.ACTIVE, "DD-9": baseline.ACTIVE} and problems == [] and pending == []
@@ -405,9 +406,9 @@ def test_an_active_pair_requires_its_old_test_retired_and_then_exempts_it():
     {"DD-5": {"by": "DD-14"}, "DD-9": baseline.SUPERSEDED["DD-9"]},
 ])
 def test_any_pair_beyond_the_two_approved_ones_is_a_problem(table):
-    chain = _supersession_chain(_dd13(), _dd15())
+    chain = _supersession_chain(_u7_10(), _u7_12())
     _states, problems, _pending = _judge(chain, set(_NEW.values()), table)
-    assert any("not an approved pair (only DD-5 -> DD-13 and DD-9 -> DD-15 are)" in problem for problem in problems)
+    assert any("not an approved pair (only DD-5 -> U7-10 and DD-9 -> U7-12 are)" in problem for problem in problems)
 
 
 # --- the repository-ID label (M-a, Batch 2B-3a) ----------------------------------------------------

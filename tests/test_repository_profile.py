@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core.config import issue_dir
 from bugpilot.cli import main
 from bugpilot.core import storage, workflow
 from bugpilot.core.input_adapters import bug_spec_from_description
@@ -506,7 +507,7 @@ def test_the_cli_and_the_core_entry_point_write_the_same_context(tmp_path, monke
     cli_task, _payload = _prepare(cli_repo, monkeypatch, capsys)
     spec = bug_spec_from_description("Saving a record crashes", repo_root=core_repo)
     workflow.run_investigation(core_repo, InvestigationRequest(spec=spec))
-    core_task = (core_repo / ".ai" / spec.work_item_id / "task.md").read_text(encoding="utf-8")
+    core_task = (issue_dir(core_repo, spec.work_item_id) / "task.md").read_text(encoding="utf-8")
 
     assert _section(cli_task) == _section(core_task)
 
@@ -518,7 +519,7 @@ def test_the_mcp_prepare_tool_uses_the_saved_profile(tmp_path):
     repo = python_repo(tmp_path)
     save_repository_profile(repo, RepositoryProfile(mode="custom", custom=RepositoryFacts(languages="Elixir")))
     result = mcp_server._run("prepare", repo, InvestigationRequest(spec=bug_spec_from_description("crash", repo_root=repo)))
-    task = (repo / ".ai" / result.issue_key / "task.md").read_text(encoding="utf-8")
+    task = (issue_dir(repo, result.issue_key) / "task.md").read_text(encoding="utf-8")
 
     assert "- Languages: Elixir" in _section(task)
 
@@ -537,7 +538,7 @@ def test_regenerating_the_task_reads_the_profile_again(tmp_path, monkeypatch, ca
 
 
 def test_repository_context_sits_between_the_safety_rules_and_the_branch_rules():
-    task = generate_task("JR-1", "Saving crashes")
+    task = generate_task("JR-1", "Saving crashes", work_folder="/data/work")
     order = [task.index(heading) for heading in (
         "## BugPilot Safety Rules", "## Repository Context", "## Branch Instructions", "## AI Fix Mode",
         "## BugPilot Rule Precedence",
@@ -546,7 +547,7 @@ def test_repository_context_sits_between_the_safety_rules_and_the_branch_rules()
 
 
 def test_the_precedence_section_lists_the_layers_in_order():
-    task = generate_task("JR-1", "Saving crashes")
+    task = generate_task("JR-1", "Saving crashes", work_folder="/data/work")
     section = task[task.index("## BugPilot Rule Precedence"):]
 
     assert INSTRUCTION_LAYERS[0] == "BugPilot safety rules"
@@ -558,7 +559,7 @@ def test_the_precedence_section_lists_the_layers_in_order():
 
 def test_no_task_is_repository_specific_by_default():
     """generate_task without a resolved profile is the Generic one."""
-    task = generate_task("JR-1", "Saving crashes")
+    task = generate_task("JR-1", "Saving crashes", work_folder="/data/work")
 
     assert "Repository profile: Generic." in task
     assert not ASSUMPTIONS.search(task)

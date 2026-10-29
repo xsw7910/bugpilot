@@ -24,7 +24,7 @@ from pathlib import Path
 
 from .artifact_io import atomic_write_text
 from .artifacts import VERIFICATION_REPORT_ARTIFACT, WorkItemNotFoundError
-from .config import issue_dir, writable_issue_dir
+from .config import issue_dir, shown_work, writable_issue_dir
 from .identity import validate_work_item_id
 
 #: Recorded statuses, as stored in JSON and as written in the report.
@@ -289,7 +289,7 @@ def record_verification(
     # Checked for links before the report is written.
     target = writable_issue_dir(repo_root, work_item_id, create=False)
     if not target.is_dir():
-        raise WorkItemNotFoundError(f"Work item not found: .ai/{work_item_id}/")
+        raise WorkItemNotFoundError(f"Work item not found: {shown_work(repo_root, work_item_id)}")
     normalized = normalize_checks(checks)
     text = render_verification_report(work_item_id, normalized)
     # The format must read back as exactly what was entered, or it is not written.
@@ -299,7 +299,7 @@ def record_verification(
     existed = path.exists()
     if existed and not replace:
         raise VerificationReportExistsError(
-            f"Verification evidence is already recorded in .ai/{work_item_id}/{VERIFICATION_REPORT_ARTIFACT}. "
+            f"Verification evidence is already recorded in {shown_work(repo_root, work_item_id, VERIFICATION_REPORT_ARTIFACT)}. "
             "It was kept; pass --replace to overwrite it."
         )
     atomic_write_text(path, text)

@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core.config import data_dir, issue_dir
 from bugpilot.cli import main
 from bugpilot.core.ai_behavior import render_document as render_ai_behavior
 from bugpilot.core.context import (
@@ -27,6 +28,7 @@ from bugpilot.core.context import (
 from bugpilot.core.context_preview import NO_CONTEXT, UNCHECKED, preview_context
 from bugpilot.core.doctor import CAPABILITIES
 from bugpilot.core.retrieval import load_retrieval
+from bugpilot.core.storage import StorageError
 from bugpilot.core.verification import render_document as render_verification
 
 
@@ -55,7 +57,7 @@ def _prepare(monkeypatch, capsys, root: Path, *argv: str) -> str:
 
 
 def _context_md(root: Path, work_item: str) -> str:
-    return (root / ".ai" / work_item / "context.md").read_bytes().decode("utf-8").replace("\r\n", "\n")
+    return (issue_dir(root, work_item) / "context.md").read_bytes().decode("utf-8").replace("\r\n", "\n")
 
 
 def _settings_file(root: Path, name: str) -> Path:
@@ -152,7 +154,7 @@ def test_a_changed_task_input_makes_the_context_stale_and_it_is_still_shown(
 ):
     work_item = _prepare(monkeypatch, capsys, repo)
     stored = _context_md(repo, work_item)
-    prepared_files = _snapshot(repo / ".ai")
+    prepared_files = _snapshot((data_dir(repo) / "work"))
     if layer == "repository_profile":
         payload = repo / "profile.json"
         payload.write_text(json.dumps({"mode": "generic"}), encoding="utf-8")
@@ -164,8 +166,8 @@ def test_a_changed_task_input_makes_the_context_stale_and_it_is_still_shown(
         path, text = {
             "user": (user_config_folder / "instructions.md", "Explain every decision.\n"),
             "project": (None, "Name the module owner.\n"),  # where 0.1.6 keeps it: made below
-            "verification": (repo / ".bugpilot" / "verification.md", render_verification("- Run the full suite.")),
-            "ai_behavior": (repo / ".bugpilot" / "ai_behavior.md", render_ai_behavior("- Quote the failing line.")),
+            "verification": ((data_dir(repo) / "settings" / "verification.md"), render_verification("- Run the full suite.")),
+            "ai_behavior": ((data_dir(repo) / "settings" / "ai_behavior.md"), render_ai_behavior("- Quote the failing line.")),
         }[layer]
         path = path or _settings_file(repo, "instructions.md")
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -177,7 +179,7 @@ def test_a_changed_task_input_makes_the_context_stale_and_it_is_still_shown(
     assert stale["freshness"]["current"] is False
     assert stale["freshness"]["reasons"] == [{"code": code, "label": label}]
     assert stale["text"] == stored, "a stale context must still be shown as it was generated"
-    assert _snapshot(repo / ".ai") == prepared_files, "previewing rebuilt something"
+    assert _snapshot((data_dir(repo) / "work")) == prepared_files, "previewing rebuilt something"
 
     monkeypatch.chdir(repo)
     assert main(["context-preview", work_item]) == 0
@@ -218,26 +220,26 @@ def test_no_work_item_is_an_answer_not_an_error(repo, monkeypatch, capsys):
     monkeypatch.chdir(repo)
     assert main(["context-preview"]) == 0
     assert capsys.readouterr().out == NO_CONTEXT + "\n"
-    assert not (repo / ".ai").exists()
+    assert not ((data_dir(repo) / "work")).exists()
 
 
 def test_a_work_item_never_prepared_has_no_context_yet(repo, monkeypatch, capsys):
     code, payload = _json(monkeypatch, capsys, repo, "context-preview", "JR-12345")
     assert code == 0 and (payload["state"], payload["text"]) == ("not-generated", None)
-    assert not (repo / ".ai").exists()
+    assert not ((data_dir(repo) / "work")).exists()
 
 
 def test_a_work_item_whose_context_was_never_built_is_not_generated(repo, monkeypatch, capsys):
     monkeypatch.chdir(repo)
     assert main(["bug", "JR-12345", "--allow-mock", "--only-issue-details", "--json"]) == 0
     capsys.readouterr()
-    assert not (repo / ".ai" / "JR-12345" / "context.md").exists()
+    assert not (issue_dir(repo, "JR-12345") / "context.md").exists()
     assert preview_context(repo, "JR-12345").state == "not-generated"
 
 
 def test_a_context_that_was_generated_and_is_gone_is_missing(repo, monkeypatch, capsys):
     work_item = _prepare(monkeypatch, capsys, repo)
-    (repo / ".ai" / work_item / "context.md").unlink()
+    (issue_dir(repo, work_item) / "context.md").unlink()
     _, payload = _json(monkeypatch, capsys, repo, "context-preview", work_item)
     assert payload["ok"] and payload["state"] == "missing" and payload["text"] is None
     assert payload["generated"]["artifacts"]["context"] is False and payload["generated"]["context_step"] == "pass"
@@ -245,19 +247,29 @@ def test_a_context_that_was_generated_and_is_gone_is_missing(repo, monkeypatch, 
 
 def test_an_unreadable_context_is_said_so_not_shown(repo, monkeypatch, capsys):
     work_item = _prepare(monkeypatch, capsys, repo)
-    (repo / ".ai" / work_item / "context.md").write_bytes(b"\xff\xfe not utf-8")
+    (issue_dir(repo, work_item) / "context.md").write_bytes(b"\xff\xfe not utf-8")
     _, payload = _json(monkeypatch, capsys, repo, "context-preview", work_item)
     assert payload["ok"] and payload["state"] == "unreadable" and payload["text"] is None
-    assert payload["problems"] == [f".ai/{work_item}/context.md could not be read as UTF-8 text."]
+    assert payload["problems"] == [f"work/{work_item}/context.md could not be read as UTF-8 text."]
+
+
+def test_a_namespace_storage_refuses_is_not_previewed(repo, monkeypatch, capsys):
+    """0.1.7: storage's checks of the data folder come before any file of the work item is read, so a namespace
+    whose record names another repository fails the preview instead of showing its files."""
+    work_item = _prepare(monkeypatch, capsys, repo)
+    record = data_dir(repo) / "repository.json"
+    record.write_text(json.dumps({**json.loads(record.read_text(encoding="utf-8")), "root": str(repo.parent)}), encoding="utf-8")
+    with pytest.raises(StorageError, match="belongs to a different repository folder"):
+        preview_context(repo, work_item)
 
 
 def test_a_linked_work_item_folder_is_not_read(repo, tmp_path):
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     (elsewhere / "context.md").write_text("# Bug Context: JR-12345\n", encoding="utf-8")
-    (repo / ".ai").mkdir()
+    (data_dir(repo) / "work").mkdir(parents=True)
     try:
-        (repo / ".ai" / "JR-12345").symlink_to(elsewhere, target_is_directory=True)
+        (issue_dir(repo, "JR-12345")).symlink_to(elsewhere, target_is_directory=True)
     except OSError as exc:
         pytest.skip(f"cannot create a symbolic link here: {exc}")
     preview = preview_context(repo, "JR-12345")
@@ -271,7 +283,7 @@ def test_a_linked_work_item_folder_is_not_read(repo, tmp_path):
 )
 def test_a_missing_or_unusable_retrieval_never_reads_as_current(repo, monkeypatch, capsys, damage, code):
     work_item = _prepare(monkeypatch, capsys, repo)
-    path = repo / ".ai" / work_item / "retrieval.json"
+    path = issue_dir(repo, work_item) / "retrieval.json"
     if damage == "delete":
         path.unlink()
     elif damage == "corrupt":
@@ -287,21 +299,21 @@ def test_a_missing_or_unusable_retrieval_never_reads_as_current(repo, monkeypatc
 
 def test_a_context_step_that_did_not_pass_or_a_missing_task_is_stale(repo, monkeypatch, capsys):
     work_item = _prepare(monkeypatch, capsys, repo)
-    run = repo / ".ai" / work_item / "run.json"
+    run = issue_dir(repo, work_item) / "run.json"
     data = json.loads(run.read_text(encoding="utf-8"))
     data["steps"]["context"] = "fail"
     run.write_text(json.dumps(data), encoding="utf-8")
     assert [reason.code for reason in preview_context(repo, work_item).reasons] == ["context_step_not_passed"]
 
     work_item = _prepare(monkeypatch, capsys, repo, "--description", "Saving a record crashes")
-    (repo / ".ai" / work_item / "task.md").unlink()
+    (issue_dir(repo, work_item) / "task.md").unlink()
     assert [reason.code for reason in preview_context(repo, work_item).reasons] == ["task_missing"]
 
 
 def test_a_task_that_differs_only_outside_its_sections_is_stale_not_current(repo, monkeypatch, capsys):
     """Its title edited (or its sections reordered): no section's body differs, yet it is not the task BugPilot writes."""
     work_item = _prepare(monkeypatch, capsys, repo)
-    task = repo / ".ai" / work_item / "task.md"
+    task = issue_dir(repo, work_item) / "task.md"
     first, rest = task.read_bytes().decode("utf-8").split("\n", 1)
     task.write_bytes(f"{first} (edited by hand)\n{rest}".encode("utf-8"))
 
@@ -313,7 +325,7 @@ def test_a_task_that_differs_only_outside_its_sections_is_stale_not_current(repo
 
 def test_a_context_whose_work_item_cannot_be_checked_is_unknown_not_current(repo, monkeypatch, capsys):
     work_item = _prepare(monkeypatch, capsys, repo)
-    (repo / ".ai" / work_item / "issue.json").write_text("{broken", encoding="utf-8")
+    (issue_dir(repo, work_item) / "issue.json").write_text("{broken", encoding="utf-8")
     _, payload = _json(monkeypatch, capsys, repo, "context-preview", work_item)
     assert payload["ok"] and payload["state"] == "unknown" and payload["freshness"]["current"] is None
     assert payload["text"] == _context_md(repo, work_item)
@@ -382,11 +394,11 @@ def test_context_quality_is_read_back_exactly_as_written(quality):
 def test_a_context_without_a_quality_section_reads_as_none_with_a_warning(repo, monkeypatch, capsys):
     assert read_context_quality("# Bug Context: JR-12345\n\n## Issue\n\nx\n") is None
     work_item = _prepare(monkeypatch, capsys, repo)
-    path = repo / ".ai" / work_item / "context.md"
+    path = issue_dir(repo, work_item) / "context.md"
     path.write_text(_context_md(repo, work_item).replace("## Context Quality", "## Quality Notes"), encoding="utf-8")
     _, payload = _json(monkeypatch, capsys, repo, "context-preview", work_item)
     assert payload["quality"] is None and payload["state"] == "current"
-    assert payload["warnings"] == [f"The Context Quality section of .ai/{work_item}/context.md could not be read."]
+    assert payload["warnings"] == [f"The Context Quality section of work/{work_item}/context.md could not be read."]
 
 
 # --- the CLI ------------------------------------------------------------------------------------
@@ -416,4 +428,7 @@ def test_the_help_says_it_never_builds_a_context(capsys):
 
 
 def test_doctor_lists_the_capability_last():
-    assert CAPABILITIES == ("verification-text", "ai-behavior-text", "protected-rules", "task-preview", "context-preview")
+    # 0.1.7 appended one after it: the work items are in BugPilot's data folder.
+    assert CAPABILITIES == (
+        "verification-text", "ai-behavior-text", "protected-rules", "task-preview", "context-preview", "unified-storage"
+    )

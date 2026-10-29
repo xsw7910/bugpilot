@@ -70,6 +70,7 @@ import type { PayloadCommandRequest } from "./fixModeTransport.ts";
 import type { ReviewPackage } from "./reviewPackage.ts";
 import type { ContextCounts, RelevantFile } from "./contextSummary.ts";
 import type { FieldProblem, FormState } from "./form.ts";
+import { SETTINGS_FOLDER, WORK_FOLDER, promptPath, repositoryDirectoryOf, settingsFile, workItemDirectory } from "./dataFolder.ts";
 import { AgentService, capturedReviewOf } from "./agents.ts";
 import type { AgentActivity } from "./terminalActivity.ts";
 import { commandForLog, redactKnown, rejectedValueForLog, sensitiveValues, stderrForLog } from "./logSafety.ts";
@@ -246,7 +247,7 @@ export interface RunnerPort {
  * `missing` and `unreadable` are kept apart because they mean opposite things
  * to a developer: the first is the normal state before a run, the second is a
  * permission or filesystem problem they have to fix. Collapsing both into an
- * empty list is what made the "`.ai/` is unreadable" state of §5.4 unreachable.
+ * empty list is what made the "work folder is unreadable" state of §5.4 unreachable.
  */
 export type DirectoryListing =
   | { readonly kind: "ok"; readonly names: readonly string[] }
@@ -267,7 +268,7 @@ interface VerificationBaseline {
 /**
  * The prepared form's fingerprint, read both ways (§42.5): with the legacy
  * Verification switches, as while they decide, and without them, as once
- * `.bugpilot/verification.md` does. A policy source that moves to or from the
+ * `settings/verification.md` does. A policy source that moves to or from the
  * file since is then compared like with like — never mistaken for a form edit.
  */
 interface PreparedForm {
@@ -319,7 +320,7 @@ export interface FilesPort {
    */
   readFile(file: string, workItem: WorkItemFolder): Promise<string | undefined>;
   /**
-   * `workItem`, when `file` is in `.ai/<work item>/`: the host then writes it
+   * `workItem`, when `file` is in `work/<work item>/`: the host then writes it
    * only through real directories inside the repository, never through a link
    * (`writeWorkItemFile` in `sessionReset.ts`).
    */
@@ -335,9 +336,12 @@ export interface FilesPort {
   removeScratchFile?(file: string): Promise<void>;
 }
 
-/** The repository and work item a file in `.ai/<work item>/` belongs to. */
+/**
+ * The work item a file in `work/<work item>/` belongs to, and the folder that is below: the repository's
+ * folder in BugPilot's data folder (`doctor`'s `storage.repository_dir`, 0.1.7), where the link checks start.
+ */
 export interface WorkItemFolder {
-  readonly root: string;
+  readonly base: string;
   readonly workItemId: string;
 }
 
@@ -358,7 +362,7 @@ export interface UiPort {
    */
   confirm(message: string, confirmLabel: string, keepLabel?: string, options?: { readonly keepFocused?: boolean }): Promise<boolean>;
   notify(kind: "info" | "warning" | "error", message: string): void;
-  /** Ask the host to re-read the trees, after a run changed `.ai/`. */
+  /** Ask the host to re-read the trees, after a run changed a work item's folder. */
   refreshViews(): void;
   /**
    * Open an address in the developer's browser, through the editor (§37.124):
@@ -486,12 +490,13 @@ export interface ControllerPorts {
    */
   readonly saveWorkItem?: (workItemId: string | undefined) => void;
   /**
-   * Reset Session's Delete generated files (§37.103): remove `.ai/<work item>/`
-   * — checked to be the repository's own, then the CLI's `clean`, then looked
-   * at again (`deleteWorkItemArtifacts` in `sessionReset.ts`). Absent: this host
-   * cannot delete them, and a reset that asks to is refused.
+   * Reset Session's Delete generated files (§37.103): remove `work/<work item>/`
+   * — checked to be the repository's own in BugPilot's data folder
+   * (`repositoryDir`), then the CLI's `clean`, run in the repository (`root`),
+   * then looked at again (`deleteWorkItemArtifacts` in `sessionReset.ts`).
+   * Absent: this host cannot delete them, and a reset that asks to is refused.
    */
-  readonly deleteWorkItemArtifacts?: (root: string, workItemId: string) => Promise<ArtifactDeletion>;
+  readonly deleteWorkItemArtifacts?: (root: string, repositoryDir: string, workItemId: string) => Promise<ArtifactDeletion>;
   /**
    * This extension's own version, which is not the CLI's.
    *
@@ -545,7 +550,7 @@ export interface ControllerPorts {
    * (0.1.3, §42.2, §42.5): `show` for the effective policy — its source and
    * hash for the stale check, its state and text for the settings row and its
    * Preview — and the settings row's two writes, both the CLI's: `create`
-   * (`set --stdin`) writes `.bugpilot/verification.md` from text the CLI
+   * (`set --stdin`) writes `settings/verification.md` from text the CLI
    * reported, and `reset` removes it. `fileExists` only asks whether the file
    * is there, for a CLI too old to read it; `fileKind` whether it is a regular
    * file Edit may open, without following a link.
@@ -561,7 +566,7 @@ export interface ControllerPorts {
    * The repository's AI Behavior, through `bugpilot ai-behavior show` (0.1.4):
    * its source and hash for the stale check. Read only — the host neither
    * writes the file nor holds its text. `fileExists` only asks whether
-   * `.bugpilot/ai_behavior.md` is there, for a CLI too old to read it.
+   * `settings/ai_behavior.md` is there, for a CLI too old to read it.
    */
   readonly aiBehaviorPolicy?: {
     readonly load: () => Promise<AiBehaviorOutcome>;
@@ -570,7 +575,7 @@ export interface ControllerPorts {
     readonly create?: (text: string) => Promise<AiBehaviorOutcome>;
     /** The settings row's Reset: `ai-behavior reset`. */
     readonly reset?: () => Promise<AiBehaviorOutcome>;
-    /** What `.bugpilot/ai_behavior.md` is, without following a link. */
+    /** What `settings/ai_behavior.md` is, without following a link. */
     readonly fileKind?: () => Promise<"absent" | "file" | "other">;
   };
   /**
@@ -641,14 +646,14 @@ export interface ControllerPorts {
     readonly set: (workItemId: string, fix: string | undefined) => void;
   };
   /**
-   * Watch one work item's artifact directory — `.ai/<id>/`, its files only, not
+   * Watch one work item's artifact directory — `work/<id>/`, its files only, not
    * recursive — and call back with the file name on every create, change or
    * delete (§37.81). The host's file watcher; absent, only the other refresh
    * triggers apply.
    */
   readonly watchArtifacts?: (directory: string, onEvent: (name: string) => void) => { dispose(): void };
   /**
-   * Watch the repository's `.bugpilot/` folder for the policy files a task is
+   * Watch the repository's settings folder for the policy files a task is
    * written from — `instructions.md`, `verification.md`, `project_settings.json`
    * — and call back with the file name on every create, change or delete
    * (§42.2). An edit in an editor tab, a `git pull` or a branch switch reaches
@@ -894,6 +899,9 @@ export const GITIGNORE_FAILED = "Could not update .gitignore. The BugPilot outpu
 
 /** Why a Git history Supporting file did not open: the checkout no longer has it as a file. */
 export const SUPPORTING_FILE_MISSING = "This file is no longer in the current checkout.";
+/** Said instead of building a work item path before BugPilot said where the repository's files are (0.1.7). */
+export const DATA_FOLDER_UNKNOWN =
+  "BugPilot has not said where this repository's files are. Run BugPilot: Check Environment, then try again.";
 export const SUPPORTING_FILE_NOT_A_FILE = "This supporting file is not a regular file in the current checkout.";
 export const SUPPORTING_FILE_UNCHECKED =
   "Could not check this supporting file in the current checkout. The BugPilot output has the details.";
@@ -1099,7 +1107,7 @@ export class Controller {
   /** Which work item `#artifacts` was last listed for: a listing shown is only "known" for it. */
   #artifactsListedFor: string | undefined;
   /**
-   * A run or a clean may delete and recreate `.ai/<id>/`, and a watcher on a
+   * A run or a clean may delete and recreate `work/<id>/`, and a watcher on a
    * deleted directory can go quiet. Set when one starts; the first push after
    * it ends builds the watcher again, on the directory as it is now.
    */
@@ -1256,7 +1264,7 @@ export class Controller {
    */
   #preparedPolicyAliases = new Set<string>();
   /**
-   * The settings row's Edit creating `.bugpilot/verification.md`, or its Reset
+   * The settings row's Edit creating `settings/verification.md`, or its Reset
    * removing it (§42.5): one at a time, and every policy read — a Run's, Fix
    * with AI's, Start New Attempt's — waits for it, so none prepares on the file
    * as it was a moment before.
@@ -1269,7 +1277,7 @@ export class Controller {
   /** The Verification Policy Preview while it is open: a new token per open. */
   #verificationPreview: { readonly token: number } | undefined;
   #verificationPreviewToken = 0;
-  /** The `.bugpilot/` watcher, for the repository it watches. */
+  /** The settings folder watcher, for the repository it watches. */
   #policyWatch: { readonly directory: string; readonly handle: { dispose(): void } } | undefined;
   /** A reread scheduled by the watcher, merging a burst of file events into one. */
   #policyRefreshTimer: { cancel(): void } | undefined;
@@ -1280,6 +1288,12 @@ export class Controller {
   #instructionsEditorToken = 0;
   #instructionsErrorToken = 0;
   #root: string | undefined;
+  /**
+   * The repository's folder in BugPilot's data folder, where its work items and settings are (0.1.7): what
+   * `doctor --json` said, as `storage.repository_dir`, when the environment was ready. `undefined` otherwise —
+   * then no work item path is composed, and nothing falls back to a folder in the repository.
+   */
+  #repositoryDir: string | undefined;
   #jiraConfigured = false;
   /**
    * Whether the last run this session that asked Jira was turned away with
@@ -1596,6 +1610,11 @@ export class Controller {
     return this.#root;
   }
 
+  /** The repository's folder in BugPilot's data folder (`#repositoryDir`). */
+  get repositoryDir(): string | undefined {
+    return this.#repositoryDir;
+  }
+
   /** The artifact list the tree view renders. */
   get artifacts(): ArtifactList {
     return this.#artifacts;
@@ -1732,6 +1751,7 @@ export class Controller {
 
   async #resolveEnvironmentNow(): Promise<void> {
     const previousRoot = this.#root;
+    const previousRepositoryDir = this.#repositoryDir;
     const environment = await this.#ports.environment();
     const credentials = await this.#ports.credentials();
     this.#jiraConfigured = credentials.configured;
@@ -1750,14 +1770,27 @@ export class Controller {
     }
     if (environment.kind === "ready") {
       this.#root = environment.root;
-      this.#readiness = {
-        kind: "ready",
-        executable: environment.executable,
-        root: environment.root,
-        ...(environment.version === undefined ? {} : { version: environment.version }),
-      };
+      // Where the CLI keeps this repository's files. Storage refusing it (a data folder inside the repository or
+      // a Git working tree, a link on the way) leaves nothing to prepare or read: said, in the CLI's words.
+      const storage = repositoryDirectoryOf(environment.report);
+      this.#repositoryDir = storage.kind === "ok" ? storage.directory : undefined;
+      this.#readiness =
+        storage.kind === "ok"
+          ? {
+              kind: "ready",
+              executable: environment.executable,
+              root: environment.root,
+              ...(environment.version === undefined ? {} : { version: environment.version }),
+            }
+          : {
+              kind: "blocked",
+              summary: storage.problem,
+              action: "Fix what it names — set BUGPILOT_HOME to a folder outside every repository, for one — then check the environment again.",
+              actions: [{ title: "Check Environment", command: COMMANDS.checkEnvironment }],
+            };
     } else if (environment.kind === "unusable-cli") {
       this.#root = environment.root;
+      this.#repositoryDir = undefined;
       this.#readiness = {
         kind: "blocked",
         summary: environment.summary,
@@ -1766,9 +1799,11 @@ export class Controller {
       };
     } else if (environment.kind === "no-folder") {
       this.#root = undefined;
+      this.#repositoryDir = undefined;
       this.#readiness = { kind: "blocked", summary: environment.summary, actions: [] };
     } else {
       this.#root = undefined;
+      this.#repositoryDir = undefined;
       this.#readiness = {
         kind: "blocked",
         summary: "Several repositories are open. Pick the one BugPilot should work on.",
@@ -1795,7 +1830,7 @@ export class Controller {
     this.#push();
     // The trees read the repository from here: one drawn before it was known —
     // at start-up, History says to open a repository — is re-read once it is.
-    if (this.#root !== previousRoot) this.#ports.ui.refreshViews();
+    if (this.#root !== previousRoot || this.#repositoryDir !== previousRepositoryDir) this.#ports.ui.refreshViews();
   }
 
   async handle(incoming: PanelMessage): Promise<void> {
@@ -2674,7 +2709,7 @@ export class Controller {
       if (text !== "") {
         if (!(await this.#prepareRetryPackage(workItemId, root, text, epoch))) return;
         launch = {
-          prompt: retryHandoffText(workItemId),
+          prompt: retryHandoffText(this.#knownWorkDir(workItemId)),
           detail: (agent) => `New attempt, with your feedback, handed to ${agent} in a terminal.`,
         };
       }
@@ -2706,7 +2741,7 @@ export class Controller {
       await this.#ports.files.writeFile(
         this.#itemFile(workItemId, USER_FEEDBACK_ARTIFACT),
         userFeedbackMarkdown(workItemId, text),
-        { root, workItemId },
+        this.#itemFolder(workItemId),
       );
       if (epoch !== this.#fixEpoch) return false;
       const credentials = await this.#ports.credentials();
@@ -2819,7 +2854,15 @@ export class Controller {
   async copyHandoff(): Promise<void> {
     const workItemId = this.#workItemId;
     if (!workItemId) return;
-    await this.#ports.ui.copyToClipboard(this.#handoffText(workItemId));
+    let text: string;
+    try {
+      text = this.#handoffText(workItemId);
+    } catch (error) {
+      if (!(error instanceof WorkItemRefusal)) throw error;
+      this.#ports.ui.notify("warning", error.message);
+      return;
+    }
+    await this.#ports.ui.copyToClipboard(text);
     this.#ports.ui.notify("info", "Handoff prompt copied. Paste it into your agent.");
   }
 
@@ -3002,7 +3045,10 @@ export class Controller {
       workspacePath: root,
       workItemId,
       prompt: text,
-      preparedContextPath: path.join(root, ".ai", workItemId, TASK_ARTIFACT),
+      preparedContextPath: this.#itemFile(workItemId, TASK_ARTIFACT),
+      // Where the agent writes fix_report.md, outside the repository (0.1.7): an agent that edits only
+      // where it is told may (Claude CLI's --add-dir) is told this folder, and no other.
+      workFolder: this.#knownWorkDir(workItemId),
       purpose: "fix",
       // A fresh one per attempt: an agent that can be started under it can be
       // resumed by it, which is how Open AI Session continues this attempt's
@@ -3341,14 +3387,14 @@ export class Controller {
     this.#attachmentPick = undefined;
   }
 
-  /** Reveal `.ai/<work_item>/` in the explorer. */
+  /** Reveal the work item's folder, in BugPilot's data folder, in the explorer. */
   async openArtifactsFolder(): Promise<void> {
-    const workItemId = this.#workItemId;
-    if (!workItemId || !this.#root) {
+    const directory = this.#workItemId ? this.#workDir(this.#workItemId) : undefined;
+    if (directory === undefined) {
       this.#ports.ui.notify("warning", "Run BugPilot first; there are no artifacts to open yet.");
       return;
     }
-    await this.#ports.ui.openFolder(path.join(this.#root, ".ai", workItemId));
+    await this.#ports.ui.openFolder(directory);
   }
 
   /**
@@ -3356,10 +3402,11 @@ export class Controller {
    *
    * One sentence, the same one the CLI launches its agent with: everything else
    * the agent needs is in `task.md`. Kept identical to `handoff_prompt()` in
-   * bugpilot/core/handoff.py, which a cross-language test compares against.
+   * bugpilot/core/handoff.py, which a cross-language test compares against. The task file is named absolutely,
+   * with forward slashes (`promptPath`): the agent runs in the repository, and the file is in BugPilot's data folder.
    */
   #handoffText(workItemId: string): string {
-    return `Read .ai/${workItemId}/${TASK_ARTIFACT} and complete the workflow.`;
+    return `Read ${promptPath(this.#itemFile(workItemId, TASK_ARTIFACT))} and complete the workflow.`;
   }
 
   /** Re-read the artifact directory of the current work item. */
@@ -3451,7 +3498,7 @@ export class Controller {
   #syncArtifactWatch(): void {
     if (this.#disposed) return;
     const workItemId = this.#workItemId;
-    const directory = workItemId && this.#root ? path.join(this.#root, ".ai", workItemId) : undefined;
+    const directory = workItemId ? this.#workDir(workItemId) : undefined;
     const same = directory === this.#artifactWatch?.directory;
     if (same && !this.#artifactWatchStale) return;
     // The same directory, possibly being deleted and written again: rebuilt
@@ -3475,7 +3522,7 @@ export class Controller {
       this.requestArtifactRefresh(`${name} changed`);
     });
     this.#artifactWatch = { directory, handle };
-    this.#ports.log.info(`Artifact watcher started for .ai/${workItemId}/.`);
+    this.#ports.log.info(`Artifact watcher started for work/${workItemId}/.`);
   }
 
   /** Stop watching and forget any scheduled refresh: the extension is going away. */
@@ -3503,7 +3550,8 @@ export class Controller {
    */
   async #readArtifacts(tolerant: boolean): Promise<boolean> {
     const workItemId = this.#workItemId;
-    if (!workItemId || !this.#root) return true;
+    const directory = workItemId ? this.#workDir(workItemId) : undefined;
+    if (!workItemId || directory === undefined) return true;
     // The same work item again after a reset is still another session's read.
     const epoch = this.#sessionEpoch;
     const known = this.#artifacts.kind === "ready" && this.#artifactsListedFor === workItemId;
@@ -3515,23 +3563,20 @@ export class Controller {
       this.#artifacts = { kind: "loading" };
       this.#push();
     }
-    const listing = await this.#ports.files.listDirectory(
-      path.join(this.#root, ".ai", workItemId),
-      this.#itemFolder(workItemId),
-    );
+    const listing = await this.#ports.files.listDirectory(directory, this.#itemFolder(workItemId));
     // Another work item was shown while the directory was read, or the session
     // was reset.
     if (this.#workItemId !== workItemId || epoch !== this.#sessionEpoch) return true;
     if (listing.kind === "unreadable") {
       if (tolerant && known) {
-        this.#ports.log.info(`.ai/${workItemId}/ could not be read just now (${listing.detail}); kept what was shown.`);
+        this.#ports.log.info(`work/${workItemId}/ could not be read just now (${listing.detail}); kept what was shown.`);
         return false;
       }
       this.#artifactNames = [];
       this.#forgetSummary();
       this.#artifacts = {
         kind: "error",
-        detail: `.ai/${workItemId}/ could not be read: ${listing.detail}`,
+        detail: `work/${workItemId}/ could not be read: ${listing.detail}`,
       };
       this.#push();
       return true;
@@ -3653,7 +3698,7 @@ export class Controller {
     this.#preparedPolicies = this.#policyFingerprint();
     this.#preparedPolicyAliases.clear();
     // The tree too: Results' Current group follows the shown work item, and
-    // without this it kept whatever it last read — "Scanning .ai/ …" if that
+    // without this it kept whatever it last read — "Reading the work items …" if that
     // was mid-load (§37.82, seen in a real window).
     await this.refreshActiveWorkItem();
     this.#push();
@@ -3724,7 +3769,7 @@ export class Controller {
    * the stale check and the settings note.
    *
    * Asked of a CLI that says, in `doctor --json`, that it reads
-   * `.bugpilot/verification.md`. One that does not would prepare as if the file
+   * `settings/verification.md`. One that does not would prepare as if the file
    * were not there, so with the file in the repository it is out of date and
    * blocked like any other; without the file it still prepares what it always
    * did, and there is no policy state to hold. A failed read keeps the last
@@ -3757,7 +3802,7 @@ export class Controller {
    * check.
    *
    * Asked of a CLI that says, in `doctor --json`, that it reads
-   * `.bugpilot/ai_behavior.md`. One that does not would prepare as if the file
+   * `settings/ai_behavior.md`. One that does not would prepare as if the file
    * were not there, so with the file in the repository it is out of date and
    * blocked like any other — no state of its own; without the file it still
    * prepares what it always did. A failed read keeps the last good one. The
@@ -3846,7 +3891,7 @@ export class Controller {
   }
 
   /**
-   * The AI Behavior row's Edit (0.1.4): `.bugpilot/ai_behavior.md` in a full
+   * The AI Behavior row's Edit (0.1.4): `settings/ai_behavior.md` in a full
    * editor tab. A file that is there is opened as it is — one the CLI cannot use
    * included, so it can be fixed. One that is not is created first by the CLI
    * from its own template: the three sections, empty, which add nothing until
@@ -3856,7 +3901,7 @@ export class Controller {
   async editAiBehavior(): Promise<void> {
     if (!this.#aiBehaviorRowReady("AI Behavior cannot be edited", true)) return;
     const port = this.#ports.aiBehaviorPolicy!;
-    const file = path.join(this.#root!, ".bugpilot", "ai_behavior.md");
+    const file = settingsFile(this.#repositoryDir!, "ai_behavior.md");
     const read = await port.load();
     if (!this.#applyAiBehaviorOutcome(read) || this.#aiBehavior === undefined) {
       if (read.kind === "failed") this.#ports.ui.notify("error", `AI Behavior could not be read: ${oneSentence(read.message)}`);
@@ -4112,7 +4157,7 @@ export class Controller {
    * Read the instructions, the Verification Policy and AI Behavior again, so the stale check
    * compares what a run would read now (§42.2). Before every Run, Rebuild
    * Context, Fix with AI and Start New Attempt, at every environment check, when
-   * the window comes back to focus and when a `.bugpilot/` file changes: the
+   * the window comes back to focus and when a file in the repository's settings folder changes: the
    * watcher alone cannot see the user's own instructions, outside the
    * repository. Reads only — it writes nothing, so a refresh it causes cannot
    * cause another. Callers meanwhile share the read in flight.
@@ -4164,7 +4209,7 @@ export class Controller {
 
   /**
    * Whether the Verification Policy row can act at all: BugPilot ready in a
-   * repository, with a CLI that reads `.bugpilot/verification.md`. Otherwise
+   * repository, with a CLI that reads `settings/verification.md`. Otherwise
    * said, and nothing is run.
    */
   #verificationRowReady(action: string): boolean {
@@ -4243,7 +4288,7 @@ export class Controller {
   }
 
   /**
-   * The settings row's Edit (§42.5): `.bugpilot/verification.md` in a full
+   * The settings row's Edit (§42.5): `settings/verification.md` in a full
    * editor tab, never the sidebar. A file that is there is opened as it is —
    * one the CLI cannot use included, so it can be fixed. One that is not is
    * created first by the CLI, `verification set --stdin`, from the effective
@@ -4261,8 +4306,7 @@ export class Controller {
 
   async #editVerificationPolicy(): Promise<void> {
     const port = this.#ports.verificationPolicy!;
-    const root = this.#root!;
-    const file = path.join(root, ".bugpilot", "verification.md");
+    const file = settingsFile(this.#repositoryDir!, "verification.md");
     const read = await port.load();
     if (!this.#applyVerificationOutcome(read) || this.#verification === undefined) {
       if (read.kind === "failed") this.#ports.ui.notify("error", `The Verification Policy could not be read: ${oneSentence(read.message)}`);
@@ -4314,7 +4358,7 @@ export class Controller {
 
   /**
    * The settings row's Reset (§42.5): `verification reset`, which removes
-   * `.bugpilot/verification.md` — after the developer says so, since the file
+   * `settings/verification.md` — after the developer says so, since the file
    * is theirs — and the policy that applies without it, whichever the CLI says,
    * is read back. "Needs rebuild" follows only if that policy differs from the
    * one the context was prepared with.
@@ -4386,10 +4430,10 @@ export class Controller {
     this.#push();
   }
 
-  /** Watch `.bugpilot/` for the repository on screen, and only that one. */
+  /** Watch the settings folder of the repository on screen, in BugPilot's data folder, and only that one. */
   #syncPolicyWatch(): void {
     if (this.#disposed) return;
-    const directory = this.#root ? path.join(this.#root, ".bugpilot") : undefined;
+    const directory = this.#repositoryDir ? path.join(this.#repositoryDir, SETTINGS_FOLDER) : undefined;
     if (directory === this.#policyWatch?.directory) return;
     this.#policyWatch?.handle.dispose();
     this.#policyWatch = undefined;
@@ -4405,10 +4449,10 @@ export class Controller {
     this.#policyWatch = { directory, handle };
   }
 
-  /** A `.bugpilot/` file changed: reread once the burst of events is over. */
+  /** A settings file changed: reread once the burst of events is over. */
   #policyFileChanged(name: string): void {
     if (this.#disposed || this.#policyRefreshTimer !== undefined) return;
-    this.#ports.log.info(`Policy reread scheduled (.bugpilot/${name} changed).`);
+    this.#ports.log.info(`Policy reread scheduled (settings/${name} changed).`);
     this.#policyRefreshTimer = this.#schedule(() => {
       this.#policyRefreshTimer = undefined;
       if (this.#disposed || this.#readiness.kind !== "ready") return;
@@ -5195,12 +5239,33 @@ export class Controller {
   }
 
   #itemFile(workItemId: string, name: string): string {
-    return path.join(this.#root ?? "", ".ai", workItemId, name);
+    return path.join(this.#knownRepositoryDir(), WORK_FOLDER, workItemId, name);
   }
 
-  /** `#itemFile`'s repository and work item, for the host's checks of a file in the work item's folder (O-1). */
+  /** `#itemFile`'s base and work item, for the host's checks of a file in the work item's folder (O-1). */
   #itemFolder(workItemId: string): WorkItemFolder {
-    return { root: this.#root ?? "", workItemId };
+    return { base: this.#knownRepositoryDir(), workItemId };
+  }
+
+  /**
+   * The repository's folder in BugPilot's data folder, which every work item path is built on (0.1.7). Refused,
+   * never replaced by "": a path joined onto nothing is one an agent resolves inside the repository.
+   */
+  #knownRepositoryDir(): string {
+    if (this.#repositoryDir === undefined) throw new WorkItemRefusal(DATA_FOLDER_UNKNOWN);
+    return this.#repositoryDir;
+  }
+
+  /** `#workDir`, refused rather than `undefined`: for a path an agent is handed. */
+  #knownWorkDir(workItemId: string): string {
+    const directory = workItemDirectory(this.#knownRepositoryDir(), workItemId);
+    if (directory === undefined) throw new WorkItemRefusal(DATA_FOLDER_UNKNOWN);
+    return directory;
+  }
+
+  /** The work item's folder in BugPilot's data folder; `undefined` before the CLI said where that is, or for an invalid id. */
+  #workDir(workItemId: string): string | undefined {
+    return this.#repositoryDir === undefined ? undefined : workItemDirectory(this.#repositoryDir, workItemId);
   }
 
   /**
@@ -5404,7 +5469,7 @@ export class Controller {
    *
    * The prompt is `review-package --json`'s, byte for byte — the CLI's builder,
    * not a copy of it here — and the agent is whichever Fix with AI would use.
-   * The terminal opens in the repository root, where the prompt's `.ai/<id>/`
+   * The terminal opens in the repository root, where the prompt's `work/<id>/`
    * paths and the current diff are. Nothing is written, marked or posted, the
    * clipboard is left alone, and nothing waits for the reviewer: "AI review
    * started" is the whole claim, as "AI fix started" is Fix with AI's.
@@ -6350,7 +6415,7 @@ export class Controller {
    *     to end, so no event of theirs can land on the fresh session. An agent
    *     already handed the work item runs in a terminal or another extension and
    *     is not BugPilot's to stop; the dialog says so beforehand.
-   *  4. Delete, if asked: `.ai/<work item>/` and nothing else, through
+   *  4. Delete, if asked: `work/<work item>/` and nothing else, through
    *     `deleteWorkItemArtifacts`. A refusal or a failure resets nothing: the
    *     session is as it was (bar what step 3 stopped), the folder is read again
    *     to show what is left, and the dialog says why. Deletion is never claimed
@@ -6446,11 +6511,12 @@ export class Controller {
   /** The work item's generated files, gone — or why not. Never throws. */
   async #deleteGeneratedFiles(workItemId: string): Promise<ArtifactDeletion> {
     const root = this.#root;
-    if (root === undefined || this.#readiness.kind !== "ready") return { kind: "failed", reason: "not-ready" };
+    const repositoryDir = this.#repositoryDir;
+    if (root === undefined || repositoryDir === undefined || this.#readiness.kind !== "ready") return { kind: "failed", reason: "not-ready" };
     if (!this.#ports.deleteWorkItemArtifacts) return { kind: "failed", reason: "unsupported" };
     this.#artifactWatchStale = true;
     try {
-      return await this.#ports.deleteWorkItemArtifacts(root, workItemId);
+      return await this.#ports.deleteWorkItemArtifacts(root, repositoryDir, workItemId);
     } catch (error) {
       const code = (error as { code?: unknown } | undefined)?.code;
       return { kind: "failed", reason: typeof code === "string" ? code : "error" };
@@ -6820,7 +6886,7 @@ export class Controller {
   }
 
   /**
-   * How the form is fingerprinted: once `.bugpilot/verification.md` is the
+   * How the form is fingerprinted: once `settings/verification.md` is the
    * policy, the Verification switches decide nothing, and changing them must not
    * read as a change to what the task says.
    */

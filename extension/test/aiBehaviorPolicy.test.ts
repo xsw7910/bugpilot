@@ -2,7 +2,7 @@
  * AI Behavior as the host holds it (0.1.4): what `bugpilot ai-behavior show
  * --json` says — a source, a hash, a problem, the file's state, and the text
  * and lint for the settings row's Preview only — whether the CLI can read
- * `.bugpilot/ai_behavior.md` at all, the commands that write it (the CLI's own
+ * `settings/ai_behavior.md` at all, the commands that write it (the CLI's own
  * template on stdin, or a reset), and the row and Preview the host builds.
  * Nothing here composes AI Behavior.
  */
@@ -63,7 +63,7 @@ test("each command is one fixed command line, and nothing of the text goes on it
   assert.deepEqual(aiBehaviorArgs(), ["ai-behavior", "show", "--json"]);
   assert.deepEqual(aiBehaviorArgs({ kind: "set", text: "- Keep exports stable." }), ["ai-behavior", "set", "--stdin", "--json"]);
   assert.deepEqual(aiBehaviorArgs({ kind: "reset" }), ["ai-behavior", "reset", "--json"]);
-  assert.equal(AI_BEHAVIOR_FILE, ".bugpilot/ai_behavior.md");
+  assert.equal(AI_BEHAVIOR_FILE, "settings/ai_behavior.md");
 });
 
 test("the capability comes from the doctor report, and only an exact name counts", () => {
@@ -97,13 +97,13 @@ test("a snapshot is the CLI's state, with the text and the template the CLI gave
       default_version: 2,
       default_changed: true,
       has_project_additions: true,
-      lint: ["Line 7 of .bugpilot/ai_behavior.md may conflict with a BugPilot rule (force push)."],
+      lint: ["Line 7 of settings/ai_behavior.md may conflict with a BugPilot rule (force push)."],
     }),
   )!;
   assert.equal(file.hasProjectAdditions, true);
   assert.equal(file.basedOnVersion, 1);
   assert.equal(file.defaultChanged, true);
-  assert.deepEqual(file.lint, ["Line 7 of .bugpilot/ai_behavior.md may conflict with a BugPilot rule (force push)."]);
+  assert.deepEqual(file.lint, ["Line 7 of settings/ai_behavior.md may conflict with a BugPilot rule (force push)."]);
   assert.equal(file.lintCount, 1);
   const broken = aiBehaviorFromEnvelope(payload({ source: "ai-behavior-file", problem: "  it has no front matter.  ", file: { exists: true } }))!;
   assert.equal(broken.problem, "it has no front matter.");
@@ -143,14 +143,14 @@ test("the row: source in words, Reset only with a file, lint as a count, and not
   assert.equal(added.source, "Source: BugPilot default + repository additions");
   assert.equal(added.lint, "2 AI Behavior warnings · details in Preview");
   const broken = aiBehaviorRowView(snapshot({ source: "ai-behavior-file", fileExists: true, problem: "it has no front matter.", lintCount: 3 }), options);
-  assert.match(broken.problem, /^\.bugpilot\/ai_behavior\.md is not used: it has no front matter\. BugPilot's default applies until it is fixed\./);
+  assert.match(broken.problem, /^settings\/ai_behavior\.md is not used: it has no front matter\. BugPilot's default applies until it is fixed\./);
   assert.equal(broken.lint, "", "a problem is not a lint warning");
   assert.equal(aiBehaviorRowView(snapshot({ defaultChanged: true }), options).defaultChanged, AI_BEHAVIOR_DEFAULT_CHANGED);
   // A run in flight holds writes, never reads; an old CLI says so and offers nothing.
   const held = aiBehaviorRowView(snapshot(), { ...options, writesHeld: true });
   assert.deepEqual([held.canEdit, held.canReset, held.canPreview], [false, false, true]);
   const old = aiBehaviorRowView(snapshot(), { ...options, readsText: false });
-  assert.match(old.unavailable, /cannot read \.bugpilot\/ai_behavior\.md\. Update it to edit AI Behavior here\./);
+  assert.match(old.unavailable, /cannot read settings\/ai_behavior\.md\. Update it to edit AI Behavior here\./);
   assert.deepEqual([old.canEdit, old.canReset, old.canPreview], [false, false, false]);
 });
 

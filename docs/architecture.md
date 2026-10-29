@@ -550,12 +550,13 @@ and before the pipeline runs — and is shown separately from the current select
   AI Behavior, user instructions, Fix Mode, developer hint); a test fails on a
   heading it does not list.
 - **`verification.py`** — the Verification Policy since 0.1.3, resolved in one
-  place: `<repo>/.bugpilot/verification.md` (`verification-file`, replacement
+  place: `settings/verification.md` in the repository's folder of BugPilot's
+  data folder (`verification-file`, replacement
   semantics) if it exists, else the switches saved in `project_settings.json`
   (`legacy-project-settings`), else BugPilot's default (`bugpilot-default`).
   The file is front matter (`schema_version: 1`, `based_on_version`,
   `mode: replace`; parsed without a YAML dependency) and a Markdown body, read
-  and written through `instructions.read_text_document` (UTF-8, 20,000
+  and written through storage, by `instructions.read_settings_document`'s rules (UTF-8, 20,000
   characters, normalised, no links or junctions, atomic writes). A file that
   cannot be used is reported, never reinterpreted, and the default applies.
   `lint_policy` adds non-blocking warnings for lines that look like they ask
@@ -696,7 +697,10 @@ and before the pipeline runs — and is shown separately from the current select
 
 - **`agent_runner.py` (~79 lines)** — the launcher run only by
   `--launch-agent claude|copilot`; preparing alone never reaches it. `build_agent_command` builds argv from
-  `config` command+args (split with `shlex`); `run_agent` resolves the executable
+  `config` command+args (split with `shlex`), adding `--add-dir=<work folder>` for Claude (0.1.7: the work
+  item's folder is outside the repository; one `=` word, since the option takes several folders; not when the
+  configured args already name that folder; refused, and nothing started, when storage's checks refuse the folder
+  or it is not there); `run_agent` resolves the executable
   (`_resolve_launch_command`, wrapping `.cmd`/`.bat` in `cmd /c` on Windows) and
   runs it inheriting the terminal. `HANDOFF_PROMPT` is the seed instruction.
 - **`copilot.py` (~25 lines)** — `collect_agent_status` reports availability of

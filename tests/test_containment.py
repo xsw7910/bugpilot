@@ -217,8 +217,8 @@ def test_an_attachment_name_names_the_file_and_can_neither_become_nor_hide_a_sec
     from bugpilot.core.prompts import generate_task
     from bugpilot.core.task_preview import _sections
 
-    clean = generate_task("JR-12345", "Export dialog forgets the format", attachments=["export.log"])
-    task = generate_task("JR-12345", "Export dialog forgets the format", attachments=[name])
+    clean = generate_task("JR-12345", "Export dialog forgets the format", attachments=["export.log"], work_folder="/data/work")
+    task = generate_task("JR-12345", "Export dialog forgets the format", attachments=[name], work_folder="/data/work")
     structure = commonmark.structure(task)
     assert structure.top_level(2) == commonmark.structure(clean).top_level(2)
     assert not structure.html_blocks and not structure.unclosed_fences()
@@ -230,7 +230,7 @@ def test_an_attachment_name_names_the_file_and_can_neither_become_nor_hide_a_sec
     escaped = heading[4:] != name
     assert ("list the attachments folder to open it" in task) == escaped
     # The file path on disk is not touched: the name passed in is the name listed, escaped only as text.
-    assert f"/attachments/{heading[4:]}`" in task
+    assert f"`attachments/{heading[4:]}`" in task
 
 
 # --- tasks prepared by 0.1.4 ------------------------------------------------------------------------

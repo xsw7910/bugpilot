@@ -2,11 +2,12 @@
 
 Writes follow the same rule as deletion:
 :func:`writable_dir` and :func:`refuse_link` check every generated path under
-``.ai/`` and ``.ai_memory/`` before anything is created or written there, and
+BugPilot's data folder (``work/``, ``memory/``, ``settings/``; storage calls
+them) before anything is created or written there, and
 refuse a link or junction with one sentence rather than writing through it.
 
-BugPilot deletes only what it generated, inside the repository it was run in:
-``.ai/<work item>/`` and, when asked, ``.ai_memory/bugs/<work item>.md``. A
+BugPilot deletes only what it generated, in the repository's own folder of its
+data folder: ``work/<work item>/`` and, when asked, ``memory/<work item>.md``. A
 symbolic link or a Windows junction anywhere on that path would turn "delete
 this work item's folder" into "delete whatever the link points at", so every
 destructive path is checked here, component by component, before anything is
@@ -91,13 +92,21 @@ def is_link_stat(info: os.stat_result) -> bool:
     return False
 
 
-def owned_path(repo_root: Path, parts: Sequence[str]) -> Path:
+#: How a refusal names the folder BugPilot's files stay inside: the repository by default.
+REPOSITORY_BOUNDARY = "this repository"
+
+
+def owned_path(repo_root: Path, parts: Sequence[str], *, boundary: str = REPOSITORY_BOUNDARY) -> Path:
     """``repo_root / parts``, checked to be a BugPilot-owned path safe to delete.
 
-    Raises :class:`UnsafePathError` when any component below the repository
-    root — ``.ai``, ``.ai/<id>``, … — is a link or junction, or when the target
-    resolves anywhere other than where it should be. The repository root itself
-    may sit behind a link: that is where the developer chose to work.
+    Raises :class:`UnsafePathError` when any component below the base —
+    ``work``, ``work/<id>``, … — is a link or junction, or when the target
+    resolves anywhere other than where it should be. The base itself may sit
+    behind a link; storage checks the data folder down to it.
+
+    ``boundary`` names the base in the refusal, as :func:`writable_dir`'s does
+    (0.1.7: ``"BugPilot's data folder"`` for ``clean``). With the default every
+    message is as it was.
     """
     if not parts or any(part in ("", ".", "..") or "/" in part or "\\" in part for part in parts):
         raise UnsafePathError(f"Refusing to delete an invalid generated path: {'/'.join(parts)!r}.")
@@ -109,7 +118,7 @@ def owned_path(repo_root: Path, parts: Sequence[str]) -> Path:
             link = "/".join(parts[: index + 1])
             raise UnsafePathError(
                 f"Refusing to delete {display}: {link} is a symbolic link or junction. "
-                "BugPilot deletes only real directories it generated inside this repository, "
+                f"BugPilot deletes only real directories it generated inside {boundary}, "
                 "and never through a link. Nothing was deleted."
             )
     target = repo_root.joinpath(*parts)
@@ -117,14 +126,10 @@ def owned_path(repo_root: Path, parts: Sequence[str]) -> Path:
         expected = repo_root.resolve().joinpath(*parts)
         if os.path.normcase(str(target.resolve())) != os.path.normcase(str(expected)):
             raise UnsafePathError(
-                f"Refusing to delete {display}: it resolves outside this repository's generated "
+                f"Refusing to delete {display}: it resolves outside {boundary}'s generated "
                 "files. Nothing was deleted."
             )
     return target
-
-
-#: How a write refusal names the folder writes stay inside: the repository by default.
-REPOSITORY_BOUNDARY = "this repository"
 
 
 def writable_dir(
@@ -138,8 +143,8 @@ def writable_dir(
     """``repo_root / parts`` as a real directory BugPilot may write generated files into.
 
     The write-side twin of :func:`owned_path`. Every
-    component below the repository root — ``.ai``, ``.ai/<id>``, ``.ai_memory``,
-    ``.ai_memory/bugs`` — is checked as it stands, never followed: a link or
+    component below the base — ``repositories``, ``<id>``, ``work``,
+    ``work/<item>`` — is checked as it stands, never followed: a link or
     junction raises :class:`UnsafePathError` before anything is created or
     written. Missing components are created one at a time (``create=True``) and
     checked again once they exist; with ``create=False`` a missing directory is

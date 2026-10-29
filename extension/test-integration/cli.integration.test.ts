@@ -86,6 +86,26 @@ function runner(): Runner {
   return new Runner(PYTHON, ISOLATION.spawn);
 }
 
+/**
+ * Where the real CLI keeps a repository's work items and settings (0.1.7): its folder in BugPilot's data
+ * folder, as `doctor --json` reports it (`storage.repository_dir`) — the folder the extension reads them from.
+ * The suite's disposable home holds the data folder, so nothing here touches the developer's own.
+ */
+async function dataFolder(root: string, env: Record<string, string> = ENVIRONMENT): Promise<string> {
+  const result = await runner().run([...MODULE, "doctor", "--json"], { cwd: root, env, timeoutMs: 120_000 });
+  const report = parseEnvelope(result.stdout, result.stderr)["report"] as { storage?: { repository_dir?: unknown } };
+  const folder = report.storage?.repository_dir;
+  assert.equal(typeof folder, "string", JSON.stringify(report.storage));
+  return folder as string;
+}
+
+/** The repository stays clean (0.1.7): no `.ai/`, `.ai_memory/` or `.bugpilot/` of BugPilot's in it. */
+function assertRepositoryClean(root: string): void {
+  for (const name of [".ai", ".ai_memory", ".bugpilot"]) {
+    assert.equal(existsSync(path.join(root, name)), false, `BugPilot wrote ${name} into the repository`);
+  }
+}
+
 /** A throwaway git repository with something to find in it. */
 function repository(): string {
   const root = mkdtempSync(path.join(tmpdir(), "bugpilot-it-"));
@@ -176,7 +196,7 @@ test("a hand-written bug runs end to end, and the models describe it correctly",
   // The artifact model against a real directory listing. The design doc's file
   // names were wrong here; the run is the source of truth.
   const workItemId = view.workItemId!;
-  const listing = readdirSync(path.join(root, ".ai", workItemId));
+  const listing = readdirSync(path.join(await dataFolder(root), "work", workItemId));
   const artifacts = buildArtifactList({ names: listing });
   assert.equal(artifacts.kind, "ready");
   if (artifacts.kind !== "ready") return;
@@ -190,7 +210,7 @@ test("a hand-written bug runs end to end, and the models describe it correctly",
   // And the restore path: the run state the run left behind must rebuild the
   // same checklist, because that is all a reopened window has.
   const status = JSON.parse(
-    readFileSync(path.join(root, ".ai", workItemId, "run.json"), "utf8"),
+    readFileSync(path.join(await dataFolder(root), "work", workItemId, "run.json"), "utf8"),
   );
   assert.equal((status as { status?: string }).status, "prepared");
   const restored = viewFromStatus(status);
@@ -381,7 +401,7 @@ test("the Fix Mode a form carries reaches issue.json and task.md, for a built-in
     );
     assert.equal(outcome.terminated, true, mode.fixModeId);
     assert.equal(tracker.view().state, "done", mode.fixModeId);
-    const directory = path.join(root, ".ai", tracker.view().workItemId!);
+    const directory = path.join(await dataFolder(root), "work", tracker.view().workItemId!);
 
     // issue.json: the whole audit record, unchanged in shape.
     const issue = JSON.parse(readFileSync(path.join(directory, "issue.json"), "utf8")) as {
@@ -426,7 +446,7 @@ test("review-package --json gives the review aids and leaves the work item untou
     (event) => tracker.apply(event),
   );
   const workItemId = tracker.view().workItemId!;
-  const directory = path.join(root, ".ai", workItemId);
+  const directory = path.join(await dataFolder(root), "work", workItemId);
   writeFileSync(
     path.join(directory, "fix_report.md"),
     `# Fix Report: ${workItemId}\n\n## Summary\n\nFixed the KeyError.\n\n## Tests\n\nNot run.\n\n## Review Notes\n\n- The id is still required by callers.\n`,
@@ -444,7 +464,7 @@ test("review-package --json gives the review aids and leaves the work item untou
 
   assert.ok(review, "the extension could not read review-package --json");
   assert.match(review.prompt, /^# Final Review Request\n/);
-  assert.match(review.prompt, new RegExp(`\\.ai/${workItemId}/fix_report\\.md`));
+  assert.ok(review.prompt.includes(`${path.join(directory, "fix_report.md").replaceAll("\\", "/")}`), review.prompt);
   // What Review with AI may put on a command line: the real prompt passes the guard.
   assert.equal(isPlainPrompt(review.prompt), true, "Review with AI would refuse the canonical prompt");
   // It asks for the four sections Paste Review Output reads, and for no verdict.
@@ -476,7 +496,7 @@ test("record-review through the extension's own port writes review_report.md, an
     (event) => tracker.apply(event),
   );
   const workItemId = tracker.view().workItemId!;
-  const directory = path.join(root, ".ai", workItemId);
+  const directory = path.join(await dataFolder(root), "work", workItemId);
   writeFileSync(path.join(directory, "fix_report.md"), `# Fix Report: ${workItemId}\n\n## Summary\n\nFixed the KeyError.\n`, "utf8");
   const snapshot = () => Object.fromEntries(readdirSync(directory).map((name) => [name, readFileSync(path.join(directory, name), "utf8")]));
   const before = snapshot();
@@ -542,7 +562,7 @@ test("record-verification through the extension's own port writes verification_r
     (event) => tracker.apply(event),
   );
   const workItemId = tracker.view().workItemId!;
-  const directory = path.join(root, ".ai", workItemId);
+  const directory = path.join(await dataFolder(root), "work", workItemId);
   writeFileSync(path.join(directory, "fix_report.md"), `# Fix Report: ${workItemId}\n\n## Summary\n\nFixed the KeyError.\n`, "utf8");
   const snapshot = () => Object.fromEntries(readdirSync(directory).map((name) => [name, readFileSync(path.join(directory, name), "utf8")]));
   const before = snapshot();
@@ -634,36 +654,44 @@ test("whatever bugpilot is on PATH is classified, not misread", async () => {
 
 // --- Reset Session's Delete generated files (§37.103) ---------------------------
 
-test("Reset Session's Delete runs the real clean on .ai/<id>/ only, and never deletes through a link", async () => {
+test("Reset Session's Delete runs the real clean on work/<id>/ only, and never deletes through a link", async () => {
   const root = repository();
   const outside = mkdtempSync(path.join(tmpdir(), "bugpilot-it-outside-"));
   writeFileSync(path.join(outside, "precious.txt"), "do not delete\n", "utf8");
+  // The real CLI creates the repository's folder in the data folder, with its identity record, as a run does;
+  // `clean` deletes only inside a folder it can show is this repository's.
+  const built = buildPrepareArgs(manualForm(), { root });
+  assert.ok(built.ok);
+  if (!built.ok) return;
+  await runner().runStreaming([...MODULE, ...built.args.filter((arg) => arg !== "--json-lines")], { cwd: root, env: ENVIRONMENT, timeoutMs: 300_000 }, () => {});
+  const base = await dataFolder(root);
   for (const id of ["JR-1", "JR-2"]) {
-    mkdirSync(path.join(root, ".ai", id), { recursive: true });
-    writeFileSync(path.join(root, ".ai", id, "task.md"), `${id}\n`, "utf8");
+    mkdirSync(path.join(base, "work", id), { recursive: true });
+    writeFileSync(path.join(base, "work", id, "task.md"), `${id}\n`, "utf8");
   }
-  writeFileSync(path.join(root, ".ai", "notes.txt"), "mine\n", "utf8");
-  mkdirSync(path.join(root, ".ai_memory", "bugs"), { recursive: true });
-  writeFileSync(path.join(root, ".ai_memory", "bugs", "JR-1.md"), "memory\n", "utf8");
+  writeFileSync(path.join(base, "work", "notes.txt"), "mine\n", "utf8");
+  mkdirSync(path.join(base, "memory"), { recursive: true });
+  writeFileSync(path.join(base, "memory", "JR-1.md"), "memory\n", "utf8");
   // A link inside the folder being deleted, to something outside it: removed
   // as a link, its target left alone.
-  symlinkSync(outside, path.join(root, ".ai", "JR-1", "linked"), process.platform === "win32" ? "junction" : "dir");
+  symlinkSync(outside, path.join(base, "work", "JR-1", "linked"), process.platform === "win32" ? "junction" : "dir");
   const clean = (id: string) => () => runner().run([...MODULE, "clean", id], { cwd: root, env: ENVIRONMENT, timeoutMs: 120_000 });
 
-  assert.deepEqual(await deleteWorkItemArtifacts({ root, workItemId: "JR-1", clean: clean("JR-1") }), { kind: "deleted" });
-  assert.equal(existsSync(path.join(root, ".ai", "JR-1")), false);
+  assert.deepEqual(await deleteWorkItemArtifacts({ base, workItemId: "JR-1", clean: clean("JR-1") }), { kind: "deleted" });
+  assert.equal(existsSync(path.join(base, "work", "JR-1")), false);
   assert.equal(readFileSync(path.join(outside, "precious.txt"), "utf8"), "do not delete\n");
-  assert.equal(readFileSync(path.join(root, ".ai", "JR-2", "task.md"), "utf8"), "JR-2\n");
-  assert.equal(readFileSync(path.join(root, ".ai", "notes.txt"), "utf8"), "mine\n");
-  assert.equal(readFileSync(path.join(root, ".ai_memory", "bugs", "JR-1.md"), "utf8"), "memory\n");
+  assert.equal(readFileSync(path.join(base, "work", "JR-2", "task.md"), "utf8"), "JR-2\n");
+  assert.equal(readFileSync(path.join(base, "work", "notes.txt"), "utf8"), "mine\n");
+  assert.equal(readFileSync(path.join(base, "memory", "JR-1.md"), "utf8"), "memory\n");
   assert.ok(existsSync(path.join(root, "src", "record.py")));
+  assertRepositoryClean(root);
 
   // The work item folder itself a link: refused before the CLI is asked.
-  rmSync(path.join(root, ".ai", "JR-2"), { recursive: true });
-  symlinkSync(outside, path.join(root, ".ai", "JR-2"), process.platform === "win32" ? "junction" : "dir");
+  rmSync(path.join(base, "work", "JR-2"), { recursive: true });
+  symlinkSync(outside, path.join(base, "work", "JR-2"), process.platform === "win32" ? "junction" : "dir");
   let asked = false;
   const refused = await deleteWorkItemArtifacts({
-    root,
+    base,
     workItemId: "JR-2",
     clean: async () => {
       asked = true;
@@ -675,7 +703,7 @@ test("Reset Session's Delete runs the real clean on .ai/<id>/ only, and never de
   assert.equal(readFileSync(path.join(outside, "precious.txt"), "utf8"), "do not delete\n");
 
   // Nothing there: missing, and the CLI is not asked.
-  assert.deepEqual(await deleteWorkItemArtifacts({ root, workItemId: "JR-3", clean: clean("JR-3") }), { kind: "missing" });
+  assert.deepEqual(await deleteWorkItemArtifacts({ base, workItemId: "JR-3", clean: clean("JR-3") }), { kind: "missing" });
 });
 
 // --- the Repository Profile through the real CLI -------------------------------
@@ -702,7 +730,7 @@ test("the Repository Profile port reads, saves and reads back through the real C
   if (saved.kind !== "loaded") return;
   assert.equal(saved.snapshot.saved, true);
   assert.equal(saved.snapshot.profile.custom.languages, "Rust");
-  const file = JSON.parse(readFileSync(path.join(root, ".bugpilot", "repository_profile.json"), "utf8")) as { mode: string };
+  const file = JSON.parse(readFileSync(path.join(await dataFolder(root), "settings", "repository_profile.json"), "utf8")) as { mode: string };
   assert.equal(file.mode, "custom");
 
   // A Run sends no profile flag, and the task still describes the repository from the file.
@@ -715,7 +743,7 @@ test("the Repository Profile port reads, saves and reads back through the real C
     () => {},
   );
   assert.equal(outcome.terminated, true, outcome.result.stderr);
-  const ai = path.join(root, ".ai");
+  const ai = path.join(await dataFolder(root), "work");
   const [workItem] = readdirSync(ai);
   const task = readFileSync(path.join(ai, workItem!, "task.md"), "utf8");
   assert.match(task, /Repository profile: Custom\./);
@@ -728,9 +756,10 @@ test("the Repository Profile port reads, saves and reads back through the real C
 
 test("the instructions port reads, saves by stdin, clears and reads back through the real CLI, and a run carries them", async () => {
   const root = repository();
-  // The user's own file in a folder of the test's, never the real ~/.bugpilot.
+  // The user's own file in a data folder of the test's, never the real ~/.bugpilot.
   const home = mkdtempSync(path.join(tmpdir(), "bugpilot-it-home-"));
-  const env = { ...ENVIRONMENT, BUGPILOT_CONFIG_DIR: home };
+  const env = { ...ENVIRONMENT, BUGPILOT_HOME: home };
+  const data = await dataFolder(root, env);
   const run = (args: readonly string[], input?: string) =>
     runner().run([...MODULE, ...args], { cwd: root, env, timeoutMs: 120_000, ...(input === undefined ? {} : { input }) });
 
@@ -739,7 +768,7 @@ test("the instructions port reads, saves by stdin, clears and reads back through
   if (shown.kind !== "loaded") return;
   assert.equal(shown.snapshot.user.configured, false);
   assert.equal(shown.snapshot.project.configured, false);
-  assert.equal(existsSync(path.join(root, ".bugpilot")), false, "reading created a folder");
+  assert.equal(existsSync(path.join(data, "settings")), false, "reading created a folder");
 
   const qt = "Preserve Qt object ownership conventions.\nAvoid blocking the UI thread.";
   const project = await runInstructions(run, { scope: "project", text: `${qt}\n` });
@@ -747,11 +776,11 @@ test("the instructions port reads, saves by stdin, clears and reads back through
   if (project.kind !== "loaded") return;
   assert.equal(project.snapshot.project.text, qt);
   assert.equal(project.snapshot.project.sha256.length, 64);
-  assert.ok(existsSync(path.join(root, ".bugpilot", "instructions.md")));
+  assert.ok(existsSync(path.join(data, "settings", "instructions.md")));
 
   const user = await runInstructions(run, { scope: "user", text: "Prefer small focused changes — ✓ ünïcode." });
   assert.equal(user.kind, "loaded");
-  assert.equal(readFileSync(path.join(home, "instructions.md"), "utf8").trim(), "Prefer small focused changes — ✓ ünïcode.");
+  assert.equal(readFileSync(path.join(home, "config", "instructions.md"), "utf8").trim(), "Prefer small focused changes — ✓ ünïcode.");
 
   // A Run carries both, after the Repository Context and below the safety rules.
   const built = buildPrepareArgs(manualForm(), { root });
@@ -763,7 +792,7 @@ test("the instructions port reads, saves by stdin, clears and reads back through
     () => {},
   );
   assert.equal(outcome.terminated, true, outcome.result.stderr);
-  const ai = path.join(root, ".ai");
+  const ai = path.join(data, "work");
   const [workItem] = readdirSync(ai);
   // Line endings unified: artifacts are written in the platform's own.
   const task = readFileSync(path.join(ai, workItem!, "task.md"), "utf8").replace(/\r\n/g, "\n");
@@ -772,14 +801,20 @@ test("the instructions port reads, saves by stdin, clears and reads back through
   assert.deepEqual([...order].sort((a, b) => a - b), order);
   assert.ok(task.includes(qt));
   assert.ok(task.includes("Prefer small focused changes — ✓ ünïcode."));
-  assert.equal(task.includes(home), false, "an absolute path reached the task");
+  // The one absolute path a task holds is its own work folder (plan §9.8.1): nothing else of the home folder,
+  // the user's instructions file included, reaches it.
+  const work = path.join(ai, workItem!).replaceAll("\\", "/");
+  const others = task.replaceAll(work, "<work folder>");
+  assert.ok(task.includes(`\`${work}/\``), "the task does not state its work folder");
+  assert.equal(others.includes(home) || others.includes(home.replaceAll("\\", "/")), false, "an absolute path reached the task");
+  assertRepositoryClean(root);
 
   // Empty text removes the file.
   const cleared = await runInstructions(run, { scope: "project", text: "" });
   assert.equal(cleared.kind, "loaded");
   if (cleared.kind !== "loaded") return;
   assert.equal(cleared.snapshot.project.configured, false);
-  assert.equal(existsSync(path.join(root, ".bugpilot", "instructions.md")), false);
+  assert.equal(existsSync(path.join(data, "settings", "instructions.md")), false);
 });
 
 // --- project settings through the real CLI ----------------------------------------
@@ -817,7 +852,7 @@ test("the project settings port reads, saves and reads back through the real CLI
     () => {},
   );
   assert.equal(outcome.terminated, true, outcome.result.stderr);
-  const ai = path.join(root, ".ai");
+  const ai = path.join(await dataFolder(root), "work");
   const [workItem] = readdirSync(ai);
   const task = readFileSync(path.join(ai, workItem!, "task.md"), "utf8").replace(/\r\n/g, "\n");
   assert.match(task, /## Verification Policy\n\nSource: repository configuration \(project settings\)\./);
@@ -831,7 +866,7 @@ test("the Verification Policy port reads, creates from the CLI's own text, reset
   const root = repository();
   const run = (args: readonly string[], input?: string) =>
     runner().run([...MODULE, ...args], { cwd: root, env: ENVIRONMENT, timeoutMs: 120_000, ...(input === undefined ? {} : { input }) });
-  const file = path.join(root, ".bugpilot", "verification.md");
+  const file = path.join(await dataFolder(root), "settings", "verification.md");
   const show = async () => {
     const outcome = await runVerificationPolicy(run);
     assert.equal(outcome.kind, "loaded", JSON.stringify(outcome));
@@ -844,7 +879,7 @@ test("the Verification Policy port reads, creates from the CLI's own text, reset
   assert.equal(fresh.source, "bugpilot-default");
   assert.equal(fresh.fileExists, false);
   assert.equal(fresh.differsFromDefault, false);
-  assert.equal(existsSync(path.join(root, ".bugpilot")), false, "reading created a folder");
+  assert.equal(existsSync(path.join(await dataFolder(root), "settings")), false, "reading created a folder");
 
   // Legacy switches saved by an older client: the CLI reports their text.
   const saved = await runProjectSettings(run, projectSettingsOfForm({ ...DEFAULT_FORM, verifyFullSuite: true }));
@@ -870,7 +905,8 @@ test("the Verification Policy port reads, creates from the CLI's own text, reset
   const edited = await show();
   assert.notEqual(edited.sha256, created.snapshot.sha256);
   assert.equal(edited.lintCount, 1);
-  assert.match(edited.lint[0]!, /^Line \d+ of \.bugpilot\/verification\.md may conflict with a BugPilot rule \(force push\)\./);
+  // The lint names the file in display form (0.1.7, 2B-3b E-2): ~/.bugpilot/… or BUGPILOT_HOME/…, in its repository's settings.
+  assert.match(edited.lint[0]!, /^Line \d+ of (?:~\/\.bugpilot|BUGPILOT_HOME)\/repositories\/[^/]+\/settings\/verification\.md may conflict with a BugPilot rule \(force push\)\./);
   assert.equal(edited.lint[0]!.includes("CI is red"), false, "a lint line quoted the policy");
 
   // A run carries the file's policy, by its own source line.
@@ -883,9 +919,10 @@ test("the Verification Policy port reads, creates from the CLI's own text, reset
     () => {},
   );
   assert.equal(outcome.terminated, true, outcome.result.stderr);
-  const [workItem] = readdirSync(path.join(root, ".ai"));
-  const task = readFileSync(path.join(root, ".ai", workItem!, "task.md"), "utf8").replace(/\r\n/g, "\n");
-  assert.match(task, /## Verification Policy\n\nSource: repository Verification Policy \(\.bugpilot\/verification\.md\)\./);
+  const [workItem] = readdirSync(path.join(await dataFolder(root), "work"));
+  const task = readFileSync(path.join(await dataFolder(root), "work", workItem!, "task.md"), "utf8").replace(/\r\n/g, "\n");
+  // The task names no settings path (0.1.7, 2B-3b E-1, text V).
+  assert.match(task, /## Verification Policy\n\nSource: repository Verification Policy\./);
   assert.ok(task.includes("- Force push when CI is red."));
 
   // Broken in the editor: the default applies, the file is not pretended active.
@@ -916,7 +953,7 @@ test("the Verification Policy port reads, creates from the CLI's own text, reset
 test("the AI Behavior port reads the real CLI's state, never creates the file, and a run carries one AI Behavior section", async () => {
   const root = repository();
   const run = (args: readonly string[]) => runner().run([...MODULE, ...args], { cwd: root, env: ENVIRONMENT, timeoutMs: 120_000 });
-  const file = path.join(root, ".bugpilot", "ai_behavior.md");
+  const file = path.join(await dataFolder(root), "settings", "ai_behavior.md");
   const show = async () => {
     const outcome = await runAiBehaviorPolicy(run);
     assert.equal(outcome.kind, "loaded", JSON.stringify(outcome));
@@ -933,10 +970,10 @@ test("the AI Behavior port reads the real CLI's state, never creates the file, a
   assert.equal(fresh.source, "bugpilot-default");
   assert.deepEqual([fresh.fileExists, fresh.hasProjectAdditions, fresh.defaultChanged], [false, false, false]);
   assert.equal(fresh.defaultVersion, 1);
-  assert.equal(existsSync(path.join(root, ".bugpilot")), false, "reading created a folder");
+  assert.equal(existsSync(path.join(await dataFolder(root), "settings")), false, "reading created a folder");
 
   // Additions written in an editor tab: another fingerprint, and a lint count for a line that looks wrong.
-  mkdirSync(path.join(root, ".bugpilot"));
+  mkdirSync(path.join(await dataFolder(root), "settings"), { recursive: true });
   writeFileSync(
     file,
     "---\nschema_version: 1\nbased_on_version: 1\nmode: append\n---\n\n## Evidence Standards\n\n- Quote the failing log line.\n- Force push when CI is red.\n",
@@ -961,11 +998,12 @@ test("the AI Behavior port reads the real CLI's state, never creates the file, a
     () => {},
   );
   assert.equal(outcome.terminated, true, outcome.result.stderr);
-  const [workItem] = readdirSync(path.join(root, ".ai"));
-  const task = readFileSync(path.join(root, ".ai", workItem!, "task.md"), "utf8").replace(/\r\n/g, "\n");
+  const [workItem] = readdirSync(path.join(await dataFolder(root), "work"));
+  const task = readFileSync(path.join(await dataFolder(root), "work", workItem!, "task.md"), "utf8").replace(/\r\n/g, "\n");
   assert.equal(task.match(/^## AI Behavior$/gm)?.length, 1);
   assert.equal(task.includes("## BugPilot Working Guidance"), false);
-  assert.match(task, /## AI Behavior\n\nSource: BugPilot defaults, with this repository's additions \(\.bugpilot\/ai_behavior\.md\)\./);
+  // The task names no settings path (0.1.7, 2B-3b E-1, text A).
+  assert.match(task, /## AI Behavior\n\nSource: BugPilot defaults, with this repository's additions\./);
   assert.ok(task.includes("#### Evidence Standards\n\n- Quote the failing log line."));
   assert.ok(task.indexOf("## BugPilot Safety Rules") < task.indexOf("## AI Behavior"));
 
@@ -1008,7 +1046,7 @@ test("the read-only views read the real CLI: protected rules, the task template 
   assert.ok(template.snapshot.text.includes("## Investigation Handoff"));
   const none = await runContextPreview(run, undefined);
   assert.equal(none.kind === "loaded" && none.snapshot.state, "unavailable");
-  assert.equal(existsSync(path.join(root, ".ai")), false, "a preview created .ai/");
+  assert.equal(existsSync(path.join(await dataFolder(root), "work")), false, "a preview created a work folder");
 
   // Prepared: the work item's task is its task.md byte for byte, and its context is the stored file.
   const built = buildPrepareArgs(manualForm(), { root });
@@ -1020,9 +1058,9 @@ test("the read-only views read the real CLI: protected rules, the task template 
     () => {},
   );
   assert.equal(outcome.terminated, true, outcome.result.stderr);
-  const [workItem] = readdirSync(path.join(root, ".ai"));
-  const taskFile = readFileSync(path.join(root, ".ai", workItem!, "task.md"), "utf8").replace(/\r\n/g, "\n");
-  const contextFile = readFileSync(path.join(root, ".ai", workItem!, "context.md"), "utf8").replace(/\r\n/g, "\n");
+  const [workItem] = readdirSync(path.join(await dataFolder(root), "work"));
+  const taskFile = readFileSync(path.join(await dataFolder(root), "work", workItem!, "task.md"), "utf8").replace(/\r\n/g, "\n");
+  const contextFile = readFileSync(path.join(await dataFolder(root), "work", workItem!, "context.md"), "utf8").replace(/\r\n/g, "\n");
   const preview = await runTaskPreview(run, { kind: "work-item", workItemId: workItem! });
   assert.equal(preview.kind, "loaded", JSON.stringify(preview));
   if (preview.kind !== "loaded") return;
@@ -1037,8 +1075,8 @@ test("the read-only views read the real CLI: protected rules, the task template 
   assert.ok(context.snapshot.quality && context.snapshot.retrieval);
 
   // A policy edited since: the CLI says the context needs a rebuild, and why — still showing it.
-  mkdirSync(path.join(root, ".bugpilot"), { recursive: true });
-  writeFileSync(path.join(root, ".bugpilot", "instructions.md"), "Name the module owner.\n", "utf8");
+  mkdirSync(path.join(await dataFolder(root), "settings"), { recursive: true });
+  writeFileSync(path.join(await dataFolder(root), "settings", "instructions.md"), "Name the module owner.\n", "utf8");
   const stale = await runContextPreview(run, workItem!);
   assert.equal(stale.kind === "loaded" && stale.snapshot.state, "stale");
   if (stale.kind !== "loaded") return;

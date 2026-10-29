@@ -1,4 +1,4 @@
-"""The repository's AI Behavior: ``<repo>/.bugpilot/ai_behavior.md`` (0.1.4).
+"""The repository's AI Behavior: its ``ai_behavior.md`` setting (0.1.4; in BugPilot's data folder since 0.1.7).
 
 How an AI agent is expected to make and report changes in this repository —
 its conventions and minimum expectations, not safety rules. One document, in
@@ -44,20 +44,18 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .artifact_io import atomic_write_text
+from . import repository_settings
 from .instructions import (
     MAX_INSTRUCTION_CHARS,
-    PROJECT_CONFIG_DIR,
     TextDocument,
     contained_markdown,
     link_problem,
     normalize_instructions,
-    read_text_document,
+    read_settings_document,
 )
 from .verification import lint_policy, parse_document
 
 AI_BEHAVIOR_FILE_NAME = "ai_behavior.md"
-SHOWN_PATH = f"{PROJECT_CONFIG_DIR}/{AI_BEHAVIOR_FILE_NAME}"
 SCHEMA_VERSION = 1
 #: The version of BugPilot's default AI Behavior (`DEFAULT_TEXT`). Raised
 #: whenever that text changes, so a file written against an older one can be told.
@@ -118,7 +116,7 @@ DEFAULT_TEXT = "## Code Change Conventions\n\n" + "\n".join(f"- {item}" for item
 
 @dataclass(frozen=True)
 class AiBehaviorFile:
-    """``.bugpilot/ai_behavior.md`` as read: the repository's additions and front matter, or why it cannot be used."""
+    """``settings/ai_behavior.md`` as read: the repository's additions and front matter, or why it cannot be used."""
 
     exists: bool = False
     #: The additions — the body after the front matter — normalized.
@@ -129,29 +127,38 @@ class AiBehaviorFile:
     mode: str | None = None
     #: The file's line number of the body's first line, so a warning can point at it.
     first_line: int = 1
+    #: Where the file is, as messages name it (display form, E-2): ``~/.bugpilot/.../settings/ai_behavior.md``.
+    #: Never compared, never hashed, never in the task (E-1).
+    shown: str = field(default="", compare=False)
 
     @property
     def characters(self) -> int:
         return len(self.text)
 
 
+def shown_path(repo_root: Path) -> str:
+    """``settings/ai_behavior.md`` as messages name it: ``~/.bugpilot/repositories/<id>/settings/...`` (E-2)."""
+    return repository_settings.shown_path(repo_root, AI_BEHAVIOR_FILE_NAME)
+
+
 def ai_behavior_path(repo_root: Path) -> Path:
-    return repo_root / PROJECT_CONFIG_DIR / AI_BEHAVIOR_FILE_NAME
+    """``settings/ai_behavior.md`` in the repository's namespace, from storage's checked accessor; creates nothing."""
+    return repository_settings.settings_file(repo_root, AI_BEHAVIOR_FILE_NAME, create=False)
 
 
 def read_ai_behavior_file(repo_root: Path) -> AiBehaviorFile:
     """The repository's file, as a task would use it. Never raises for the file's own state; never creates it."""
-    path = ai_behavior_path(repo_root)
-    document: TextDocument = read_text_document(path, link_problem(path, SHOWN_PATH, _LINK_RULE))
+    document: TextDocument = read_settings_document(repo_root, AI_BEHAVIOR_FILE_NAME)
+    shown = shown_path(repo_root)
     if not document.exists:
-        return AiBehaviorFile()
+        return AiBehaviorFile(shown=shown)
     if document.problem:
-        return AiBehaviorFile(exists=True, problem=document.problem)
+        return AiBehaviorFile(exists=True, problem=document.problem, shown=shown)
     if document.text.strip() == "":
-        return AiBehaviorFile(exists=True, problem=_EMPTY_FILE)
+        return AiBehaviorFile(exists=True, problem=_EMPTY_FILE, shown=shown)
     meta, body, problem = parse_document(document.text, MODES, _SHOW_COMMAND, _NO_SECTIONS)
     if problem:
-        return AiBehaviorFile(exists=True, problem=problem)
+        return AiBehaviorFile(exists=True, problem=problem, shown=shown)
     first_line = document.text[: len(document.text) - len(body)].count("\n") + 1
     return AiBehaviorFile(
         exists=True,
@@ -160,6 +167,7 @@ def read_ai_behavior_file(repo_root: Path) -> AiBehaviorFile:
         based_on_version=int(meta["based_on_version"]),  # type: ignore[arg-type]
         mode=str(meta["mode"]),
         first_line=first_line,
+        shown=shown,
     )
 
 
@@ -172,7 +180,7 @@ def render_document(body: str, based_on_version: int = DEFAULT_AI_BEHAVIOR_VERSI
 
 
 def save_ai_behavior(repo_root: Path, text: str) -> AiBehaviorFile:
-    """Write ``.bugpilot/ai_behavior.md`` from the additions, or from a whole document with its front matter.
+    """Write ``settings/ai_behavior.md`` from the additions, or from a whole document with its front matter.
 
     Additions get front matter naming the current default's version; a whole
     document keeps its own, which must parse. Refuses through a link, over the
@@ -198,30 +206,30 @@ def save_ai_behavior(repo_root: Path, text: str) -> AiBehaviorFile:
             f"more than the {MAX_INSTRUCTION_CHARS:,} BugPilot includes."
         )
     path = ai_behavior_path(repo_root)
-    _refuse_link(path, "saved")
+    shown = shown_path(repo_root)
+    _refuse_link(path, "saved", shown)
     if path.exists() and not path.is_file():
-        raise AiBehaviorError(f"AI Behavior was not saved: {SHOWN_PATH} is not a regular file.")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # Checked again now that the folder exists: it may have been created as a link meanwhile.
-    _refuse_link(path, "saved")
-    atomic_write_text(path, document)
+        raise AiBehaviorError(f"AI Behavior was not saved: {shown} is not a regular file.")
+    # Storage makes the namespace ready (``0700``, its record) and refuses a link there; the write is atomic.
+    repository_settings.write_text(repo_root, AI_BEHAVIOR_FILE_NAME, document)
     return read_ai_behavior_file(repo_root)
 
 
 def remove_ai_behavior(repo_root: Path) -> bool:
     """Remove the repository's additions, so BugPilot's defaults apply alone. True when a file was removed."""
     path = ai_behavior_path(repo_root)
-    _refuse_link(path, "removed")
+    shown = shown_path(repo_root)
+    _refuse_link(path, "removed", shown)
     if not path.exists():
         return False
     if not path.is_file():
-        raise AiBehaviorError(f"AI Behavior was not removed: {SHOWN_PATH} is not a regular file.")
-    path.unlink()
-    return True
+        raise AiBehaviorError(f"AI Behavior was not removed: {shown} is not a regular file.")
+    # Storage locates it again and removes it; an OSError is one sentence (E-5).
+    return repository_settings.remove_file(repo_root, AI_BEHAVIOR_FILE_NAME)
 
 
-def _refuse_link(path: Path, verb: str) -> None:
-    problem = link_problem(path, SHOWN_PATH, _LINK_RULE)
+def _refuse_link(path: Path, verb: str, shown: str) -> None:
+    problem = link_problem(path, shown, _LINK_RULE)
     if problem:
         raise AiBehaviorError(f"AI Behavior was not {verb}: {problem}.")
 
@@ -258,27 +266,27 @@ _VERIFICATION_LINE = re.compile(
 )
 
 
-def lint_ai_behavior(text: str, first_line: int = 1) -> tuple[str, ...]:
+def lint_ai_behavior(text: str, first_line: int = 1, shown: str = f"settings/{AI_BEHAVIOR_FILE_NAME}") -> tuple[str, ...]:
     """Lines worth a second look. Warnings only — the text is kept as written; never quotes it.
 
     The Verification Policy's conflict lint (a line that seems to ask for what a
     BugPilot rule forbids), plus two that are AI Behavior's own: a heading named
     like a Fix Mode section, and a line about running tests or checks, which
     the Verification Policy owns. Like that lint, it cannot understand the text
-    and is not a defense.
+    and is not a defense. ``shown`` names the file in the warnings: a repository's display path (E-2).
     """
-    warnings = list(lint_policy(text, first_line, SHOWN_PATH))
+    warnings = list(lint_policy(text, first_line, shown))
     for number, line in enumerate(text.split("\n"), start=first_line):
         heading = _HEADING.match(line)
         if heading and heading.group(1).strip().lower() in _FIX_MODE_HEADINGS:
             warnings.append(
-                f"Line {number} of {SHOWN_PATH} is a heading named like a Fix Mode section. AI Behavior holds "
+                f"Line {number} of {shown} is a heading named like a Fix Mode section. AI Behavior holds "
                 f"this repository's conventions; use {', '.join(SECTIONS[:-1])} or {SECTIONS[-1]}."
             )
         elif not heading and _VERIFICATION_LINE.search(line):
             warnings.append(
-                f"Line {number} of {SHOWN_PATH} looks like a verification expectation. What to verify belongs "
-                "in the Verification Policy (.bugpilot/verification.md), which the task states on its own."
+                f"Line {number} of {shown} looks like a verification expectation. What to verify belongs "
+                "in the Verification Policy, which the task states on its own."
             )
     return tuple(warnings)
 
@@ -340,18 +348,18 @@ class ResolvedAiBehavior:
     def warnings(self) -> tuple[str, ...]:
         found = []
         if self.problem:
-            found.append(f"AI Behavior ({SHOWN_PATH}) was not used: {self.problem} BugPilot's defaults apply.")
+            found.append(f"AI Behavior ({self.file.shown}) was not used: {self.problem} BugPilot's defaults apply.")
         return (*found, *self.lint)
 
     @property
     def log_line(self) -> str:
         """For ``bugpilot.log``: the source and a length, never the text."""
         if self.problem:
-            return f"[WARN] ai behavior: {SHOWN_PATH} not used ({self.problem}); the defaults apply"
+            return f"[WARN] ai behavior: {self.file.shown} not used ({self.problem}); the defaults apply"
         if self.has_project_additions:
-            return f"[INFO] ai behavior: defaults + {SHOWN_PATH} ({self.file.characters} characters)"
+            return f"[INFO] ai behavior: defaults + {self.file.shown} ({self.file.characters} characters)"
         if self.source == SOURCE_FILE:
-            return f"[INFO] ai behavior: bugpilot-default ({SHOWN_PATH} adds nothing yet)"
+            return f"[INFO] ai behavior: bugpilot-default ({self.file.shown} adds nothing yet)"
         return "[INFO] ai behavior: bugpilot-default"
 
 
@@ -359,10 +367,10 @@ def resolve_ai_behavior(repo_root: Path) -> ResolvedAiBehavior:
     """The effective AI Behavior: BugPilot's defaults, plus the repository's additions when its file is usable."""
     file = read_ai_behavior_file(repo_root)
     if not file.exists:
-        return ResolvedAiBehavior()
+        return ResolvedAiBehavior(file=file)  # where the file would be, for show --json's path (E-9)
     if file.problem:
         return ResolvedAiBehavior(source=SOURCE_FILE, file=file)
-    return ResolvedAiBehavior(source=SOURCE_FILE, file=file, lint=lint_ai_behavior(file.text, file.first_line))
+    return ResolvedAiBehavior(source=SOURCE_FILE, file=file, lint=lint_ai_behavior(file.text, file.first_line, file.shown))
 
 
 # --- task.md --------------------------------------------------------------------------------
@@ -379,13 +387,13 @@ def ai_behavior_section(resolved: ResolvedAiBehavior | None = None) -> str:
     resolved = resolved or ResolvedAiBehavior()
     notice = ""
     if resolved.problem:
-        source = f"BugPilot defaults, because the repository's {SHOWN_PATH} could not be used"
+        source = "BugPilot defaults, because the repository's AI Behavior could not be used"
         notice = (
-            f"The repository's AI Behavior ({SHOWN_PATH}) was not included: {resolved.problem} "
+            f"The repository's AI Behavior was not included: {resolved.problem} "
             "Until it is fixed, BugPilot's defaults apply.\n\n"
         )
     elif resolved.has_project_additions:
-        source = f"BugPilot defaults, with this repository's additions ({SHOWN_PATH})"
+        source = "BugPilot defaults, with this repository's additions"
     else:
         source = "BugPilot defaults"
     additions = (
@@ -412,7 +420,7 @@ def ai_behavior_payload(resolved: ResolvedAiBehavior) -> dict[str, object]:
     file = resolved.file
     return {
         "source": resolved.source,
-        "path": SHOWN_PATH,
+        "path": file.shown,
         "text": resolved.text,
         "default_text": DEFAULT_TEXT,
         "project_text": resolved.project_text,

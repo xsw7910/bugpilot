@@ -1054,7 +1054,7 @@ def test_the_files_own_final_path_query_failing_stays_the_files_failure(namespac
     import ctypes
 
     _settings(namespace, "instructions.md", b"kept\n")
-    real_create, real_final_path = _held_folders._create, _held_folders._final_path
+    real_create, real_final_path, real_close = _held_folders._create, _held_folders._final_path, _held_folders._close
     data_handles: set[int] = set()
 
     def create(path, access, share, flags, *, audited=None):
@@ -1068,8 +1068,14 @@ def test_the_files_own_final_path_query_failing_stays_the_files_failure(namespac
             raise ctypes.WinError(1117)
         return real_final_path(handle)
 
+    def close(handle):
+        # Windows reuses a closed handle's value: a folder opened later must not inherit the file's failure.
+        data_handles.discard(handle)
+        real_close(handle)
+
     monkeypatch.setattr(_held_folders, "_create", create)
     monkeypatch.setattr(_held_folders, "_final_path", final_path)
+    monkeypatch.setattr(_held_folders, "_close", close)
     with pytest.raises(storage.StorageFileReadError) as failed:
         namespace.read_settings("instructions.md", limit=100)
     assert failed.value.error.winerror == 1117 and failed.value.filename is None

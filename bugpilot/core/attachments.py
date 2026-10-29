@@ -14,8 +14,8 @@ read.**
  2. Copying is byte-for-byte and makes no encoding assumption. A PNG is a PNG;
     a log written by a Windows tool in cp1252 stays exactly as it was.
 
-The files land in ``.ai/<work_item>/attachments/``, inside the directory the
-agent is already pointed at, so nothing has to be given a path outside it.
+The files land in ``attachments/`` in the work item's folder in BugPilot's data
+folder, inside the folder the agent is already pointed at.
 """
 
 from __future__ import annotations
@@ -37,8 +37,8 @@ from .safe_paths import (
 ATTACHMENTS_DIR = "attachments"
 
 # Per file. A crash dump or a video of the repro is not an attachment, it is a
-# download — and copying one into `.ai/` bloats the repository the artifacts
-# directory lives in.
+# download — and copying one into the work item's folder bloats BugPilot's data
+# folder.
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 
 # Past this it is a directory, not a set of attachments, and an agent handed
@@ -272,7 +272,7 @@ def attachment_names(target: Path) -> list[str]:
 
 
 def _repository_of(target: Path) -> Path:
-    """The repository a work item's folder belongs to: ``target`` is two levels below it."""
+    """The repository's folder in BugPilot's data folder, which ``target`` (``work/<id>``) is two levels below."""
     return target.parent.parent
 
 

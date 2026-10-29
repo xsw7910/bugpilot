@@ -499,6 +499,115 @@ test("Codex CLI and a custom command ignore a session id, and are never asked ab
   assert.deepEqual(asked, []);
 });
 
+// --- the work folder (0.1.7: outside the repository) ----------------------------------------
+
+/** Claude CLI over a probe that answers per flag set; records every question. */
+function claudeListing(listed: { addDir?: boolean | Error | undefined; session?: boolean }) {
+  const asked: (readonly string[])[] = [];
+  const { probes } = machine({ onPath: ["claude", "codex", "my-agent"] });
+  const probed: AgentProbes = {
+    ...probes,
+    supportsFlags: async (_command, flags) => {
+      asked.push(flags);
+      const answer = flags.includes("--add-dir") ? listed.addDir : listed.session;
+      if (answer instanceof Error) throw answer;
+      return answer ?? false;
+    },
+  };
+  return { probed, asked, claude: cliAgent(CLAUDE_CLI, probed) };
+}
+
+const WINDOWS_FOLDER = "C:\\path\\to\\home dir\\.bugpilot\\repositories\\repo-0123456789abcdef\\work\\JR-1";
+const WINDOWS_SHOWN = "C:/path/to/home dir/.bugpilot/repositories/repo-0123456789abcdef/work/JR-1";
+const FIX: AiFixRequest = { ...REQUEST, prompt: `Read ${WINDOWS_SHOWN}/task.md and complete the workflow.`, workFolder: WINDOWS_FOLDER };
+const quoted = (text: string) => JSON.stringify(text);
+
+test("Fix with AI gives Claude CLI the work folder: one --add-dir=<folder> word, spaces quoted, before the session and the prompt", async () => {
+  const { claude, asked } = claudeListing({ addDir: true, session: true });
+  const { launch, terminals } = recordingLaunch();
+  const result = await claude.run({ ...FIX, sessionId: SESSION }, launch);
+  const grant = `--add-dir=${quoted(WINDOWS_SHOWN)}`;
+  const expected = `claude ${grant} --session-id ${SESSION} ${quoted(FIX.prompt)}`;
+  assert.deepEqual(terminals, [expected]);
+  // The resumed session is given the same folder, once.
+  assert.deepEqual(result, { kind: "terminal", label: "Claude CLI", commandLine: expected, resumeCommandLine: `claude --resume ${SESSION} ${grant}` });
+  for (const line of [expected, result.kind === "terminal" ? result.resumeCommandLine! : ""]) {
+    assert.equal(line.split("--add-dir").length - 1, 1, line);
+  }
+  assert.deepEqual(asked, [["--add-dir"], ["--session-id", "--resume"]]);
+});
+
+test("a POSIX work folder, and a Claude CLI without resumable sessions: the grant alone, then the prompt", async () => {
+  const folder = "/path/to/home dir/.bugpilot/repositories/repo-0123456789abcdef/work/JR-1";
+  const { claude } = claudeListing({ addDir: true, session: false });
+  const { launch, terminals } = recordingLaunch();
+  const prompt = `Read ${folder}/task.md and complete the workflow.`;
+  await claude.run({ ...REQUEST, prompt, workFolder: folder, sessionId: SESSION }, launch);
+  assert.deepEqual(terminals, [`claude --add-dir=${quoted(folder)} ${quoted(prompt)}`]);
+});
+
+test("a Claude CLI whose --help does not list --add-dir, or a check that fails, is started as it always was", async () => {
+  for (const addDir of [false, new Error("spawn EPERM"), undefined]) {
+    const { claude } = claudeListing({ addDir, session: false });
+    const { launch, terminals } = recordingLaunch();
+    const result = await claude.run(FIX, launch);
+    assert.deepEqual(terminals, [`claude ${quoted(FIX.prompt)}`], String(addDir));
+    assert.equal(result.kind, "terminal", String(addDir));
+  }
+});
+
+test("a work folder that may not go on a command line is refused, and nothing is started", async () => {
+  const { claude, asked } = claudeListing({ addDir: true, session: true });
+  for (const workFolder of [
+    "C:\\path\\to\\Zoë\\.bugpilot\\repositories\\repo-0123456789abcdef\\work\\JR-1", // a letter outside the plain class
+    "C:\\path\\to\\a\tb\\work\\JR-1", // a tab
+    "C:\\path\\to\\a\nb\\work\\JR-1", // a line break
+    "C:\\path\\to\\$(calc)\\work\\JR-1",
+    "C:\\path\\to\\a\"b\\work\\JR-1",
+    "C:\\path\\to\\a`b\\work\\JR-1",
+    "work\\JR-1", // relative
+    "-rf/work/JR-1",
+    "",
+  ]) {
+    const { launch, terminals } = recordingLaunch();
+    const result = await claude.run({ ...FIX, workFolder, sessionId: SESSION }, launch);
+    assert.equal(result.kind, "failed", JSON.stringify(workFolder));
+    assert.match(result.kind === "failed" ? result.reason : "", /work folder's path is not one BugPilot puts on a command line/);
+    assert.deepEqual(terminals, [], JSON.stringify(workFolder));
+  }
+  assert.deepEqual(asked, [], "nothing is asked about a folder that is refused");
+});
+
+test("Review with AI, which writes nothing, is given no folder, and --add-dir is not asked about", async () => {
+  const { claude, asked } = claudeListing({ addDir: true, session: true });
+  const { launch, terminals } = recordingLaunch();
+  await claude.run({ workspacePath: "/repo", workItemId: "JR-1", prompt: FIX.prompt, purpose: "review" }, launch);
+  assert.deepEqual(terminals, [`claude ${quoted(FIX.prompt)}`]);
+  assert.deepEqual(asked, []);
+});
+
+test("Codex CLI, a custom command and an extension bridge are never given the work folder", async () => {
+  const { probed, asked } = claudeListing({ addDir: true, session: true });
+  const codex = cliAgent(CLI_AGENTS.find((entry) => entry.id === "codex-cli")!, probed);
+  const custom = customCommandAgent(`my-agent --prompt ${PROMPT_PLACEHOLDER}`, probed);
+  for (const adapter of [codex, custom]) {
+    const { launch, terminals } = recordingLaunch();
+    await adapter.run({ ...FIX, sessionId: SESSION }, launch);
+    assert.equal(terminals.length, 1, adapter.label);
+    assert.equal(terminals[0]!.includes("--add-dir"), false, adapter.label);
+    assert.equal(terminals[0]!.includes("home dir/.bugpilot/repositories/repo-0123456789abcdef/work/JR-1/task.md"), true, adapter.label);
+  }
+  const bridge = extensionAgent(EXTENSION_AGENTS.find((entry) => entry.id === "claude-extension")!, {
+    ...probed,
+    extension: () => CLAUDE_EXTENSION,
+  });
+  const { launch, clipboard, terminals } = recordingLaunch();
+  await bridge.run(FIX, launch);
+  assert.deepEqual(clipboard, [FIX.prompt]);
+  assert.deepEqual(terminals, []);
+  assert.deepEqual(asked, []);
+});
+
 // --- the custom command -------------------------------------------------------------------
 
 test("a custom command is substituted, quoted, and probed by its own program", async () => {

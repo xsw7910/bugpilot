@@ -18,6 +18,11 @@ from .config import (
     issue_dir,
     load_email_config,
     load_graph_config,
+    memory_dir,
+    prompt_path,
+    readable_data_dir,
+    shown_memory,
+    shown_work,
     writable_issue_dir,
     writable_memory_file,
 )
@@ -39,7 +44,7 @@ from .branch_policy import (
 )
 from .delivery_instructions import delivery_instructions_block, delivery_safety_block
 from .doctor import collect_doctor_report
-from .handoff import handoff_prompt
+from .handoff import retry_handoff_prompt, work_item_handoff
 from .git_history import (
     RANKED_HISTORY_FILES,
     GitHistoryOutcome,
@@ -372,7 +377,7 @@ def run_investigation(
     what a partial run means.
 
     Non-destructive unless asked: ``fresh=True`` is the only way a preparation
-    deletes ``.ai/<id>/`` first, and every entry point has to say so.
+    deletes the work item's folder first, and every entry point has to say so.
     """
     issue_key = request.work_item_id
     resolved = set(request.resolved_steps())
@@ -384,6 +389,10 @@ def run_investigation(
     # A fresh run reads nothing there first, and its cleanup refuses such a link in its own words.
     if not fresh:
         _prepare_issue_dir(repo_root, issue_key, create=False)
+    # The task names the work folder absolutely (0.1.7): a folder it cannot name is refused before anything is
+    # deleted or written, so the refusal's "Nothing was written." stays true.
+    validate_issue_key(issue_key)
+    prompt_path(issue_dir(repo_root, issue_key))
     # Resolved before anything is deleted, and before the persisted selection is
     # read: a fresh run is about to discard the package that recorded a mode, so
     # only an explicit choice can apply to it, and a mistyped one must cost the
@@ -395,10 +404,10 @@ def run_investigation(
         validate_issue_key(issue_key)
         _progress(progress, "clean_start")
         clean_result = clean_issue_artifacts(repo_root, issue_key, include_memory=include_memory)
-        _progress(progress, "clean_done" if f".ai/{issue_key}/" in clean_result.deleted_paths else "clean_none")
+        _progress(progress, "clean_done" if f"work/{issue_key}/" in clean_result.deleted_paths else "clean_none")
 
     # Every place this run will write is checked before the first write, so a
-    # linked `.ai_memory` refuses the run up front rather than after task.md was
+    # linked memory folder refuses the run up front rather than after task.md was
     # written (no partial write through a link).
     if "memory_add" in resolved:
         writable_memory_file(repo_root, issue_key, create=False)
@@ -477,7 +486,7 @@ def run_investigation(
     if attachment_result.copied and "prompt" not in resolved:
         attachment_warnings.append(
             f"{len(attachment_result.copied)} attachment(s) were copied to "
-            f".ai/{issue_key}/{ATTACHMENTS_DIR}/, but this run writes no agent task "
+            f"{shown_work(repo_root, issue_key, ATTACHMENTS_DIR)}/, but this run writes no agent task "
             "file, so no agent will be told about them."
         )
     for warning in attachment_warnings:
@@ -625,7 +634,7 @@ def run_investigation(
     log(target, "[SKIP] agent_fix: prepare-only mode")
     if agent_fix:
         log(target, "[INFO] Agent automatic invocation is not enabled, using manual handoff")
-        log(target, f"[INFO] Next agent instruction: {handoff_prompt(issue_key)}")
+        log(target, f"[INFO] Next agent instruction: {work_item_handoff(repo_root, issue_key)}")
     generated = _generated_files(repo_root, issue_key)
     for file_name in generated:
         log(target, f"[GENERATED] {file_name}")
@@ -1263,6 +1272,8 @@ class TaskInputs:
     instructions: ResolvedInstructions
     project_settings: ResolvedProjectSettings
     ai_behavior: ResolvedAiBehavior
+    #: The work item's folder as the task names it (``config.prompt_path``): absolute, forward slashes.
+    work_folder: str
 
     def render(self) -> str:
         return generate_task(
@@ -1279,6 +1290,7 @@ class TaskInputs:
             instructions=self.instructions,
             project_settings=self.project_settings,
             ai_behavior=self.ai_behavior,
+            work_folder=self.work_folder,
         )
 
 
@@ -1316,6 +1328,7 @@ def work_item_task_inputs(
         instructions=instructions,
         project_settings=project_settings,
         ai_behavior=ai_behavior,
+        work_folder=prompt_path(target),
     )
 
 
@@ -1484,24 +1497,32 @@ def copilot_instructions_step(repo_root: Path, issue_key: str) -> str:
         raise
 
 
-def check_result_files(repo_root: Path, issue_key: str) -> list[str]:
-    """The required result files not there yet; a link at one, or on the way to it, is refused (O-1)."""
+def missing_result_names(repo_root: Path, issue_key: str) -> list[str]:
+    """The names of the required result files not there yet; a link at one, or on the way to it, is refused (O-1)."""
     target = issue_dir(repo_root, issue_key)
+    base = readable_data_dir(repo_root)
     return [
-        f".ai/{issue_key}/{file_name}"
+        file_name
         for file_name in REQUIRED_COPILOT_RESULT_FILES
-        if not generated_file_exists(repo_root, target / file_name)
+        if not generated_file_exists(base, target / file_name)
     ]
 
 
+def check_result_files(repo_root: Path, issue_key: str) -> list[str]:
+    """:func:`missing_result_names`, each as messages name it (``~/.bugpilot/…``)."""
+    return [shown_work(repo_root, issue_key, name) for name in missing_result_names(repo_root, issue_key)]
+
+
 def check_results_step(repo_root: Path, issue_key: str, strict: bool = False) -> list[str]:
+    """The required result files not there yet, by name (:func:`missing_result_names`); the log names each in
+    the repository's folder of the data folder (``work/<id>/…``, 0.1.7)."""
     target = _prepare_issue_dir(repo_root, issue_key)
     log(target, f"[START] check_results{' --strict' if strict else ''}")
-    missing = check_result_files(repo_root, issue_key)
+    missing = missing_result_names(repo_root, issue_key)
     if missing:
         log(target, f"[WARN] check_results: missing {len(missing)} agent result file(s).")
         for file_name in missing:
-            log(target, f"[WARN] missing result file: {file_name}")
+            log(target, f"[WARN] missing result file: work/{issue_key}/{file_name}")
     else:
         log(target, "[END] check_results: pass")
     if missing:
@@ -1546,7 +1567,7 @@ def review_package_step(repo_root: Path, issue_key: str) -> str:
     target = _prepare_issue_dir(repo_root, issue_key)
     log(target, "[START] review_package")
     try:
-        prompt = _build_final_review_prompt(issue_key)
+        prompt = _build_final_review_prompt(repo_root, issue_key)
         log(target, "[END] review_package: pass")
         return prompt
     except Exception as exc:
@@ -1598,8 +1619,8 @@ def review_package_projection(repo_root: Path, issue_key: str) -> tuple[str, Val
     """
     validate_work_item_id(issue_key)
     if not issue_dir(repo_root, issue_key).is_dir():
-        raise WorkItemNotFoundError(f"Work item not found: .ai/{issue_key}/")
-    return _build_final_review_prompt(issue_key), validation_checklist(repo_root, issue_key)
+        raise WorkItemNotFoundError(f"Work item not found: {shown_work(repo_root, issue_key)}")
+    return _build_final_review_prompt(repo_root, issue_key), validation_checklist(repo_root, issue_key)
 
 
 def delivery_check_step(repo_root: Path, issue_key: str) -> list[str]:
@@ -1675,11 +1696,11 @@ def notify_step(
         draft = build_email_draft(repo_root, issue_key)
         draft_path = target / "email_draft.md"
         atomic_write_text(draft_path, f"Subject: {draft.subject}\n\n{draft.body}")
-        log(target, f"[GENERATED] .ai/{issue_key}/email_draft.md")
+        log(target, f"[GENERATED] work/{issue_key}/email_draft.md")
 
         eml_path = target / "notification.eml"
         refuse_link(eml_path).write_bytes(render_eml(draft, email_config.sender, email_config.recipients))
-        log(target, f"[GENERATED] .ai/{issue_key}/notification.eml")
+        log(target, f"[GENERATED] work/{issue_key}/notification.eml")
 
         if not execute:
             _mark_step(repo_root, issue_key, "notify", "skipped")
@@ -1737,18 +1758,18 @@ def memory_update_step(repo_root: Path, issue_key: str) -> bool:
     report = read_fix_report(repo_root, issue_key)
     memory_path = writable_memory_file(repo_root, issue_key, create=False)
     if report is None:
-        log(target, f"[WARN] memory_update: missing .ai/{issue_key}/{FIX_REPORT_ARTIFACT}; the agent writes it, or run bugpilot manual-result {issue_key}")
+        log(target, f"[WARN] memory_update: missing work/{issue_key}/{FIX_REPORT_ARTIFACT}; the agent writes it, or run bugpilot manual-result {issue_key}")
         _mark_step(repo_root, issue_key, "memory_update", "skipped")
         return False
 
     memory_path = writable_memory_file(repo_root, issue_key)
-    stored = read_generated_file(repo_root, memory_path)  # never through a link (O-1)
+    stored = read_generated_file(readable_data_dir(repo_root), memory_path)  # never through a link (O-1)
     existing = decode_text(stored, "utf-8") if stored is not None else f"# {issue_key} AI Bug Workflow Memory\n"
     final_result = _build_final_result_section(report)
     updated = _replace_section(existing, "## Final Result", final_result)
     atomic_write_text(memory_path, updated)
     _mark_step(repo_root, issue_key, "memory_update", "pass")
-    log(target, f"[UPDATED] .ai_memory/bugs/{issue_key}.md")
+    log(target, f"[UPDATED] memory/{issue_key}.md")
     log(target, "[END] memory_update: pass")
     return True
 
@@ -1758,9 +1779,9 @@ def memory_add_step(repo_root: Path, issue_key: str, issue: IssueArtifact | None
     log(target, "[START] memory_add")
     try:
         issue = issue or _require_issue(repo_root, issue_key)
-        entry = build_memory_entry(issue_key, issue, f".ai/{issue_key}/{CONTEXT_ARTIFACT}")
-        # The shared memory file under .ai_memory/ is the source of truth; no local
-        # per-issue copy is written to keep the .ai/<issue>/ output lean.
+        entry = build_memory_entry(issue_key, issue, f"work/{issue_key}/{CONTEXT_ARTIFACT}")
+        # The shared memory file under memory/ is the source of truth; no local
+        # per-issue copy is written to keep the work item's folder lean.
         add_memory_entry(repo_root, issue_key, entry)
         _mark_step(repo_root, issue_key, "memory_add", "pass")
         log(target, "[END] memory_add: pass")
@@ -1778,10 +1799,11 @@ def jira_comment_draft_step(repo_root: Path, issue_key: str, strict: bool = Fals
         raise FileNotFoundError(f"No core context found for {issue_key}. Run: bugpilot bug {issue_key}")
 
     log(target, "[START] jira_comment_draft")
-    missing = check_result_files(repo_root, issue_key)
+    names = missing_result_names(repo_root, issue_key)
+    missing = [shown_work(repo_root, issue_key, name) for name in names]
     if strict and missing:
-        for file_name in missing:
-            log(target, f"[ERROR] jira_comment_draft missing required result file: {file_name}")
+        for file_name in names:
+            log(target, f"[ERROR] jira_comment_draft missing required result file: work/{issue_key}/{file_name}")
         _mark_step(repo_root, issue_key, "jira_comment_draft", "fail")
         log(target, "[END] jira_comment_draft: fail")
         raise ValueError("Missing required agent result files: " + ", ".join(missing))
@@ -1790,7 +1812,7 @@ def jira_comment_draft_step(repo_root: Path, issue_key: str, strict: bool = Fals
     path = target / "jira_comment_draft.md"
     atomic_write_text(path, draft)
     _mark_step(repo_root, issue_key, "jira_comment_draft", "pass")
-    log(target, f"[GENERATED] .ai/{issue_key}/jira_comment_draft.md")
+    log(target, f"[GENERATED] work/{issue_key}/jira_comment_draft.md")
     log(target, "[END] jira_comment_draft: pass")
     return path
 
@@ -1800,8 +1822,8 @@ def jira_comment_step(repo_root: Path, issue_key: str, execute: bool = False) ->
     if not target.exists():
         raise FileNotFoundError(f"No workflow package found for {issue_key}. Run: bugpilot bug {issue_key}")
     draft_path = target / "jira_comment_draft.md"
-    if not generated_file_exists(repo_root, draft_path):
-        raise FileNotFoundError(f"Missing .ai/{issue_key}/jira_comment_draft.md. Run: bugpilot jira-comment-draft {issue_key}")
+    if not generated_file_exists(readable_data_dir(repo_root), draft_path):
+        raise FileNotFoundError(f"Missing {shown_work(repo_root, issue_key, 'jira_comment_draft.md')}. Run: bugpilot jira-comment-draft {issue_key}")
 
     mode = "execute" if execute else "preview"
     log(target, f"[START] jira_comment {mode}")
@@ -1826,7 +1848,7 @@ def jira_comment_step(repo_root: Path, issue_key: str, execute: bool = False) ->
         # used to sit beside was a duplicate nothing read.
         atomic_write_text(target / "jira_comment_post_result.json", json.dumps(result_json, indent=2) + "\n")
         _mark_step(repo_root, issue_key, "jira_comment", "pass")
-        log(target, f"[GENERATED] .ai/{issue_key}/jira_comment_post_result.json")
+        log(target, f"[GENERATED] work/{issue_key}/jira_comment_post_result.json")
         log(target, "[END] jira_comment: pass")
         return {
             "issue_key": issue_key,
@@ -1853,13 +1875,13 @@ def retry_prompt_step(repo_root: Path, issue_key: str) -> dict[str, Path]:
         if not feedback_path.exists():
             atomic_write_text(feedback_path, _user_feedback_template(issue_key))
             created_feedback = True
-            log(target, f"[GENERATED] .ai/{issue_key}/user_feedback.md")
+            log(target, f"[GENERATED] work/{issue_key}/user_feedback.md")
         prompt_path = target / "agent_retry_prompt.md"
         mode = _selected_fix_mode(repo_root, issue_key)
         atomic_write_text(prompt_path, _build_retry_prompt(repo_root, issue_key, mode))
         log(target, f"[INFO] retry fix mode: {mode.id} ({mode.execution_kind})")
         _mark_step(repo_root, issue_key, "retry_prompt", "pass")
-        log(target, f"[GENERATED] .ai/{issue_key}/agent_retry_prompt.md")
+        log(target, f"[GENERATED] work/{issue_key}/agent_retry_prompt.md")
         log(target, "[END] retry_prompt: pass")
         result = {"prompt": prompt_path}
         if created_feedback:
@@ -1882,7 +1904,7 @@ def manual_result_step(repo_root: Path, issue_key: str, overwrite: bool = False)
     try:
         for file_name, content in _manual_result_templates(issue_key).items():
             path = target / file_name
-            rel = f".ai/{issue_key}/{file_name}"
+            rel = f"work/{issue_key}/{file_name}"
             if path.exists() and not overwrite:
                 preserved.append(rel)
                 log(target, f"[INFO] manual_result preserved existing file: {rel}")
@@ -1903,7 +1925,7 @@ def manual_result_step(repo_root: Path, issue_key: str, overwrite: bool = False)
 
 
 def _prepare_issue_dir(repo_root: Path, issue_key: str, *, create: bool = True) -> Path:
-    """``.ai/<id>/``, validated and checked for links before any step writes there; ``create=False`` creates nothing."""
+    """The work item's folder, validated and checked by storage before any step writes there; ``create=False`` creates nothing."""
     return writable_issue_dir(repo_root, issue_key, create=create)
 
 
@@ -1925,7 +1947,7 @@ def _require_issue(repo_root: Path, issue_key: str) -> IssueArtifact:
     issue = load_issue(repo_root, issue_key)
     if issue is None:
         raise FileNotFoundError(
-            f"Missing .ai/{issue_key}/{ISSUE_ARTIFACT}. Run: bugpilot bug {issue_key}"
+            f"Missing {shown_work(repo_root, issue_key, ISSUE_ARTIFACT)}. Run: bugpilot bug {issue_key}"
         )
     return issue
 
@@ -1994,9 +2016,10 @@ def _build_retry_prompt(repo_root: Path, issue_key: str, fix_mode: FixMode | Non
         FIX_REPORT_ARTIFACT,
         "user_feedback.md",
     ]
-    reading = [f"- .ai/{issue_key}/{name}" for name in reading_files if (target / name).exists()]
-    if f"- .ai/{issue_key}/user_feedback.md" not in reading:
-        reading.append(f"- .ai/{issue_key}/user_feedback.md")
+    folder = prompt_path(target)
+    reading = [f"- {name}" for name in reading_files if (target / name).exists()]
+    if "- user_feedback.md" not in reading:
+        reading.append("- user_feedback.md")
     reading.append("- current git diff")
     feedback = _developer_feedback(repo_root, target)
     previous = _previous_attempt_summary(repo_root, target)
@@ -2010,7 +2033,7 @@ def _build_retry_prompt(repo_root: Path, issue_key: str, fix_mode: FixMode | Non
     )
     # Said once, not repeated: the rules live in task.md, and this prompt has no
     # Safety Rules section of its own (§44.5.4).
-    rules_still_apply = f"- BugPilot's rules in `.ai/{issue_key}/{TASK_ARTIFACT}` still apply to this retry.\n"
+    rules_still_apply = f"- BugPilot's rules in `{TASK_ARTIFACT}` still apply to this retry.\n"
     if investigating:
         retry_instructions = rules_still_apply + (
             "- First explain why the previous investigation did not settle the root cause.\n"
@@ -2042,7 +2065,7 @@ def _build_retry_prompt(repo_root: Path, issue_key: str, fix_mode: FixMode | Non
         )
     closing = (
         delivery_safety_block(issue_key, branch, branch_policy=branch_policy)
-        + investigation_handoff_block(issue_key)
+        + investigation_handoff_block()
         if investigating
         else delivery_instructions_block(
             issue_key,
@@ -2058,12 +2081,14 @@ def _build_retry_prompt(repo_root: Path, issue_key: str, fix_mode: FixMode | Non
         f"- Mode: {' '.join(mode.name.split())}\n"
         f"- Mode ID: `{mode.id}`\n"
         f"- Execution: {mode.execution_kind}\n\n"
-        f"This retry runs under the same Fix Mode as `.ai/{issue_key}/{TASK_ARTIFACT}`. "
+        f"This retry runs under the same Fix Mode as `{TASK_ARTIFACT}`. "
         "Follow the mode as written there. BugPilot's safety, evidence and delivery rules "
         "still win any conflict with it.\n\n"
         "## Purpose\n\n"
         f"{purpose}"
         "## Required Reading\n\n"
+        f"The work item's files are in its work folder, outside the repository: `{folder}/`. "
+        "The names below are in that folder.\n\n"
         f"{chr(10).join(reading)}\n\n"
         "## Developer Feedback\n\n"
         f"{feedback}\n\n"
@@ -2074,12 +2099,12 @@ def _build_retry_prompt(repo_root: Path, issue_key: str, fix_mode: FixMode | Non
         f"{retry_branch_section(branch_policy, branch)}"
         f"{closing}"
         "## Required Output Files\n\n"
-        f"- .ai/{issue_key}/{FIX_REPORT_ARTIFACT} — update every section for this attempt: "
+        f"- {folder}/{FIX_REPORT_ARTIFACT} — update every section for this attempt: "
         "Summary, Analysis, Changes, Tests, Review Notes. Do not leave a previous "
         "attempt's claims standing where this attempt learned otherwise.\n\n"
         "## How to Run\n\n"
         "Run your AI agent manually from the target repo root and paste:\n\n"
-        f"Read .ai/{issue_key}/agent_retry_prompt.md and continue the workflow.\n"
+        f"{retry_handoff_prompt(f'{folder}/agent_retry_prompt.md')}\n"
     )
 
 
@@ -2115,7 +2140,7 @@ def _feedback_text(repo_root: Path, target: Path) -> str:
     indented code would become a fence or a heading. The hint and the
     instruction layers keep that indentation, and so does the feedback.
     """
-    data = read_generated_file(repo_root, target / "user_feedback.md")  # never through a link (O-1)
+    data = read_generated_file(readable_data_dir(repo_root), target / "user_feedback.md")  # never through a link (O-1)
     if data is None:
         return ""
     body = decode_text(data, "utf-8", errors="replace").rstrip()
@@ -2150,7 +2175,7 @@ def _manual_result_templates(issue_key: str) -> dict[str, str]:
 
 def _prepared_jira_comment_text(repo_root: Path, draft_path: Path, issue_key: str) -> str:
     # Never through a link (O-1): what is posted is the draft's own text, never a file a link points at.
-    data = read_generated_file(repo_root, draft_path)
+    data = read_generated_file(readable_data_dir(repo_root), draft_path)
     if data is None:
         raise FileNotFoundError(f"The Jira comment draft is gone. Run: bugpilot jira-comment-draft {issue_key}")
     raw = decode_text(data, "utf-8", errors="replace")
@@ -2187,7 +2212,7 @@ def _jira_comment_result_json(result: JiraCommentPostResult) -> dict[str, object
 
 
 def _read_artifact(repo_root: Path, target: Path, file_name: str) -> str:
-    data = read_generated_file(repo_root, target / file_name)  # never through a link (O-1)
+    data = read_generated_file(readable_data_dir(repo_root), target / file_name)  # never through a link (O-1)
     if data is None:
         return ""
     return decode_text(data, "utf-8", errors="replace").strip()
@@ -2225,16 +2250,17 @@ def _generated_files(repo_root: Path, issue_key: str) -> list[str]:
     target = issue_dir(repo_root, issue_key)
     # Names only, and never through a link (O-1): a link or junction at the work item's folder, its attachments
     # folder or the memory folders is refused, and an entry that is a link or not a regular file is not listed.
-    generated = [f".ai/{issue_key}/{name}" for name in generated_file_names(repo_root, target) or ()]
+    base = readable_data_dir(repo_root)
+    generated = [f"work/{issue_key}/{name}" for name in generated_file_names(base, target) or ()]
     # One level into `attachments/`, because this listing was files-only and a
     # developer's screenshot would otherwise be absent from the status file and
     # from every view built on it.
     generated += [
-        f".ai/{issue_key}/{ATTACHMENTS_DIR}/{name}" for name in attachment_names(target)
+        f"work/{issue_key}/{ATTACHMENTS_DIR}/{name}" for name in attachment_names(target)
     ]
-    memory_path = repo_root / ".ai_memory" / "bugs" / f"{issue_key}.md"
-    if generated_file_exists(repo_root, memory_path):
-        generated.append(f".ai_memory/bugs/{issue_key}.md")
+    memory_path = memory_dir(repo_root) / f"{issue_key}.md"
+    if generated_file_exists(base, memory_path):
+        generated.append(f"memory/{issue_key}.md")
     return sorted(generated)
 
 
@@ -2327,14 +2353,14 @@ def _build_result_overview(repo_root: Path, issue_key: str) -> str:
     report = read_fix_report(repo_root, issue_key)
     if report is None:
         status_lines = [
-            f"- .ai/{issue_key}/{FIX_REPORT_ARTIFACT}: missing",
+            f"- {shown_work(repo_root, issue_key, FIX_REPORT_ARTIFACT)}: missing",
             "",
             "The agent writes the report; for a developer manual fix run: "
             f"bugpilot manual-result {issue_key}",
         ]
     else:
         missing = report.missing_sections
-        status_lines = [f"- .ai/{issue_key}/{FIX_REPORT_ARTIFACT}: present"]
+        status_lines = [f"- {shown_work(repo_root, issue_key, FIX_REPORT_ARTIFACT)}: present"]
         if missing:
             status_lines.append(f"- Sections still empty: {', '.join(missing)}")
         # The agent's own words: earlier AI output, quoted where it cannot become
@@ -2404,7 +2430,7 @@ def _path_item(path: str) -> str:
     return f"- \\{item}" if _ITEM_BLOCK_START.match(item) else f"- {item}"
 
 
-def _build_final_review_prompt(issue_key: str) -> str:
+def _build_final_review_prompt(repo_root: Path, issue_key: str) -> str:
     # Source-, outcome- and provider-neutral: the work item may be a Jira issue
     # or a hand-written bug, and the result an applied fix, an attempt, a no-op
     # or an investigation only — the reviewer reads fix_report.md to learn which.
@@ -2413,13 +2439,14 @@ def _build_final_review_prompt(issue_key: str) -> str:
     # extension's Paste Review Output can fill the Review Result form from it.
     # No verdict is asked for: BugPilot records what a reviewer said and never
     # reads a pass, an approval or "verified" out of it.
+    folder = prompt_path(issue_dir(repo_root, issue_key))
     return (
         "# Final Review Request\n\n"
         f"Review the BugPilot result for work item {issue_key}.\n\n"
         "Use:\n"
-        f"- .ai/{issue_key}/{CONTEXT_ARTIFACT}\n"
-        f"- .ai/{issue_key}/{RETRIEVAL_ARTIFACT} if present\n"
-        f"- .ai/{issue_key}/{FIX_REPORT_ARTIFACT} if present\n"
+        f"- {folder}/{CONTEXT_ARTIFACT}\n"
+        f"- {folder}/{RETRIEVAL_ARTIFACT} if present\n"
+        f"- {folder}/{FIX_REPORT_ARTIFACT} if present\n"
         "- current git diff\n\n"
         "Review focus:\n"
         "1. Correctness\n"
@@ -2499,9 +2526,8 @@ def _delivery_warnings(repo_root: Path, issue_key: str) -> list[str]:
         warnings.append(
             "Fix report sections still empty: " + ", ".join(report.missing_sections)
         )
-    memory_file = f".ai_memory/bugs/{issue_key}.md"
-    if not (repo_root / memory_file).exists():
-        warnings.append(f"Missing delivery artifact: {memory_file}")
+    if not (memory_dir(repo_root) / f"{issue_key}.md").exists():
+        warnings.append(f"Missing delivery artifact: {shown_memory(repo_root, issue_key)}")
     return warnings
 
 

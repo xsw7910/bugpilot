@@ -16,6 +16,7 @@ import urllib.request
 
 import pytest
 
+from bugpilot.core.config import data_dir
 from bugpilot.cli import main
 from bugpilot.core import errors, jira
 from bugpilot.core.jira import (
@@ -253,7 +254,7 @@ def test_the_token_never_reaches_messages_artifacts_or_the_log(monkeypatch, tmp_
     assert main(["bug", "JR-12345", "--prepare-only"]) == 0
     captured = capsys.readouterr()
     assert TOKEN not in captured.out + captured.err
-    for path in (tmp_path / ".ai").rglob("*"):
+    for path in ((data_dir(tmp_path) / "work")).rglob("*"):
         if path.is_file():
             assert TOKEN not in path.read_text(encoding="utf-8", errors="replace"), path.name
             assert "Basic " not in path.read_text(encoding="utf-8", errors="replace"), path.name

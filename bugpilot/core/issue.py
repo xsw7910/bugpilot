@@ -26,7 +26,7 @@ from pathlib import Path
 from .artifact_io import atomic_write_text
 from .artifacts import ARTIFACT_SCHEMA_VERSION, ISSUE_ARTIFACT
 from .branch_policy import usable_branch_name
-from .config import issue_dir, writable_issue_dir
+from .config import issue_dir, readable_data_dir, writable_issue_dir
 from .input_adapters import manual_issue_payload
 from .jira import parse_issue
 from .jira_parse import free_description
@@ -322,15 +322,16 @@ def load_issue(repo_root: Path, work_item_id: str) -> IssueArtifact | None:
     use :func:`read_issue_quietly` instead. Never read through a link, and only
     as a regular file (O-1): a refusal is an :class:`IssueArtifactError` too.
     """
+    base = readable_data_dir(repo_root)  # storage's own errors keep their codes (C-1): resolved before the try
     try:
-        raw = read_generated_file(repo_root, issue_path(repo_root, work_item_id))
+        raw = read_generated_file(base, issue_path(repo_root, work_item_id))
         if raw is None:
             return None
         data = json.loads(decode_text(raw, "utf-8"))
     except UnsafePathError as exc:
         raise IssueArtifactError(str(exc)) from exc
     except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
-        raise IssueArtifactError(f".ai/{work_item_id}/{ISSUE_ARTIFACT} could not be read ({exc}).") from exc
+        raise IssueArtifactError(f"work/{work_item_id}/{ISSUE_ARTIFACT} could not be read ({exc}).") from exc
     return issue_from_dict(data, work_item_id)
 
 
@@ -418,7 +419,7 @@ def issue_to_dict(issue: IssueArtifact) -> dict[str, object]:
 
 def issue_from_dict(data: object, work_item_id: str) -> IssueArtifact:
     """Rebuild an issue from ``issue.json``. Version 1 only, by design."""
-    where = f".ai/{work_item_id}/{ISSUE_ARTIFACT}"
+    where = f"work/{work_item_id}/{ISSUE_ARTIFACT}"
     if not isinstance(data, dict):
         raise IssueArtifactError(f"{where} does not contain a JSON object.")
     if data.get("schema_version") != ARTIFACT_SCHEMA_VERSION:

@@ -1,4 +1,4 @@
-"""Writes into `.ai/<work item>/` that another process may be reading — and the other files BugPilot writes whole.
+"""Writes into a work item's folder that another process may be reading — and the other files BugPilot writes whole.
 
 The Jira credentials file among them (0.1.5, S2): written ``private``.
 """

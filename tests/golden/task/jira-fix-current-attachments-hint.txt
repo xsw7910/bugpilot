@@ -11,7 +11,7 @@ The selected AI Fix Mode still controls whether and when source editing is allow
 ## Execution Location
 
 - Run your AI agent from the target repository root, not from the bugpilot tool source directory.
-- `.ai/JR-12345/` paths are relative to the target repository root.
+- This work item's files are outside the repository, in `/home/user/.bugpilot/repositories/repo-0123456789abcdef/work/JR-12345/`. File names in this task are in that folder.
 
 ## BugPilot Safety Rules
 
@@ -90,11 +90,11 @@ The developer attached these files for this bug. They are not part of the reposi
 ### crash.log
 
 Description: The log from the failed export.
-File: `.ai/JR-12345/attachments/crash.log`
+File: `attachments/crash.log`
 
 ### dialog.png
 
-File: `.ai/JR-12345/attachments/dialog.png`
+File: `attachments/dialog.png`
 
 - Read the ones your tools can open, and use them as evidence.
 - A description is the developer's note on why the file matters; check it against the file rather than taking it as a finding.
@@ -102,8 +102,8 @@ File: `.ai/JR-12345/attachments/dialog.png`
 
 ## Required Input Files
 
-- Read `.ai/JR-12345/context.md`: the Issue Details (reproduction steps, actual/expected results, environment, errors, missing information), similar fixes and git history.
-- Read and inspect `.ai/JR-12345/retrieval.json` if present: the ranked related files with their matched lines, the search terms, and the search confidence.
+- Read `context.md`: the Issue Details (reproduction steps, actual/expected results, environment, errors, missing information), similar fixes and git history.
+- Read and inspect `retrieval.json` if present: the ranked related files with their matched lines, the search terms, and the search confidence.
 
 ## AI Fix Mode
 
@@ -171,7 +171,7 @@ In every Fix Mode, these govern what counts as evidence — not how deeply you i
 
 ## Required Output Files
 
-Write one report: `.ai/JR-12345/fix_report.md`, with exactly these sections.
+Write one report: `/home/user/.bugpilot/repositories/repo-0123456789abcdef/work/JR-12345/fix_report.md`, with exactly these sections.
 
 - `## Summary`: one honest line on the outcome — fixed, attempted, or no-op — then a short paragraph.
 - `## Analysis`: the root cause and the evidence for it.

@@ -44,7 +44,8 @@ is an error, so a namespace computed from the wrong folder can never be normaliz
 
 Superseded evidence (E-3, Batch 2B-3b): when a later slice sets again a value an earlier slice's entry
 set, the earlier entry's own test asserts a state that no longer holds. `SUPERSEDED` names the only
-two pairs the owner approved; `supersession` judges each one as inactive (no successor yet: the
+two pairs the owner approved (0.1.7: their successors are U7-10 and U7-12, which set the same two
+values 2B-3b's DD-13 and DD-15 were to set; that batch was folded into 0.1.7 and never recorded them); `supersession` judges each one as inactive (no successor yet: the
 earlier evidence is still required), pending (a matching successor the owner has not approved: the
 approval gate reports it) or active (approved: the earlier test is retired, and must be absent).
 Anything else is a problem, never an exemption.
@@ -52,6 +53,7 @@ Anything else is a problem, never an exemption.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -63,7 +65,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from pathlib import Path, PurePath
 
 import _isolation
@@ -78,6 +80,7 @@ DESIGNED_CHAIN = (
     DESIGNED,
     TESTS / "baselines" / "0.1.6-batch2b3a" / "designed_differences.json",
     TESTS / "baselines" / "0.1.6-batch2b3b" / "designed_differences.json",
+    TESTS / "baselines" / "0.1.7" / "designed_differences.json",
 )
 REPOSITORY_ID_LABEL = "<repository-id>"
 #: A repository ID (plan §7.2) standing on its own in a text: the slug, a hyphen and 16 hex digits.
@@ -195,6 +198,8 @@ class Session:
             home = os.environ.get("HOME")
             if home:
                 text = text.replace(home, "<home>").replace(Path(home).as_posix(), "<home>")
+            if text.startswith(("<repo>", "<config>", "<data>", "<input>", "<home>")):
+                text = text.replace("\\", "/")
             return self._label_repository_id(LOCAL_ID.sub("local_<timestamp>", text))
         if isinstance(value, list):
             items = [self.normalize(item, sort=sort) for item in value]
@@ -217,6 +222,25 @@ class Session:
                 "another folder's namespace"
             )
         return text
+
+    @contextlib.contextmanager
+    def data_root(self) -> Iterator[None]:
+        """In-process calls resolve this session's data folder, as its CLI children do (0.1.7: a work item's
+        folder is named absolutely, so the in-process handoff sentences need the same folder)."""
+        previous = os.environ.get("BUGPILOT_HOME")
+        os.environ["BUGPILOT_HOME"] = str(self.data)
+        try:
+            yield
+        finally:
+            if previous is None:
+                os.environ.pop("BUGPILOT_HOME", None)
+            else:
+                os.environ["BUGPILOT_HOME"] = previous
+
+    def work_folder(self, work_item_id: str) -> Path:
+        """A work item's folder, where the session's CLI keeps it: `doctor --json`'s `storage.repository_dir`."""
+        report = self.json("doctor", "--json").get("report", {})
+        return Path(report["storage"]["repository_dir"]) / "work" / work_item_id  # type: ignore[index]
 
     def tree(self) -> set[str]:
         """Every path in the repository, `.git` aside, as repository-relative POSIX text."""
@@ -294,7 +318,7 @@ def pollution(session: Session) -> dict[str, object]:
 
 
 def _lines_naming_storage(text: str) -> list[str]:
-    return [line for line in text.splitlines() if re.search(r"\.ai/|\.ai_memory|\.bugpilot|fix_report\.md|task\.md|context\.md", line)]
+    return [line for line in text.splitlines() if re.search(r"\.ai/|\.ai_memory|\.bugpilot|/work/|fix_report\.md|task\.md|context\.md", line)]
 
 
 def _ts_template(path: Path, pattern: str) -> list[str]:
@@ -304,25 +328,29 @@ def _ts_template(path: Path, pattern: str) -> list[str]:
 def handoff(session: Session) -> dict[str, object]:
     """The sentences and agent-facing lines that name a storage path, from every surface."""
     from bugpilot.core import handoff as core_handoff
+    from bugpilot.core.config import prompt_path
     from bugpilot.core.fix_modes import INVESTIGATE_FIRST_FIX, STANDARD_FIX
     from bugpilot.mcp_server import _next_step
 
     jira_text = session.run("bug", JIRA_ID, "--allow-mock").stdout
     retry_text = session.run("bug", JIRA_ID, "--retry").stdout
-    work = session.repo / ".ai" / JIRA_ID
+    work = session.work_folder(JIRA_ID)
     review = session.json("review-package", JIRA_ID, "--json")
-    return session.normalize({  # type: ignore[return-value]
-        "python": {
-            "handoff_prompt": core_handoff.handoff_prompt(JIRA_ID),
-            "retry_handoff_prompt": core_handoff.retry_handoff_prompt(f".ai/{JIRA_ID}/agent_retry_prompt.md"),
+    with session.data_root():
+        folder = prompt_path(work)
+        python = {
+            "handoff_prompt": core_handoff.work_item_handoff(session.repo, JIRA_ID),
+            "retry_handoff_prompt": core_handoff.retry_handoff_prompt(f"{folder}/agent_retry_prompt.md"),
             "mcp_fix_bug_prompt": core_handoff.mcp_prompt("prepare_jira_bug", f'issue_key="{JIRA_ID}"'),
             "skill_steps": list(core_handoff.skill_steps()),
-            "mcp_next_step_fix": _next_step(JIRA_ID, STANDARD_FIX),
-            "mcp_next_step_investigation": _next_step(JIRA_ID, INVESTIGATE_FIRST_FIX),
-        },
+            "mcp_next_step_fix": _next_step(folder, STANDARD_FIX),
+            "mcp_next_step_investigation": _next_step(folder, INVESTIGATE_FIRST_FIX),
+        }
+    return session.normalize({  # type: ignore[return-value]
+        "python": python,
         "extension_templates": {
-            "controller.ts": _ts_template(REPO / "extension/src/app/controller.ts", r"`(Read \.ai/[^`]+)`"),
-            "nextAction.ts": _ts_template(REPO / "extension/src/app/nextAction.ts", r"`(Read \.ai/[^`]+)`"),
+            "controller.ts": _ts_template(REPO / "extension/src/app/controller.ts", r"`(Read (?:\.ai/|\$\{promptPath)[^`]+)`"),
+            "nextAction.ts": _ts_template(REPO / "extension/src/app/nextAction.ts", r"`(Read (?:\.ai/|\$\{promptPath)[^`]+)`"),
         },
         "cli_text": {
             "bug": _lines_naming_storage(jira_text),
@@ -387,9 +415,11 @@ def task_size() -> dict[str, object]:
 
     baseline = json.loads((TESTS / "baselines" / "0.1.3-batch0" / "task.json").read_text(encoding="utf-8"))
     cases = {}
+    normalized_tokens = []
     for case in task_golden.MATRIX:
         text = task_golden.read_golden(case)
         measured = task_golden.measure(text)
+        normalized_tokens.append(task_golden.measure(task_golden.normalized(text, case))["approx_tokens"])
         cases[case.name] = {
             "chars": measured["chars"],
             "approx_tokens": measured["approx_tokens"],
@@ -403,8 +433,11 @@ def task_size() -> dict[str, object]:
         "baseline_0_1_3_median_approx_tokens": before,
         "ceiling_approx_tokens": int(before * 0.8),
         "median_approx_tokens": median,
-        "normalized_median_approx_tokens": median,
-        "normalized_note": "0.1.5 tasks name no absolute work folder, so the normalized measure (US-D30) equals the raw one",
+        "normalized_median_approx_tokens": statistics.median(normalized_tokens),
+        "normalized_note": (
+            "0.1.7 tasks name their work folder absolutely; the normalized measure (US-D30) replaces the golden's "
+            "representative folder with <WORK>"
+        ),
         "cases": cases,
     }
 
@@ -669,10 +702,10 @@ def unapproved(designed: dict[str, object] | Sequence[dict[str, object]]) -> lis
 #: an earlier slice's entry, the later slice's entry that sets the same value again, and the commit and CI run
 #: on which the earlier entry's own evidence last passed. Not a skip: each pair is judged by `supersession`.
 SUPERSEDED: dict[str, dict[str, str]] = {
-    "DD-5": {"by": "DD-13", "verified_at": "743f542ad328b1af5eb9f0b494d07491f2b33ed7", "ci_run": "39675645316"},
-    "DD-9": {"by": "DD-15", "verified_at": "743f542ad328b1af5eb9f0b494d07491f2b33ed7", "ci_run": "39675645316"},
+    "DD-5": {"by": "U7-10", "verified_at": "743f542ad328b1af5eb9f0b494d07491f2b33ed7", "ci_run": "39675645316"},
+    "DD-9": {"by": "U7-12", "verified_at": "743f542ad328b1af5eb9f0b494d07491f2b33ed7", "ci_run": "39675645316"},
 }
-_APPROVED_PAIRS = frozenset({("DD-5", "DD-13"), ("DD-9", "DD-15")})
+_APPROVED_PAIRS = frozenset({("DD-5", "U7-10"), ("DD-9", "U7-12")})
 INACTIVE, PENDING, ACTIVE = "inactive", "pending", "active"
 
 
@@ -713,7 +746,7 @@ def supersession(
         successor_id = pair.get("by") if isinstance(pair, dict) else None
         label = f"supersession {earlier_id} -> {successor_id}"
         if (earlier_id, successor_id) not in _APPROVED_PAIRS:
-            problems.append(f"{label}: not an approved pair (only DD-5 -> DD-13 and DD-9 -> DD-15 are)")
+            problems.append(f"{label}: not an approved pair (only DD-5 -> U7-10 and DD-9 -> U7-12 are)")
             continue
         if len(found.get(earlier_id, [])) != 1:
             problems.append(f"{label}: {earlier_id} is not listed exactly once in the chain")

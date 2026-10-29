@@ -65,9 +65,6 @@ from .user_config import user_config_dir
 
 INSTRUCTION_SCOPES: tuple[str, ...] = ("user", "project")
 INSTRUCTIONS_FILE_NAME = "instructions.md"
-#: The 0.1.5 repository folder, where the Verification Policy and AI Behavior still live until Batch 2B-3b.
-PROJECT_CONFIG_DIR = ".bugpilot"
-
 #: The most characters one file may hold. About 5,000 tokens: room for a team's
 #: real conventions, small beside the context the task points at, and far below
 #: anything that would crowd it out. Longer is refused, never cut.
@@ -81,7 +78,7 @@ _SECTION_TITLES = {"user": "User Instructions", "project": "Project / Team Instr
 _SOURCES = {"user": "user configuration", "project": "repository configuration"}
 _INTROS = {
     "user": "The developer's own instructions, for every repository they work on.",
-    "project": "This repository's shared instructions for AI agents.",
+    "project": "This repository's instructions for AI agents.",
 }
 
 
@@ -201,8 +198,8 @@ def link_problem(path: Path, shown: str, rule: str) -> str | None:
 
     ``shown`` is the file as a person names it; ``rule`` finishes the sentence —
     "instructions are", "the Verification Policy is" — read and written only
-    as a real file. Shared by every text document BugPilot reads from
-    ``.bugpilot/`` or the user's configuration, so all of them refuse alike.
+    as a real file. Shared by every text document BugPilot reads from the
+    repository's settings or the user's configuration, so all of them refuse alike.
     """
     for candidate, name in ((path.parent, shown.rsplit("/", 1)[0]), (path, shown)):
         if is_link_or_junction(candidate):
@@ -230,28 +227,6 @@ class TextDocument:
     exists: bool = False
 
 
-def read_text_document(path: Path, link: str | None) -> TextDocument:
-    """One document, read by the rules every BugPilot text document follows. Never raises for its own state.
-
-    Not a link (``link`` is the caller's `link_problem` verdict), a regular file,
-    at most `MAX_INSTRUCTION_CHARS` once normalized, UTF-8 (a BOM allowed):
-    anything else is left out whole, never cut short.
-    """
-    if link:
-        return TextDocument(problem=link + ".", exists=True)
-    try:
-        if not path.exists():
-            return TextDocument()
-        if not path.is_file():
-            return TextDocument(problem="it is not a regular file.", exists=True)
-        if path.stat().st_size > _MAX_FILE_BYTES:
-            return TextDocument(problem=_too_long_problem(None), exists=True)
-        raw = path.read_bytes()
-    except OSError as exc:
-        return TextDocument(problem=f"it could not be read ({exc.strerror or type(exc).__name__}).", exists=True)
-    return _document_from(raw)
-
-
 def _document_from(raw: bytes) -> TextDocument:
     try:
         decoded = raw.decode("utf-8-sig")
@@ -271,7 +246,7 @@ def read_instructions(scope: str, repo_root: Path) -> InstructionFile:
     that is not the file's state, and fails the command (owner decisions C-2,
     G-6). So does a folder on the way that cannot be read (``StorageAccessError``).
     The file is read by storage without following a link (Option C, M2), and
-    judged by :func:`read_text_document`'s rules.
+    judged by :func:`_document_of`'s rules.
     """
     _check_scope(scope)
     try:
@@ -293,8 +268,30 @@ def _read_scope(scope: str, repo_root: Path) -> storage.SettingsContent:
     return repository_settings.read_settings(repo_root, INSTRUCTIONS_FILE_NAME, limit=_MAX_FILE_BYTES)
 
 
+def read_settings_document(repo_root: Path, name: storage.SettingsName) -> TextDocument:
+    """One of the repository's settings documents, as a task would use it (0.1.7: ``verification.md``,
+    ``ai_behavior.md``). Never raises for the file's own state.
+
+    Read by storage without following a link, from the repository's namespace
+    (``settings/<name>``), and judged by :func:`_document_of`'s rules.
+    Reaching it may refuse (a link on the way or at the file, a data folder
+    inside the repository, a record naming another repository): that fails
+    the command, as it does for the project's instructions.
+    """
+    try:
+        found = repository_settings.read_settings(repo_root, name, limit=_MAX_FILE_BYTES)
+    except repository_settings.FileReadError as exc:
+        return TextDocument(problem=f"it could not be read ({exc.strerror or type(exc).__name__}).", exists=True)
+    return _document_of(found)
+
+
 def _document_of(found: storage.SettingsContent) -> TextDocument:
-    """A held read's result, judged as :func:`read_text_document` judges a file (a link was refused before)."""
+    """A held read's result, judged by the rules every BugPilot text document follows. Never raises for its own state.
+
+    Not a link (storage refused one before), a regular file, at most
+    `MAX_INSTRUCTION_CHARS` once normalized, UTF-8 (a BOM allowed): anything
+    else is left out whole, never cut short.
+    """
     if found.state == "absent":
         return TextDocument()
     if found.state == "not_a_file":

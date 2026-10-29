@@ -130,6 +130,11 @@ SANITIZED_NAMES: tuple[str, ...] = (
     "BUGPILOT_MCP_REPO_ROOT",
     "BUGPILOT_HOME",
     "BUGPILOT_CONFIG_DIR",
+    # A suite started from inside VS Code (an AI agent's terminal) inherits the extension host's
+    # environment, which would make every `doctor --json` look like an outdated extension's (0.1.7,
+    # `extension_compat`): the same answer wherever the suite runs.
+    "VSCODE_CRASH_REPORTER_PROCESS_TYPE",
+    "BUGPILOT_CLIENT_STORAGE",
 )
 
 
