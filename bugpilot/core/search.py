@@ -8,8 +8,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .code_files import is_documentation, is_implementation, is_searchable, search_globs
-from .executables import child_environment, find_executable
-from .git_ops import command_available
+from .executables import batch_file_only, child_environment, find_program, not_found_sentence
+from .git_ops import program_available
 from .models import InvestigationOptions
 from .retrieval import ConfidenceDetails, RelatedFile, RetrievalArtifact, RetrievalTerm, Snippet
 from .search_terms import (
@@ -249,8 +249,9 @@ def run_code_search(
     high_value = _keyword_list(keywords.get("high_value_keywords", []))
     normal = _keyword_list(keywords.get("normal_keywords", []))
 
-    if not command_available("rg"):
-        return _retrieval([], [], ["rg is unavailable; code search was skipped."], options)
+    if not program_available("rg"):
+        reason = "" if batch_file_only("rg") is None else f" {not_found_sentence('rg')}"
+        return _retrieval([], [], [f"rg is unavailable; code search was skipped.{reason}"], options)
 
     # §33.3: one weighted list, ordered by what each term is worth, instead of
     # four tiers whose membership was decided by position.
@@ -420,10 +421,11 @@ def _run_rg(repo_root: Path, keyword: str, warnings: list[str]):
     args.append(".")
 
     # Started by its absolute PATH location: a repository's own rg.exe must not
-    # run because the repository is the working directory.
-    program = find_executable(args[0])
+    # run because the repository is the working directory. And never as a batch
+    # file: the keyword is the issue's text, and cmd.exe would act on it (S-8).
+    program = find_program(args[0])
     if program is None:
-        warnings.append(f"Search failed for keyword `{keyword}`: rg was not found on PATH.")
+        warnings.append(f"Search failed for keyword `{keyword}`: {not_found_sentence('rg')}")
         return None
     try:
         completed = subprocess.run(

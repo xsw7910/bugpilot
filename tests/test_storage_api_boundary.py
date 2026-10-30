@@ -56,10 +56,11 @@ APPROVED_IMPORTERS: dict[str, str] = {
         "Batch 2B-3a: project settings through the repository-storage chokepoint, settings_file() and fix_modes_dir()"
     ),
     "bugpilot/core/config.py": (
-        "0.1.7: work items and memory through work_item_dir() and memory_file(); the readers' base through check()"
+        "0.1.7: work items and memory through work_item_dir() and memory_file(); the readers' base through check(); "
+        "attachments through attachments_dir() (ST-1); an agent's work folder through check_private_for_agent() (S-2)"
     ),
     "bugpilot/core/cleanup.py": "0.1.7: clean and bug --fresh through remove_work_item() and remove_memory_file()",
-    "bugpilot/core/doctor.py": "0.1.7: doctor's storage object from diagnostics() and check()",
+    "bugpilot/core/doctor.py": "0.1.7: doctor's storage object from diagnostics(), check() and privacy() (S-2)",
 }
 #: The only production modules that may open a request scope: the entry points (D-8).
 SCOPE_OPENERS = frozenset({"bugpilot/cli.py", "bugpilot/mcp_server.py"})

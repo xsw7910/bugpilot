@@ -104,6 +104,7 @@ from . import _held_folders, private_folder
 from .artifact_io import _check_temp, atomic_write_text
 from .identity import is_work_item_id, validate_work_item_id
 from .safe_paths import (
+    DATA_FOLDER_BOUNDARY,
     UnsafePathError,
     _check_parts,
     _write_refusal,
@@ -154,7 +155,7 @@ DEFAULT_DATA_DIR_NAME = ".bugpilot"
 STORAGE_LAYOUT_VERSION = 1
 RECORD_NAME = "repository.json"
 #: How a refusal names the folder BugPilot writes into.
-DATA_ROOT_BOUNDARY = "BugPilot's data folder"
+DATA_ROOT_BOUNDARY = DATA_FOLDER_BOUNDARY
 #: Every folder BugPilot creates under the data root (US-D23).
 DIRECTORY_MODE = 0o700
 #: A repository ID (§7.2): a display slug, then 64 bits of SHA-256.
@@ -1493,6 +1494,17 @@ class GlobalStorage:
             )
 
 
+def _not_private_for_agent(place: Path, verdict: private_folder.PrivacyVerdict) -> str:
+    """Why an agent is not given a work item's folder: ``place`` is not proven private (S-2)."""
+    shown, why = display_path(place), "; ".join(verdict.reasons)
+    if verdict.state == "unverifiable":
+        return f"BugPilot cannot confirm that {shown} is private ({why}), so it does not give an agent this work item's folder."
+    return (
+        f"BugPilot will not give an agent this work item's folder: {shown} is not private ({why}). "
+        f"Restrict it to your account, or set {DATA_ROOT_ENV} to a private folder."
+    )
+
+
 def global_storage() -> GlobalStorage:
     """The global locations, resolved. Creates nothing."""
     root = data_root()
@@ -1738,6 +1750,50 @@ class RepositoryStorage:
             return StorageCheck("refused", str(self._refusal(state)))
 
         return _checked(examine)
+
+    def check_private_for_agent(self, work_item_id: str) -> None:
+        """Refuse to give an agent ``work/<id>`` unless no other account can change what is in it (0.1.7, S-2).
+
+        Every folder from the data root down to the work item's own is judged by
+        :func:`private_folder.verify_private`'s ``data-root`` rule: owned by this
+        user (or, on POSIX, root; on Windows, SYSTEM or Administrators), and no
+        one else may write to it, so nothing in it — a ``.claude/`` folder
+        included — can be changed, swapped or planted by another account. An
+        answer that cannot be proven is refused like ``not-private``: fail
+        closed. The folders above the data root are not checked, as for
+        credentials. Creates nothing.
+        """
+        with request_scope():
+            self._check_containment()
+            for place in self._places(("work", _validated(work_item_id))):
+                verdict = private_folder.verify_private(place, "data-root")
+                if not verdict.private:
+                    raise StorageError(_not_private_for_agent(place, verdict))
+
+    def privacy(self) -> tuple[private_folder.State, str | None]:
+        """For ``doctor``: whether the folders that hold this repository's work items are private (S-2).
+
+        :meth:`check_private_for_agent`'s rule, on the data root, ``repositories``,
+        the repository's folder and ``work``, as far as they exist: the first one
+        not proven private answers, with its sentence. A data folder that is not
+        there yet cannot be judged. Never raises; reads only.
+        """
+        places = [place for place in self._places(("work",)) if os.path.lexists(place)]
+        if not places:
+            return "unverifiable", "BugPilot's data folder is not there yet, so whether it is private cannot be judged."
+        try:
+            for place in places:
+                verdict = private_folder.verify_private(place, "data-root")
+                if not verdict.private:
+                    return verdict.state, _not_private_for_agent(place, verdict)
+        except OSError as error:
+            return "unverifiable", f"BugPilot could not check whether its data folder is private: {error.strerror or error}."
+        return "private", None
+
+    def _places(self, rest: tuple[str, ...]) -> list[Path]:
+        """The data root and each folder below it down to ``rest`` in this namespace, outermost first."""
+        parts = self._parts(*rest)
+        return [self._data_root, *(self._data_root.joinpath(*parts[:depth]) for depth in range(1, len(parts) + 1))]
 
     def remove_work_item(self, work_item_id: str) -> bool:
         """Delete ``work/<id>`` and everything in it. ``False`` when it was not there (Batch 2B-1, for ``clean``)."""

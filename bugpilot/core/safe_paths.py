@@ -94,6 +94,8 @@ def is_link_stat(info: os.stat_result) -> bool:
 
 #: How a refusal names the folder BugPilot's files stay inside: the repository by default.
 REPOSITORY_BOUNDARY = "this repository"
+#: The same, for a file in BugPilot's data folder (0.1.7: every file BugPilot writes is there).
+DATA_FOLDER_BOUNDARY = "BugPilot's data folder"
 
 
 def owned_path(repo_root: Path, parts: Sequence[str], *, boundary: str = REPOSITORY_BOUNDARY) -> Path:

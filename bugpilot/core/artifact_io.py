@@ -12,7 +12,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from .safe_paths import UnsafePathError, is_link_or_junction, refuse_link
+from .safe_paths import DATA_FOLDER_BOUNDARY, UnsafePathError, is_link_or_junction, refuse_link
 
 #: Permission bits are POSIX's: on Windows `chmod` only sets the read-only flag.
 _POSIX = os.name == "posix"
@@ -119,8 +119,9 @@ def atomic_write_text(path: Path, text: str, *, private: bool = False) -> None:
     there are no such bits, it falls back like any other file.
 
     Whatever fails, the temp file is removed and the target is left as it was.
+    A refusal names BugPilot's data folder, where every file it writes is (0.1.7).
     """
-    refuse_link(path)
+    refuse_link(path, boundary=DATA_FOLDER_BOUNDARY)
     handle, name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     temp = Path(name)
     replaced = False
@@ -144,7 +145,7 @@ def atomic_write_text(path: Path, text: str, *, private: bool = False) -> None:
         if private and _POSIX:
             raise error
         # Checked again: a link could have been made there since the first check.
-        refuse_link(path)
+        refuse_link(path, boundary=DATA_FOLDER_BOUNDARY)
         path.write_text(text, encoding="utf-8")
     finally:
         if not replaced:

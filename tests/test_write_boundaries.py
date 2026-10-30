@@ -224,3 +224,97 @@ def test_the_helpers_directly(repo, outside):
     (repo / "not-a-dir").write_text("x", encoding="utf-8")
     with pytest.raises(UnsafePathError, match="is not a directory"):
         writable_dir(repo, ("not-a-dir", "y"))
+
+
+# --- the attachments folder is storage's, and refusals name the data folder (ST-1, ST-2) ------------------
+
+
+def _attached(tmp_path: Path, name: str = "crash.log") -> Path:
+    log = tmp_path / "inputs" / name
+    log.parent.mkdir(exist_ok=True)
+    log.write_text("Traceback", encoding="utf-8")
+    return log
+
+
+def test_a_runs_attachments_folder_is_made_by_storage(repo, tmp_path, monkeypatch):
+    """ST-1: storage's own creator, `RepositoryStorage.attachments_dir(create=True)` (0700, each component checked)."""
+    made = []
+    real = storage.RepositoryStorage.attachments_dir
+
+    def spy(self, work_item_id, *, create):
+        made.append((work_item_id, create))
+        return real(self, work_item_id, create=create)
+
+    monkeypatch.setattr(storage.RepositoryStorage, "attachments_dir", spy)
+    first, second = _attached(tmp_path, "one.log"), _attached(tmp_path, "two.log")
+
+    assert main(["bug", WORK_ITEM, "--allow-mock", "--prepare-only", "--attach", str(first), "--attach", str(second)]) == 0
+
+    folder = issue_dir(repo, WORK_ITEM) / "attachments"
+    assert sorted(path.name for path in folder.iterdir()) == ["one.log", "two.log"]
+    assert made == [(WORK_ITEM, True)], "made ready once, by storage"
+    if os.name == "posix":
+        assert folder.stat().st_mode & 0o077 == 0, "private, like every folder storage creates"
+
+
+def test_no_attachments_folder_is_made_when_nothing_could_be_copied(repo, tmp_path):
+    assert main(["bug", WORK_ITEM, "--allow-mock", "--prepare-only", "--attach", str(tmp_path / "gone.log")]) == 0
+    assert not (issue_dir(repo, WORK_ITEM) / "attachments").exists()
+
+
+def test_copy_attachments_on_its_own_makes_a_private_checked_folder(tmp_path, outside):
+    from bugpilot.core.attachments import copy_attachments
+
+    target = tmp_path / "item"
+    target.mkdir()
+    result = copy_attachments(target, [str(_attached(tmp_path))])
+    assert result.copied == ["crash.log"]
+    if os.name == "posix":
+        assert (target / "attachments").stat().st_mode & 0o077 == 0
+
+    linked = tmp_path / "linked-item"
+    linked.mkdir()
+    _symlink(linked / "attachments", outside)
+    with pytest.raises(UnsafePathError, match="inside BugPilot's data folder"):
+        copy_attachments(linked, [str(_attached(tmp_path))])
+    assert _untouched(outside)
+
+
+def test_a_linked_file_in_a_work_item_is_refused_in_the_data_folders_words(repo, outside, capsys):
+    """ST-2: the file is in BugPilot's data folder, so the refusal says so, never "this repository"."""
+    assert _prepare() == 0
+    task = issue_dir(repo, WORK_ITEM) / "task.md"
+    task.unlink()
+    _symlink(task, outside / "canary.txt")
+
+    assert _prepare() == 1
+    err = capsys.readouterr().err
+    assert "task.md is a symbolic link or junction" in err
+    assert "only into real directories inside BugPilot's data folder" in err
+    assert "this repository" not in err
+    assert _untouched(outside)
+
+
+def test_a_linked_attachment_file_is_refused_in_the_data_folders_words(repo, tmp_path, outside, capsys):
+    log = _attached(tmp_path)
+    assert main(["bug", WORK_ITEM, "--allow-mock", "--prepare-only", "--attach", str(log)]) == 0
+    copied = issue_dir(repo, WORK_ITEM) / "attachments" / "crash.log"
+    copied.unlink()
+    _symlink(copied, outside / "canary.txt")
+
+    assert main(["bug", WORK_ITEM, "--allow-mock", "--prepare-only", "--attach", str(log)]) == 1
+    err = capsys.readouterr().err
+    assert "crash.log is a symbolic link or junction" in err and "inside BugPilot's data folder" in err
+    assert (outside / "canary.txt").read_text(encoding="utf-8") == "not BugPilot's"
+
+
+def test_atomic_writes_name_the_data_folder_when_they_refuse(tmp_path, outside):
+    from bugpilot.core.artifact_io import atomic_write_text
+
+    target = tmp_path / "report.md"
+    _symlink(target, outside / "canary.txt")
+    with pytest.raises(UnsafePathError) as refused:
+        atomic_write_text(target, "text")
+    assert "inside BugPilot's data folder" in str(refused.value)
+    assert "this repository" not in str(refused.value)
+    assert (outside / "canary.txt").read_text(encoding="utf-8") == "not BugPilot's"

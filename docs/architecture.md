@@ -9,15 +9,29 @@
 > `execution.log`, and the per-stage issue/search files) are no longer
 > written or read. Treat those sections as historical until the
 > documentation pass rewrites them.
+>
+> **It also predates 0.1.7's unified storage.** BugPilot 0.1.7 writes nothing
+> into the repository: a work item's files are in
+> `<data folder>/repositories/<repository-id>/work/<id>/`, similar-fix memory in
+> `.../memory/<id>.md`, the repository's settings in `.../settings/`, and the
+> user's Jira site, credentials, instructions and Fix Modes in
+> `<data folder>/config/`. The data folder is `~/.bugpilot`, or `BUGPILOT_HOME`;
+> `bugpilot/core/storage.py` owns every path in it, and `doctor --json` reports
+> them (`storage`). Every mention below of `.ai/<issue>/`, `.ai_memory/`,
+> `<repo>/.bugpilot/`, `~/.bugpilot/config.toml` or `BUGPILOT_CONFIG_DIR` as
+> current is historical: 0.1.7 neither reads nor writes them, and
+> `BUGPILOT_CONFIG_DIR` is retired (ignored, with a warning). The README's
+> "Where BugPilot keeps its files" is the current description.
 
 This guide explains how the codebase is put together: the layers, the two
 orchestrators, every core module, and the artifact pipeline that flows through
-`.ai/<issue>/`. It is aimed at a developer who needs to change bugpilot itself,
+the work item's folder (`work/<issue>/` in BugPilot's data folder since 0.1.7;
+`.ai/<issue>/` before). It is aimed at a developer who needs to change bugpilot itself,
 not at an end user (see the [README](../README.md) and
 [extension/README.md](../extension/README.md) for that).
 
-- Package name: `bugpilot` (`pyproject.toml`), version `0.1.5`.
-- Package / import name: `bugpilot` (matches the CLI). Env vars are `BUGPILOT_*`; the artifact dirs stay `.ai/` / `.ai_memory/`.
+- Package name: `bugpilot` (`pyproject.toml`), version `0.1.7` (`bugpilot/__init__.py`; the VS Code extension carries the same version and needs a CLI of it).
+- Package / import name: `bugpilot` (matches the CLI). Env vars are `BUGPILOT_*`; work items, memory and settings are in BugPilot's data folder (`bugpilot/core/storage.py`), never in the repository (0.1.7).
 - Console script: `bugpilot = bugpilot.cli:main`.
 - Runtime dependencies: **none** — standard library only. `requires-python >= 3.10`.
 - External tools used at runtime (all optional, all degraded gracefully): `git`,
@@ -242,8 +256,8 @@ parsing goes through `_clean_env` / `_env_int` / `_env_bool` / `_parse_recipient
   `jira_email` (+ token) via a minimal flat-TOML reader/writer (keeps the
   zero-dependency, py3.10 contract). The Jira site (`jira_base_url`) is the
   developer's, never a built-in company URL; `save_jira_site` rewrites only
-  that key, for `bugpilot jira-site set` and the extension's Jira Setup. The dir is overridable via `BUGPILOT_CONFIG_DIR` (used
-  to keep tests hermetic). Token persistence goes through a **`TokenStore`** seam
+  that key, for `bugpilot jira-site set` and the extension's Jira Setup. Since 0.1.7 the dir is `config/` in BugPilot's
+  data folder (`BUGPILOT_HOME`); `BUGPILOT_CONFIG_DIR` is retired. Token persistence goes through a **`TokenStore`** seam
   (`FileTokenStore` today) so it can later move to the Windows Credential Manager
   without touching callers.
 
@@ -699,10 +713,13 @@ and before the pipeline runs — and is shown separately from the current select
   `--launch-agent claude|copilot`; preparing alone never reaches it. `build_agent_command` builds argv from
   `config` command+args (split with `shlex`), adding `--add-dir=<work folder>` for Claude (0.1.7: the work
   item's folder is outside the repository; one `=` word, since the option takes several folders; not when the
-  configured args already name that folder; refused, and nothing started, when storage's checks refuse the folder
-  or it is not there); `run_agent` resolves the executable
+  configured args already name that folder; refused, and nothing started, when storage's checks refuse the folder,
+  it is not there, or it is not private: `storage.RepositoryStorage.check_private_for_agent` on the data folder and
+  every folder down to the work item's own); `run_agent` resolves the executable
   (`_resolve_launch_command`, wrapping `.cmd`/`.bat` in `cmd /c` on Windows) and
-  runs it inheriting the terminal. `HANDOFF_PROMPT` is the seed instruction.
+  runs it inheriting the terminal. A batch file's command line passes `_cmd_exe_problem` first: cmd.exe acts on
+  `%`, `^`, `&` and more, so every word must hold only the plain-prompt gate's characters, or nothing starts (T-S12).
+  A native executable gets its arguments as a vector, unchecked. `HANDOFF_PROMPT` is the seed instruction.
 - **`copilot.py` (~25 lines)** — `collect_agent_status` reports availability of
   `copilot`/`gh`/`claude` and the current mode as a dict; `agent_status_lines`
   and `auto_invocation_guidance` render it. The `print_*` pair that predated
@@ -728,7 +745,7 @@ file. Errors are deliberately built to never echo secrets.
   `doctor_report_lines` (rendering):
   Python version, `git`/`rg` availability, repo state, and *presence* (never
   values) of Jira/SMTP/Graph configuration. `capabilities` (`CAPABILITIES`,
-  since 0.1.3: `verification-text`; since 0.1.4: `ai-behavior-text`, `protected-rules`, `task-preview` and `context-preview`) names what this CLI can read, so a newer
+  since 0.1.3: `verification-text`; since 0.1.4: `ai-behavior-text`, `protected-rules`, `task-preview` and `context-preview`; since 0.1.7: `unified-storage`) names what this CLI can read, so a newer
   extension can tell an older CLI from a broken one without parsing versions.
 - **`cleanup.py` (~73 lines)** — `clean_issue_artifacts` deletes `.ai/<key>/`
   (and optionally the memory file) behind `_ensure_child` containment guards so
@@ -778,7 +795,8 @@ Artifacts *are* the interface between steps. Producer → consumer:
 ## 7. Configuration reference
 
 Environment variables are read in `config.py` (except `BUGPILOT_AUTO_JIRA_COMMENT`,
-read in `cli.py`); `BUGPILOT_CONFIG_DIR` is read in `user_config.py`.
+read in `cli.py`); `BUGPILOT_HOME` is read in `storage.py`. `BUGPILOT_CONFIG_DIR` is
+retired in 0.1.7: `user_config.py` only notices that it is set, and the CLI warns, in text mode, that it is ignored.
 
 | Purpose | Variables | Notes |
 | --- | --- | --- |
@@ -787,7 +805,7 @@ read in `cli.py`); `BUGPILOT_CONFIG_DIR` is read in `user_config.py`.
 | SMTP | `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_SSL` (false), `SMTP_USE_STARTTLS` (true), `BUGPILOT_EMAIL_FROM`, `BUGPILOT_EMAIL_TO` | `is_configured` needs host + sender + ≥1 recipient. |
 | Microsoft Graph | `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET` | Fallback transport when SMTP auth is unavailable. |
 | Behavior | `BUGPILOT_AUTO_JIRA_COMMENT` | Truthy → `summarize-results` auto-posts a Jira comment. |
-| Config location | `BUGPILOT_CONFIG_DIR` | Overrides the `~/.bugpilot` directory (keeps tests hermetic). |
+| Data folder | `BUGPILOT_HOME` | An absolute folder, outside every repository and Git working tree, used instead of `~/.bugpilot` for everything BugPilot keeps (0.1.7). `BUGPILOT_CONFIG_DIR` is retired: ignored, with a warning. |
 
 **User config file** (`~/.bugpilot/config.toml`, written by `bugpilot setup`):
 `jira_email` and — for now — `jira_token`. SMTP/Graph secrets are still

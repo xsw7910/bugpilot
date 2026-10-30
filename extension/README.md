@@ -76,7 +76,7 @@ For the MCP server as well, use `pipx install "bugpilot[mcp]"` or
 `python -m pip install "bugpilot[mcp]"` instead. Then check it:
 
 ```powershell
-bugpilot --version          # bugpilot 0.1.5
+bugpilot --version          # bugpilot 0.1.7, the same version as this extension
 ```
 
 **Which CLI runs.** The extension uses the first of these:
@@ -131,8 +131,30 @@ than preparing anything. With a CLI older than 0.1.7, this extension asks you to
 path, in BugPilot's data folder. When the installed `claude` lists `--add-dir` in its own
 `--help`, the command line also gives Claude that one folder (`--add-dir="<folder>"`), so
 writing `fix_report.md` there follows Claude's usual edit permissions; otherwise Claude asks
-before writing outside the repository. The path names your home folder, so your user name
+before writing outside the repository. Before it gives the folder, the extension asks the
+CLI whether BugPilot's data folder is private to you (no other account can write to it, or
+to any folder down to the work item's); if the answer is not a clear yes, it starts nothing
+and says why. On Windows, an npm-installed `claude.cmd` cannot be asked for its options
+without a shell, so it is started without `--add-dir`; the native Claude Code executable can
+be asked. Claude Code also loads a `.claude/` folder it finds in a folder it is given;
+BugPilot never writes one there. The path names your home folder, so your user name
 reaches the agent and its provider; set `BUGPILOT_HOME` to a neutral folder if that matters.
+
+**When Fix with AI will not hand over.** A handoff goes ahead only when the work folder's
+path holds just ASCII letters, digits, spaces and `. , : # / _ -`, because a shell acts on
+other characters. If your home folder's path holds anything else — a letter such as `é` or
+`ü`, an apostrophe or parentheses in your Windows user name — Fix with AI hands the task to
+no agent (CLI, custom command or extension) and says so. Either set `BUGPILOT_HOME` to an absolute folder with such a plain path, private
+to you, and prepare the work item again; or press **Copy Handoff Prompt** and paste the line
+into your agent yourself.
+
+**Where the work items went.** A repository's folder in BugPilot's data folder is chosen by
+the repository's real path. After you move or rename the repository, open a subfolder of it
+instead of its root, use a clone at another path, or change `BUGPILOT_HOME`, BugPilot uses a
+new, empty folder, and the earlier work items, memory and settings seem to be missing: they
+are still in the old folder, and nothing moves them. Open the repository at its old path
+again, or prepare the work items again. Work items prepared by 0.1.6 or earlier are in the
+repository's `.ai/` folder and are not listed at all.
 
 ## First run, in about five minutes
 
@@ -1083,6 +1105,9 @@ The codicons icon font in `media/codicons/`, the activity bar icon `media/bug.sv
 | "does not support the machine-readable output this extension needs" | An older CLI is being found first. Upgrade it, or set `bugpilot.executablePath` |
 | "BugPilot CLI is out of date" | The CLI found is older than this extension and does not accept what a Run sends. For a CLI found on `PATH`, **Install BugPilot Runtime** is offered first. **Update Instructions** says how to upgrade (`pipx upgrade bugpilot`); **Choose Executable** points at a newer one; then **Retry**. `bugpilot --version` shows which version runs |
 | "… keeps work items in the repository's .ai/ folder, and this extension reads them from BugPilot's data folder …" | The CLI found is older than 0.1.7. Update it (or **Install BugPilot Runtime**), then **Retry** |
+| No work items listed, or a work item you prepared is missing | The repository's folder in BugPilot's data folder is chosen by its path: it was moved or renamed, a subfolder is open instead of its root, or `BUGPILOT_HOME` changed: see **Where the work items went**, above. Items prepared by 0.1.6 or earlier are in the repository's `.ai/` and are not read |
+| "… is not private …" or "cannot confirm that … is private", and Fix with AI started nothing | Another account can write to BugPilot's data folder (a `BUGPILOT_HOME` on a shared drive, for example), so the work folder is not given to Claude. Restrict the folder to your account, or set `BUGPILOT_HOME` to a private folder; or use **Copy Handoff Prompt** |
+| "The prompt holds characters a shell could act on …" or "The work folder's path is not one BugPilot puts on a command line …" | The work folder's path holds a character outside ASCII letters, digits, spaces and `. , : # / _ -`, often from your user name. Set `BUGPILOT_HOME` to a plain, private folder and prepare again, or use **Copy Handoff Prompt** |
 | "… cannot read settings/ai_behavior.md, so it would prepare tasks without this repository's AI Behavior" | The repository has an AI Behavior file and the CLI found is older than 0.1.4, so it would leave the file out of every task. Update the CLI (or **Install BugPilot Runtime**), then **Retry**. Removing the file also lets an older CLI prepare |
 | "The installed BugPilot CLI cannot preview the AI task" (or show the generated context, or list its protected rules) | The CLI is older than 0.1.4. Everything else works; the Effective Output and Protected rules views need a 0.1.4 CLI |
 | "Not refreshed: BugPilot is busy" in a read-only view | A run is in progress, or the CLI is being checked again. The view keeps its last answer and asks again when BugPilot is ready |

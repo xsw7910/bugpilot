@@ -13,9 +13,23 @@
   in the repository; an agent that asks before reading or writing outside it
   asks for that one folder. Claude CLI is given that folder with `--add-dir`
   when its `--help` lists the option (and `bugpilot bug --launch-agent claude`
-  always gives it), so it can write `fix_report.md` there. The path names your
-  home folder; set `BUGPILOT_HOME` to a neutral folder to keep your user name
-  out of the agent's instructions.
+  always gives it), so it can write `fix_report.md` there. On Windows an
+  npm-installed `claude.cmd` cannot be asked for its options, so it gets no
+  `--add-dir` and Claude asks before writing there. The folder is given only
+  when BugPilot's data folder is private to you; otherwise nothing is started,
+  and BugPilot says why. Claude Code also loads a `.claude/` folder it finds in
+  a folder it is given; BugPilot never writes one. The path names your home
+  folder; set `BUGPILOT_HOME` to a neutral folder to keep your user name out of
+  the agent's instructions.
+- **A home folder whose path holds other characters.** Fix with AI hands a
+  task over only when the path holds just ASCII letters, digits, spaces and
+  `. , : # / _ -`. With a letter such as `é`, an apostrophe or parentheses in
+  your user name, it hands over to no agent and says so: set
+  `BUGPILOT_HOME` to a folder with such a path, private to you, or use Copy
+  Handoff Prompt.
+- **The repository's folder follows its path.** Moving or renaming the
+  repository, opening a subfolder of it, or changing `BUGPILOT_HOME` starts a
+  new, empty folder; the earlier work items stay in the old one.
 - **Upgrading: nothing is migrated.** A repository's `.ai/`, `.ai_memory/` and
   `.bugpilot/`, and `~/.bugpilot/config.toml`, are no longer read, and are never
   deleted. Set up Jira again (`bugpilot setup`, or Jira Setup in the panel),

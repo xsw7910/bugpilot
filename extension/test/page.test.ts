@@ -6593,6 +6593,8 @@ function loop(options: { holdRun?: boolean; deleteArtifacts?: ControllerPorts["d
     newSessionId: () => `00000000-0000-4000-8000-${String(++sessionIds).padStart(12, "0")}`,
     // A Claude CLI whose --help lists --session-id and --resume, as 2.1.214's does.
     cliSupportsFlags: async () => true,
+    // The CLI finds BugPilot's data folder private, so the work folder may be given (S-2).
+    workFolderPrivacy: async () => ({ private: true }),
     improveHint: async (request) => {
       hintPrompts.push(request.prompt);
       return { ok: true, text: "Look in the widget controller." };

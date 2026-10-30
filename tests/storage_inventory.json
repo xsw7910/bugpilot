@@ -154,8 +154,8 @@
    "files": 1
   },
   "path-helper": {
-   "occurrences": 111,
-   "files": 27
+   "occurrences": 112,
+   "files": 28
   },
   "path-constant": {
    "occurrences": 73,
@@ -180,6 +180,7 @@
    "path-helper": 3
   },
   "bugpilot/core/attachments.py": {
+   "path-helper": 1,
    "path-constant": 6,
    "home-lookup": 1
   },

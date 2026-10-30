@@ -13,6 +13,7 @@ from .git_ops import (
     command_available,
     current_branch,
     inside_git_repo,
+    program_available,
     working_tree_status,
 )
 
@@ -51,6 +52,11 @@ def storage_report(repo_root: Path) -> dict[str, str | None]:
     files (the VS Code extension); ``data_root_display`` is the form messages
     use. A data folder that cannot be resolved at all (``BUGPILOT_HOME`` not
     absolute, no home folder) has no paths: ``state`` is ``refused``.
+
+    ``privacy`` is whether the folders that hold this repository's work items
+    are private (``private``, ``not-private`` or ``unverifiable``), with
+    ``privacy_problem`` saying why not: a client gives an agent a work item's
+    folder only when it is ``private`` (0.1.7, S-2).
     """
     try:
         namespace = storage.repository_storage(repo_root)
@@ -58,6 +64,7 @@ def storage_report(repo_root: Path) -> dict[str, str | None]:
         return {"state": "refused", "problem": str(error)}
     paths = namespace.diagnostics()
     check = namespace.check()
+    privacy, privacy_problem = namespace.privacy()
     return {
         "data_root": paths["data_root"],
         "data_root_display": paths["data_root_display"],
@@ -67,6 +74,8 @@ def storage_report(repo_root: Path) -> dict[str, str | None]:
         "config_dir": paths["config_dir"],
         "state": check.state,
         "problem": check.problem,
+        "privacy": privacy,
+        "privacy_problem": privacy_problem,
     }
 
 
@@ -74,7 +83,8 @@ def collect_doctor_report(repo_root: Path) -> dict[str, object]:
     config = load_config(repo_root)
     email_config = load_email_config()
     graph_config = load_graph_config()
-    in_git = command_available("git") and inside_git_repo(repo_root)
+    # git and rg as BugPilot starts them: native programs, never batch files (S-8).
+    in_git = program_available("git") and inside_git_repo(repo_root)
     return {
         # First, and reported by every consumer of this dict, because "which
         # bugpilot am I actually running?" is a real question: a machine can
@@ -84,7 +94,7 @@ def collect_doctor_report(repo_root: Path) -> dict[str, object]:
         "capabilities": list(CAPABILITIES),
         "python_version": platform.python_version(),
         "python_ok": sys.version_info >= (3, 10),
-        "git_available": command_available("git"),
+        "git_available": program_available("git"),
         "current_directory": str(repo_root),
         "inside_git_repo": in_git,
         "current_branch": current_branch(repo_root) if in_git else None,
@@ -93,7 +103,7 @@ def collect_doctor_report(repo_root: Path) -> dict[str, object]:
         # Nothing is written into the repository any more, so there is no
         # `.gitignore` rule to ask about (`ai_artifacts_ignored*` are gone).
         "storage": storage_report(repo_root),
-        "rg_available": command_available("rg"),
+        "rg_available": program_available("rg"),
         "jira_base_url_present": bool(config.jira_base_url),
         "jira_email_present": bool(config.jira_email),
         "jira_token_present": bool(config.jira_token),

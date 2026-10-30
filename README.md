@@ -42,11 +42,13 @@ Verify:
 bugpilot --version
 ```
 
-Expected:
+Expected, for this release:
 
 ```text
-bugpilot 0.1.5
+bugpilot 0.1.7
 ```
+
+If you also use the VS Code extension, the CLI and the extension must be the same version: install or update them together.
 
 The MCP server needs the optional MCP SDK: `pipx install "bugpilot[mcp]"`, or `python -m pip install "bugpilot[mcp]"`.
 
@@ -62,7 +64,7 @@ Add the MCP server with `pipx install ".[mcp]"`. Working on BugPilot itself (edi
 
 ## First run
 
-Run BugPilot from the root of the repository you want to fix — it writes its files there:
+Run BugPilot from the root of the repository you want to fix. It reads the repository there and keeps its own files in its data folder ([below](#where-bugpilot-keeps-its-files)):
 
 ```powershell
 cd path\to\your-repo
@@ -93,6 +95,7 @@ BugPilot writes nothing into your repository. What it generates, and every setti
 - `bugpilot doctor` shows the repository's folder (`storage.repository_dir` in `doctor --json`).
 - Your agent still works in the repository. The handoff names the task file by its full path, and an agent that asks before reading or writing outside its working folder asks for this one.
 - A repository's settings are yours, kept for that repository on your machine; they are not shared through the repository.
+- **The folder is chosen by the repository's path** — the real path of the folder you run BugPilot in, nothing else. Move or rename the repository, run BugPilot from a subfolder, use a clone at another path, or set another `BUGPILOT_HOME`, and BugPilot uses a new, empty folder: work items, memory and settings prepared under the old path seem to be missing. They are still in the old folder; nothing moves them. Run BugPilot from the repository's root again (or move the repository back), or prepare the work items again and set the settings again. A clone at the same path finds its folder again.
 
 **Upgrading from 0.1.6 or earlier.** Nothing is migrated. BugPilot no longer reads a repository's `.ai/`, `.ai_memory/` or `.bugpilot/`, or `~/.bugpilot/config.toml`, `~/.bugpilot/instructions.md` and `~/.bugpilot/fix_modes/`, and it never deletes them. Run `bugpilot setup` again, prepare work items again, and set again the settings you want to keep: each command writes the new place. Delete the old folders yourself once you no longer need them. Update the CLI and the VS Code extension together: an extension older than 0.1.7 looks for work items in the repository, and does not find the ones a 0.1.7 CLI prepares. A 0.1.7 CLI started by such an extension says so instead of preparing anything (error code `EXTENSION_OUTDATED`, shown by the extension as its environment check failing), and a 0.1.7 extension with an older CLI reports the CLI as out of date. The CLI tells the old extension apart by the VS Code extension host's environment (`VSCODE_CRASH_REPORTER_PROCESS_TYPE=extensionHost`) without the `BUGPILOT_CLIENT_STORAGE=unified` that 0.1.7 and later extensions set; another tool that runs `bugpilot doctor --json`, `bug --json` or `bug --json-lines` from inside a VS Code extension, and reads BugPilot's data folder, sets that variable too. A terminal, a script, CI and the MCP server are not affected.
 
@@ -282,8 +285,15 @@ Preparing a work item again — a rebuild, a resume, a retry — never calls for
 - **No delivery.** BugPilot never runs `git add`, `git commit`, `git push`, merges or opens pull requests. The agent asks before committing, and never pushes `main`/`master` or force-pushes.
 - **Nothing deleted unless asked.** Only `--fresh` and `clean` delete, only the work item's own folder in BugPilot's data folder, and never through a symbolic link or junction. Every write there refuses links the same way.
 - **Nothing written into the repository.** Work items, memory and settings are in BugPilot's data folder, which may not be inside a repository or a Git working tree.
-- **The agent is given the work item's folder, and only that.** The agent works in the repository and writes `fix_report.md` in the work item's folder in BugPilot's data folder. When BugPilot starts Claude Code (`--launch-agent claude`, or the extension's Claude CLI), it adds `--add-dir=<that folder>`, so Claude's normal edit permissions cover it; never the data folder as a whole, and never for Codex or Copilot. The folder's path is absolute and names your home folder, so it carries your operating-system user name into the agent's instructions and to its AI provider; set `BUGPILOT_HOME` to a neutral absolute folder if that matters.
+- **The agent is given the work item's folder, and only that.** The agent works in the repository and writes `fix_report.md` in the work item's folder in BugPilot's data folder. Claude Code may write there without asking only when it is given that folder with `--add-dir=<that folder>`; never the data folder as a whole, and never for Codex, Copilot, a custom command or Review with AI.
+  - `--launch-agent claude` (the CLI) always adds it — after checking that the folder exists, is not reached through a link, and is private: BugPilot's data folder and every folder down to the work item's own must be yours, with no other account able to write to them. If not, Claude is not started, and the CLI prints the line to hand over yourself.
+  - The VS Code extension's Claude CLI adds it only when the installed `claude --help` lists the option, and asks the CLI the same privacy question first; if the answer is not a clear yes, it starts nothing and says why.
+  - On Windows, an npm-installed `claude.cmd` cannot be asked for its options without a shell, so the extension starts it without `--add-dir`; Claude then asks before writing `fix_report.md`. The native Claude Code executable can be asked.
+  - Claude Code also loads a `.claude/` folder it finds in a folder it is given. BugPilot never writes one there; the privacy check keeps other accounts from planting one.
+  - The folder's path is absolute and names your home folder, so it carries your operating-system user name into the agent's instructions and to its AI provider; set `BUGPILOT_HOME` to a neutral absolute folder if that matters (it must be private to you as well, for the grant).
+- **A path a shell would act on is never typed or passed through `cmd.exe`.** The extension types a handoff into a terminal only when the work folder's path holds just ASCII letters, digits, spaces and `. , : # / _ -`. With another character — a letter like `é` or `ü`, an apostrophe or parentheses in your Windows user name, for example — Fix with AI hands the task to no agent and says why: set `BUGPILOT_HOME` to a folder with such a plain path (and private to you), or use **Copy Handoff Prompt** and paste the line yourself. `--launch-agent` applies the same rule when the agent is a batch file (`claude.cmd`), which Windows runs through `cmd.exe`; a native executable gets its arguments directly and is not limited.
 - **No programs from your repository.** `git`, `rg` and agent CLIs are found on `PATH`'s absolute entries only, never in the current folder.
+- **`git` and `rg` only as programs.** They are given an issue's text (search terms, file names, `--grep` patterns), so on Windows BugPilot starts them only as real executables, never as a `.bat` or `.cmd` file, which Windows would run through `cmd.exe`. A batch file earlier on `PATH` is passed over for the program further along; with only a batch file, BugPilot treats the tool as missing and says why.
 - **Jira credentials stay out of artifacts.** Tokens are never written to generated files, logs or command lines.
 - **AI review is read-only.** The VS Code extension's captured review runs without a shell or editing tools; BugPilot gives it the diff itself.
 - **Editable text cannot pose as BugPilot's own sections.** Headings in User and Project Instructions, the Verification Policy, AI Behavior, a Fix Mode's sections and the developer hint are held below the task's own, an open code fence is closed where the layer ends, and a Fix Mode's name stays on one line, so none of them can add a second `## BugPilot Safety Rules` or `## BugPilot Rule Precedence`.
@@ -293,7 +303,7 @@ More in [docs/safety.md](https://github.com/xsw7910/bugpilot/blob/main/docs/safe
 
 ## Privacy
 
-- Generated artifacts and similar-fix memory contain repository context: code excerpts, file paths, git history and fetched issue text. AI prompts built from them carry the same. They are in BugPilot's data folder in your home, private to your account, never in the repository.
+- Generated artifacts and similar-fix memory contain repository context: code excerpts, file paths, git history and fetched issue text. AI prompts built from them carry the same. They are in BugPilot's data folder in your home, private to your account by default, never in the repository. A folder you choose with `BUGPILOT_HOME` is as private as you make it; BugPilot checks that before it gives a work item's folder to an agent.
 - Project / Team Instructions, project settings and User Instructions are in the same data folder, and are yours.
 - Jira credentials are never written to generated artifacts.
 

@@ -20,7 +20,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from .executables import child_environment, find_executable
+from .executables import child_environment, find_program
 
 #: Lines of ``git status --short`` kept; the rest are counted.
 MAX_STATUS_LINES = 200
@@ -129,7 +129,7 @@ def _fenced(text: str, language: str) -> str:
 
 
 def _git(repo_root: Path, args: list[str]) -> tuple[int, str]:
-    git = find_executable("git")
+    git = find_program("git")
     if git is None:
         return 127, ""
     environment = child_environment()

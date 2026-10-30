@@ -70,8 +70,16 @@ import type { PayloadCommandRequest } from "./fixModeTransport.ts";
 import type { ReviewPackage } from "./reviewPackage.ts";
 import type { ContextCounts, RelevantFile } from "./contextSummary.ts";
 import type { FieldProblem, FormState } from "./form.ts";
-import { SETTINGS_FOLDER, WORK_FOLDER, promptPath, repositoryDirectoryOf, settingsFile, workItemDirectory } from "./dataFolder.ts";
-import { AgentService, capturedReviewOf } from "./agents.ts";
+import {
+  SETTINGS_FOLDER,
+  WORK_FOLDER,
+  promptPath,
+  repositoryDirectoryOf,
+  settingsFile,
+  workItemDirectory,
+  type WorkFolderPrivacy,
+} from "./dataFolder.ts";
+import { AgentService, capturedReviewOf, refusedPrivateFolder } from "./agents.ts";
 import type { AgentActivity } from "./terminalActivity.ts";
 import { commandForLog, redactKnown, rejectedValueForLog, sensitiveValues, stderrForLog } from "./logSafety.ts";
 import type {
@@ -463,6 +471,12 @@ export interface ControllerPorts {
    */
   readonly cliSupportsFlags?: (command: string, flags: readonly string[]) => Promise<boolean>;
   /**
+   * Whether BugPilot's data folder is private to this user, asked of the CLI (`doctor --json`'s
+   * `storage.privacy`) just before an agent is given a work item's folder (0.1.7, S-2). Absent: never proven,
+   * so no folder is given.
+   */
+  readonly workFolderPrivacy?: (root: string) => Promise<WorkFolderPrivacy>;
+  /**
    * The installed AI extensions, through VS Code's extension API, and a way to
    * run their commands (§37.94). Only `agents.ts` names an extension or a
    * command, and only commands the installed manifest declares are run — never
@@ -818,7 +832,7 @@ interface SessionRecord {
    * otherwise the handoff's own command line, the same task from the same
    * prepared files. Never a new attempt: no feedback, no retry package.
    */
-  readonly relaunch: { readonly commandLine: string; readonly resumes: boolean };
+  readonly relaunch: { readonly commandLine: string; readonly resumes: boolean; readonly grantsWorkFolder: boolean };
 }
 
 /** What a handoff hands over, and what the row says once it has. */
@@ -981,6 +995,8 @@ export class Controller {
   readonly #sessions = new Map<string, SessionRecord>();
   /** How often Open AI Session has started each session's agent again, so a late offer starts nothing twice. */
   readonly #relaunches = new WeakMap<SessionRecord, number>();
+  /** Sessions whose restart is waiting on the CLI's privacy answer (S-2): one press at a time. */
+  readonly #relaunchChecks = new WeakSet<SessionRecord>();
   /**
    * The last handoff, when it was a manual one: what was copied, for which
    * agent, so the panel can say what to do next and Copy Again can copy the
@@ -1281,8 +1297,10 @@ export class Controller {
   #policyWatch: { readonly directory: string; readonly handle: { dispose(): void } } | undefined;
   /** A reread scheduled by the watcher, merging a burst of file events into one. */
   #policyRefreshTimer: { cancel(): void } | undefined;
-  /** A reread in flight, shared by everyone who asks for one meanwhile. */
+  /** The reread in flight. */
   #policyRefresh: Promise<void> | undefined;
+  /** One more reread, after the one in flight, shared by everyone who asks for one meanwhile (U-1). */
+  #policyRefreshAgain: Promise<void> | undefined;
   /** The instruction editor while it is open: its scope, the text it opened with, a save in flight. */
   #instructionsEditor: InstructionsEditorState | undefined;
   #instructionsEditorToken = 0;
@@ -2067,7 +2085,7 @@ export class Controller {
         await this.fixWithAI();
         return;
       case "openSession":
-        this.openSession();
+        await this.openSession();
         return;
       case "startNewAttempt":
         // Opens the page's form; the attempt itself arrives as `startAttempt`.
@@ -2517,7 +2535,7 @@ export class Controller {
    * did not start (a reload, another window) has nothing to start again from:
    * its terminal is shown if it is still open, and otherwise that is said.
    */
-  openSession(): void {
+  async openSession(): Promise<void> {
     const workItemId = this.#workItemId;
     if (!workItemId) {
       this.#ports.ui.notify("warning", "Run BugPilot first; there is no AI session to open yet.");
@@ -2526,22 +2544,22 @@ export class Controller {
     const session = this.#sessions.get(workItemId);
     if (!session) {
       const base = fixTerminalName(workItemId);
-      this.#focusSession(workItemId, (name) => name === base || name.startsWith(`${base} (`));
+      await this.#focusSession(workItemId, (name) => name === base || name.startsWith(`${base} (`));
       return;
     }
     const matches = (name: string) => name === session.terminal;
     switch (this.#ports.ui.terminalActivity(matches)) {
       case "running":
-        this.#focusSession(workItemId, matches, session);
+        await this.#focusSession(workItemId, matches, session);
         return;
       case "exited":
-        this.#relaunchSession(workItemId, session, "same");
+        await this.#relaunchSession(workItemId, session, "same");
         return;
       case "closed":
-        this.#relaunchSession(workItemId, session, "new");
+        await this.#relaunchSession(workItemId, session, "new");
         return;
       case "unknown":
-        if (this.#focusSession(workItemId, matches, session)) void this.#offerRelaunch(workItemId, session);
+        if (await this.#focusSession(workItemId, matches, session)) void this.#offerRelaunch(workItemId, session);
         return;
     }
   }
@@ -2551,7 +2569,7 @@ export class Controller {
    * shown: it failed (said), it is gone and there is no session to start again
    * (said), or it closed since the activity was read (started again).
    */
-  #focusSession(workItemId: string, matches: (name: string) => boolean, session?: SessionRecord): boolean {
+  async #focusSession(workItemId: string, matches: (name: string) => boolean, session?: SessionRecord): Promise<boolean> {
     let shown: boolean;
     try {
       shown = this.#ports.ui.revealTerminal(matches);
@@ -2563,7 +2581,7 @@ export class Controller {
       return false;
     }
     if (!shown) {
-      if (session) this.#relaunchSession(workItemId, session, "new");
+      if (session) await this.#relaunchSession(workItemId, session, "new");
       else this.#showSessionFeedback(workItemId, "unavailable", SESSION_NOT_IN_WINDOW);
       return false;
     }
@@ -2580,7 +2598,28 @@ export class Controller {
    * terminal's agent is known to have exited, otherwise in a new terminal of
    * the same name — the one Open AI Session goes back to next time.
    */
-  #relaunchSession(workItemId: string, session: SessionRecord, where: "same" | "new"): void {
+  async #relaunchSession(workItemId: string, session: SessionRecord, where: "same" | "new"): Promise<void> {
+    if (session.relaunch.grantsWorkFolder) {
+      // The command line gives the agent the work item's folder again: asked again, as at the first start (S-2).
+      // A second press while the CLI is asked starts nothing more; and an answer that arrives after the window
+      // closed, another work item opened, a new attempt started or the session was started again starts nothing.
+      if (this.#relaunchChecks.has(session)) return;
+      this.#relaunchChecks.add(session);
+      const before = this.#relaunches.get(session) ?? 0;
+      let privacy: WorkFolderPrivacy;
+      try {
+        privacy = await this.#workFolderPrivacy(session.root);
+      } finally {
+        this.#relaunchChecks.delete(session);
+      }
+      if (this.#disposed || this.#workItemId !== workItemId || this.#sessions.get(workItemId) !== session) return;
+      if ((this.#relaunches.get(session) ?? 0) !== before) return;
+      if (!privacy.private) {
+        this.#ports.log.info(`Not starting the AI session for ${workItemId} again: ${privacy.problem}`);
+        this.#showSessionFeedback(workItemId, "failed", refusedPrivateFolder(session.adapter, privacy.problem));
+        return;
+      }
+    }
     const matches = (name: string) => name === session.terminal;
     let placed = where;
     try {
@@ -2617,7 +2656,21 @@ export class Controller {
     if (this.#workItemId !== workItemId || this.#sessions.get(workItemId) !== session) return;
     if ((this.#relaunches.get(session) ?? 0) !== before) return;
     if (!offeredActions(this.#primaryView()).includes("openSession")) return;
-    this.#relaunchSession(workItemId, session, "new");
+    await this.#relaunchSession(workItemId, session, "new");
+  }
+
+  /** The CLI's answer, asked now: may a work item's folder be given to an agent (S-2)? Never proven is a no. */
+  async #workFolderPrivacy(root: string): Promise<WorkFolderPrivacy> {
+    const ask = this.#ports.workFolderPrivacy;
+    if (!ask) return { private: false, problem: "This BugPilot cannot ask whether its data folder is private to you." };
+    try {
+      return await ask(root);
+    } catch (error) {
+      return {
+        private: false,
+        problem: `BugPilot could not confirm that its data folder is private to you: ${(error as Error)?.message ?? String(error)}`,
+      };
+    }
   }
 
   /** One acknowledgement at a time: a press replaces the last one, and its timer. */
@@ -3047,8 +3100,10 @@ export class Controller {
       prompt: text,
       preparedContextPath: this.#itemFile(workItemId, TASK_ARTIFACT),
       // Where the agent writes fix_report.md, outside the repository (0.1.7): an agent that edits only
-      // where it is told may (Claude CLI's --add-dir) is told this folder, and no other.
+      // where it is told may (Claude CLI's --add-dir) is told this folder, and no other — and only when the
+      // CLI, asked then, finds BugPilot's data folder private (S-2).
       workFolder: this.#knownWorkDir(workItemId),
+      workFolderPrivacy: () => this.#workFolderPrivacy(root),
       purpose: "fix",
       // A fresh one per attempt: an agent that can be started under it can be
       // resumed by it, which is how Open AI Session continues this attempt's
@@ -3084,10 +3139,12 @@ export class Controller {
         adapter: resolution.adapter.label,
         attempts,
         root,
-        relaunch:
-          result.resumeCommandLine === undefined
+        relaunch: {
+          ...(result.resumeCommandLine === undefined
             ? { commandLine: result.commandLine, resumes: false }
-            : { commandLine: result.resumeCommandLine, resumes: true },
+            : { commandLine: result.resumeCommandLine, resumes: true }),
+          grantsWorkFolder: result.grantsWorkFolder === true,
+        },
       });
       // A new session: what the last Open AI Session press said is about the old one.
       this.#clearSessionFeedback();
@@ -4160,10 +4217,28 @@ export class Controller {
    * the window comes back to focus and when a file in the repository's settings folder changes: the
    * watcher alone cannot see the user's own instructions, outside the
    * repository. Reads only — it writes nothing, so a refresh it causes cannot
-   * cause another. Callers meanwhile share the read in flight.
+   * cause another.
+   *
+   * A request while a read is in flight gets one more read after it: the read
+   * in flight may already have passed the file whose change caused the request,
+   * and sharing it lost that change (U-1). Every request that arrives meanwhile
+   * shares that one follow-up, so a burst costs two reads at most.
    */
   #refreshPolicies(): Promise<void> {
-    if (this.#policyRefresh) return this.#policyRefresh;
+    if (this.#policyRefreshAgain) return this.#policyRefreshAgain;
+    const running = this.#policyRefresh;
+    if (!running) return this.#startPolicyRefresh();
+    const again: Promise<void> = running
+      .catch(() => undefined)
+      .then(() => {
+        if (this.#policyRefreshAgain === again) this.#policyRefreshAgain = undefined;
+        return this.#disposed ? undefined : this.#startPolicyRefresh();
+      });
+    this.#policyRefreshAgain = again;
+    return again;
+  }
+
+  #startPolicyRefresh(): Promise<void> {
     const refresh = (async () => {
       // The settings row's Edit or Reset writing the file now: read what it
       // leaves, never the file a moment before (§42.5).

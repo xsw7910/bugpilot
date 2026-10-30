@@ -25,6 +25,9 @@ import sys
 from pathlib import Path
 
 _DEFAULT_PATHEXT = ".COM;.EXE;.BAT;.CMD"
+#: What Windows starts by itself. A `.bat` or `.cmd` it runs through `cmd.exe` (0.1.7, S-8).
+_NATIVE_EXTENSIONS = (".exe", ".com")
+_BATCH_EXTENSIONS = (".bat", ".cmd")
 
 
 def _is_windows() -> bool:
@@ -49,16 +52,59 @@ def find_executable(name: str, path: str | None = None) -> str | None:
     - A bare name is searched in the absolute entries of ``path`` (default: the
       ``PATH`` environment variable), never in the current directory.
     """
+    return _find(name, path, native_only=False)
+
+
+def find_program(name: str, path: str | None = None) -> str | None:
+    """``name`` as a native program: :func:`find_executable`, but on Windows never a ``.bat`` or ``.cmd`` (0.1.7, S-8).
+
+    Windows runs a batch file through ``cmd.exe``, which acts on ``&``, ``%``,
+    ``^``, ``|``, ``<``, ``>``, parentheses and quotes in its arguments, and
+    nothing escapes them for it. ``git`` and ``rg`` are handed text BugPilot did
+    not write (an issue's search terms, ``--grep`` patterns, file names), so they
+    are started only as programs: a batch file earlier on ``PATH`` is passed over
+    for a program further along, and a name with no program at all is not found.
+    """
+    return _find(name, path, native_only=True)
+
+
+def batch_file_only(name: str, path: str | None = None) -> str | None:
+    """The batch file ``name`` resolves to when no native program does: why :func:`find_program` found nothing."""
+    if find_program(name, path) is not None:
+        return None
+    found = find_executable(name, path)
+    return found if found is not None and found.lower().endswith(_BATCH_EXTENSIONS) else None
+
+
+def not_found_sentence(name: str) -> str:
+    """Why ``name`` cannot be started, in one sentence: not on ``PATH``, or there only as a batch file (S-8)."""
+    batch = batch_file_only(name)
+    if batch is None:
+        return f"{name} was not found on PATH."
+    return (
+        f"{name} is on PATH only as a batch file ({Path(batch).name}), which BugPilot does not start: Windows would "
+        f"run it through cmd.exe. Install {name} as a program."
+    )
+
+
+def _find(name: str, path: str | None, *, native_only: bool) -> str | None:
     if not name:
         return None
+    native_only = native_only and _is_windows()
     given = Path(name)
     if given.is_absolute():
+        if native_only and given.suffix.lower() not in _NATIVE_EXTENSIONS:
+            return None
         return str(given) if _runnable(given) else None
     if os.sep in name or (os.altsep and os.altsep in name) or "/" in name:
         return None
     search = os.environ.get("PATH", "") if path is None else path
     if _is_windows():
-        extensions = [ext for ext in (os.environ.get("PATHEXT") or _DEFAULT_PATHEXT).split(";") if ext]
+        extensions = (
+            list(_NATIVE_EXTENSIONS)
+            if native_only
+            else [ext for ext in (os.environ.get("PATHEXT") or _DEFAULT_PATHEXT).split(";") if ext]
+        )
         has_extension = any(name.lower().endswith(ext.lower()) for ext in extensions)
         names = [name] if has_extension else [name + ext for ext in extensions]
     else:

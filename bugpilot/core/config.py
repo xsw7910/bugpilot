@@ -273,6 +273,28 @@ def writable_issue_dir(repo_root: Path, issue_key: str, *, create: bool = True) 
     )
 
 
+def writable_attachments_dir(repo_root: Path, issue_key: str) -> Path:
+    """``work/<issue_key>/attachments/``, made ready by storage: ``0700``, every component checked before and after,
+    compared with the canonical path (plan §8.3). For ``copy_attachments`` in a run."""
+    from . import storage
+    from .repository_settings import guarded
+
+    namespace = storage.repository_storage(repo_root)
+    return guarded(
+        "prepare",
+        lambda: shown(data_dir(repo_root) / "work" / issue_key),
+        lambda: namespace.attachments_dir(issue_key, create=True),
+    )
+
+
+def check_work_folder_private(repo_root: Path, issue_key: str) -> None:
+    """Refuse (``UnsafePathError``) unless ``work/<issue_key>/`` and every folder above it, up to the data
+    folder, is private: before an agent is given that folder (0.1.7, S-2). Storage's own check; creates nothing."""
+    from . import storage
+
+    storage.repository_storage(repo_root).check_private_for_agent(issue_key)
+
+
 def memory_dir(repo_root: Path) -> Path:
     """``<data_dir>/memory``: the repository's bug memory, one ``<id>.md`` per work item."""
     return data_dir(repo_root) / "memory"

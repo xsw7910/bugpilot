@@ -435,7 +435,7 @@ def test_outside_a_git_repository_the_document_says_so(tmp_path):
 
 
 def test_without_git_the_document_says_so(tmp_path, monkeypatch):
-    monkeypatch.setattr(git_history, "command_available", lambda command: False)
+    monkeypatch.setattr(git_history, "program_available", lambda command: False)
 
     assert "git command is not available." in generate_git_context(tmp_path, "JR-12345")
 

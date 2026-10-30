@@ -32,6 +32,7 @@ import type {
   AiFixRequest,
   InstalledExtension,
 } from "../src/app/agents.ts";
+import type { WorkFolderPrivacy } from "../src/app/dataFolder.ts";
 import { restoreForm, DEFAULT_FORM } from "../src/app/form.ts";
 import type { FormState } from "../src/app/form.ts";
 
@@ -519,7 +520,14 @@ function claudeListing(listed: { addDir?: boolean | Error | undefined; session?:
 
 const WINDOWS_FOLDER = "C:\\path\\to\\home dir\\.bugpilot\\repositories\\repo-0123456789abcdef\\work\\JR-1";
 const WINDOWS_SHOWN = "C:/path/to/home dir/.bugpilot/repositories/repo-0123456789abcdef/work/JR-1";
-const FIX: AiFixRequest = { ...REQUEST, prompt: `Read ${WINDOWS_SHOWN}/task.md and complete the workflow.`, workFolder: WINDOWS_FOLDER };
+/** The CLI's answer before the folder is given (S-2): private, unless a test asks otherwise. */
+const PRIVATE = async (): Promise<WorkFolderPrivacy> => ({ private: true });
+const FIX: AiFixRequest = {
+  ...REQUEST,
+  prompt: `Read ${WINDOWS_SHOWN}/task.md and complete the workflow.`,
+  workFolder: WINDOWS_FOLDER,
+  workFolderPrivacy: PRIVATE,
+};
 const quoted = (text: string) => JSON.stringify(text);
 
 test("Fix with AI gives Claude CLI the work folder: one --add-dir=<folder> word, spaces quoted, before the session and the prompt", async () => {
@@ -530,7 +538,13 @@ test("Fix with AI gives Claude CLI the work folder: one --add-dir=<folder> word,
   const expected = `claude ${grant} --session-id ${SESSION} ${quoted(FIX.prompt)}`;
   assert.deepEqual(terminals, [expected]);
   // The resumed session is given the same folder, once.
-  assert.deepEqual(result, { kind: "terminal", label: "Claude CLI", commandLine: expected, resumeCommandLine: `claude --resume ${SESSION} ${grant}` });
+  assert.deepEqual(result, {
+    kind: "terminal",
+    label: "Claude CLI",
+    commandLine: expected,
+    resumeCommandLine: `claude --resume ${SESSION} ${grant}`,
+    grantsWorkFolder: true,
+  });
   for (const line of [expected, result.kind === "terminal" ? result.resumeCommandLine! : ""]) {
     assert.equal(line.split("--add-dir").length - 1, 1, line);
   }
@@ -542,8 +556,39 @@ test("a POSIX work folder, and a Claude CLI without resumable sessions: the gran
   const { claude } = claudeListing({ addDir: true, session: false });
   const { launch, terminals } = recordingLaunch();
   const prompt = `Read ${folder}/task.md and complete the workflow.`;
-  await claude.run({ ...REQUEST, prompt, workFolder: folder, sessionId: SESSION }, launch);
+  await claude.run({ ...REQUEST, prompt, workFolder: folder, workFolderPrivacy: PRIVATE, sessionId: SESSION }, launch);
   assert.deepEqual(terminals, [`claude --add-dir=${quoted(folder)} ${quoted(prompt)}`]);
+});
+
+test("a work folder the CLI does not find private is never given: the launch is refused in its words (S-2)", async () => {
+  const problem = "BugPilot will not give an agent this work item's folder: BUGPILOT_HOME/repositories is not private (Users may write to it).";
+  const answers: (() => Promise<WorkFolderPrivacy>)[] = [
+    async () => ({ private: false, problem }),
+    async () => { throw new Error("doctor did not answer"); },
+  ];
+  for (const workFolderPrivacy of [...answers, undefined]) {
+    const { claude } = claudeListing({ addDir: true, session: true });
+    const { launch, terminals } = recordingLaunch();
+    const request: AiFixRequest = { ...REQUEST, prompt: FIX.prompt, workFolder: WINDOWS_FOLDER, sessionId: SESSION };
+    const result = await claude.run(workFolderPrivacy === undefined ? request : { ...request, workFolderPrivacy }, launch);
+    assert.equal(result.kind, "failed", "started with a folder that is not proven private");
+    assert.match(result.kind === "failed" ? result.reason : "", /did not start Claude CLI with the work item's folder; use Copy Handoff Prompt/);
+    assert.deepEqual(terminals, []);
+  }
+  const { claude } = claudeListing({ addDir: true, session: true });
+  const { launch } = recordingLaunch();
+  const refused = await claude.run({ ...FIX, workFolderPrivacy: answers[0]! }, launch);
+  assert.ok(refused.kind === "failed" && refused.reason.startsWith(problem), "the CLI's own sentence comes first");
+});
+
+test("the privacy is asked only when a folder would be given: not for a Claude CLI that cannot take one", async () => {
+  let asked = 0;
+  const { claude } = claudeListing({ addDir: false, session: false });
+  const { launch, terminals } = recordingLaunch();
+  const result = await claude.run({ ...FIX, workFolderPrivacy: async () => { asked += 1; return { private: false, problem: "no" }; } }, launch);
+  assert.equal(asked, 0);
+  assert.deepEqual(terminals, [`claude ${quoted(FIX.prompt)}`]);
+  assert.equal(result.kind === "terminal" && result.grantsWorkFolder, undefined, "no grant, so none to ask about again");
 });
 
 test("a Claude CLI whose --help does not list --add-dir, or a check that fails, is started as it always was", async () => {
@@ -590,9 +635,16 @@ test("Codex CLI, a custom command and an extension bridge are never given the wo
   const { probed, asked } = claudeListing({ addDir: true, session: true });
   const codex = cliAgent(CLI_AGENTS.find((entry) => entry.id === "codex-cli")!, probed);
   const custom = customCommandAgent(`my-agent --prompt ${PROMPT_PLACEHOLDER}`, probed);
+  let privacyAsked = 0;
+  const notPrivate = async (): Promise<WorkFolderPrivacy> => {
+    privacyAsked += 1;
+    return { private: false, problem: "not private" };
+  };
   for (const adapter of [codex, custom]) {
     const { launch, terminals } = recordingLaunch();
-    await adapter.run({ ...FIX, sessionId: SESSION }, launch);
+    // Given no folder, they are not asked about one either, and start as before (S-2 is about the grant).
+    await adapter.run({ ...FIX, workFolderPrivacy: notPrivate, sessionId: SESSION }, launch);
+    assert.equal(privacyAsked, 0, adapter.label);
     assert.equal(terminals.length, 1, adapter.label);
     assert.equal(terminals[0]!.includes("--add-dir"), false, adapter.label);
     assert.equal(terminals[0]!.includes("home dir/.bugpilot/repositories/repo-0123456789abcdef/work/JR-1/task.md"), true, adapter.label);

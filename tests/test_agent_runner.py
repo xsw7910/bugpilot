@@ -399,3 +399,292 @@ def test_a_linked_work_folder_is_never_granted(tmp_path, monkeypatch):
     assert result.ran is False
     assert result.skipped_reason
     assert calls == []
+
+
+# --- a batch-file shim goes through cmd.exe: the plain-prompt gate (S-1, T-S12, US-D12) --------------------
+
+_CMD = r"C:\Windows\System32\cmd.exe"
+
+#: What a folder name may hold on Windows and cmd.exe acts on, then what is outside the gate's set besides.
+#: (`"`, `<`, `>` and `|` cannot be in a Windows folder name: they are checked on the words directly below.)
+CMD_CHARACTERS = ["&", "%", "^", "!", "(", ")", "'", "é", "+", "@", "~"]
+
+
+def _through_a_batch_shim(monkeypatch, shim: str = r"C:\npm\claude.cmd"):
+    """The agent found as an npm batch file, which cmd.exe runs; every agent start recorded, never run.
+
+    Only the launcher's own view changes (`_is_batch_shim`, `find_executable`): the platform stays the
+    real one for everything else a run does, and every other process (git) runs for real.
+    """
+    import subprocess
+
+    monkeypatch.setattr(
+        "bugpilot.core.agent_runner._is_batch_shim", lambda resolved: resolved.lower().endswith((".cmd", ".bat"))
+    )
+    monkeypatch.setenv("ComSpec", _CMD)
+    found = {"claude": shim, "copilot": shim.replace("claude", "copilot"), _CMD: _CMD}
+    monkeypatch.setattr("bugpilot.core.agent_runner.find_executable", lambda command: found.get(command))
+    calls = []
+    real_run = subprocess.run
+
+    def fake_run(cmd, *args, **kwargs):
+        if cmd and cmd[0] == _CMD:
+            calls.append(cmd)
+            return _Done()
+        return real_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr("bugpilot.core.agent_runner.subprocess.run", fake_run)
+    return calls
+
+
+def _data_folder_with(tmp_path: Path, monkeypatch, character: str) -> Path:
+    """A repository whose work item is prepared under a data folder whose name holds ``character``."""
+    monkeypatch.setenv("BUGPILOT_HOME", str(tmp_path / f"data{character}folder"))
+    root = tmp_path / "repo"
+    root.mkdir()
+    _prepared(root)
+    return root
+
+
+@pytest.mark.parametrize("character", CMD_CHARACTERS)
+def test_a_batch_shim_is_not_started_when_the_data_folder_path_holds_what_cmd_would_act_on(
+    tmp_path, monkeypatch, character
+):
+    root = _data_folder_with(tmp_path, monkeypatch, character)
+    calls = _through_a_batch_shim(monkeypatch)
+
+    result = run_agent(root, "JR-12345", "claude")
+
+    assert result.ran is False and calls == [], "refused before anything starts"
+    assert "claude.cmd is a batch file, which Windows runs through cmd.exe" in (result.skipped_reason or "")
+    assert "BUGPILOT_HOME" in (result.skipped_reason or "")
+
+
+@pytest.mark.parametrize("character", CMD_CHARACTERS)
+def test_a_native_program_still_gets_the_folder_and_the_prompt_as_they_are(tmp_path, monkeypatch, character):
+    """No shell reads a native program's argument vector: the same path launches, every word unchanged."""
+    root = _data_folder_with(tmp_path, monkeypatch, character)
+    calls = _fake_run(monkeypatch)
+
+    assert run_agent(root, "JR-12345", "claude").ran is True
+    (cmd,) = calls
+    assert cmd[-2:] == [_grant(root), _handoff(root)]
+    assert character in cmd[-1] and character in cmd[-2]
+
+
+def test_a_batch_shim_with_a_plain_path_is_started_as_before(tmp_path, monkeypatch):
+    _prepared(tmp_path)
+    calls = _through_a_batch_shim(monkeypatch)
+
+    assert run_agent(tmp_path, "JR-12345", "claude").ran is True
+    (cmd,) = calls
+    assert cmd[:3] == [_CMD, "/c", r"C:\npm\claude.cmd"]
+    assert cmd[3:] == ["--permission-mode", "acceptEdits", _grant(tmp_path), _handoff(tmp_path)]
+
+
+def test_copilot_through_a_batch_shim_is_held_to_the_same_rule(tmp_path, monkeypatch):
+    root = _data_folder_with(tmp_path, monkeypatch, "&")
+    calls = _through_a_batch_shim(monkeypatch)
+
+    result = run_agent(root, "JR-12345", "copilot")
+
+    assert result.ran is False and calls == []
+    assert "copilot.cmd is a batch file" in (result.skipped_reason or "")
+
+
+PLAIN_PROMPT = (
+    "Read C:/Users/you two/.bugpilot/repositories/repo-0123456789abcdef/work/JR-12345/task.md and complete the workflow."
+)
+
+
+@pytest.mark.parametrize(
+    ("words", "refused"),
+    [
+        pytest.param(["--permission-mode", "acceptEdits", PLAIN_PROMPT], False, id="plain"),
+        pytest.param(["--add-dir=C:/Users/you two/x", PLAIN_PROMPT], False, id="grant-with-a-space"),
+        pytest.param([PLAIN_PROMPT.replace("you two", 'you"two')], True, id="quote"),
+        pytest.param([PLAIN_PROMPT.replace("you two", "you<two>")], True, id="redirect"),
+        pytest.param([PLAIN_PROMPT.replace("you two", "you|two")], True, id="pipe"),
+        pytest.param([PLAIN_PROMPT.replace("you two", "you\ntwo")], True, id="line-break"),
+        pytest.param([PLAIN_PROMPT.replace("you two", "you\ttwo")], True, id="tab"),
+        pytest.param([PLAIN_PROMPT.replace("you two", "you\u00a0two")], True, id="no-break-space"),
+        pytest.param([PLAIN_PROMPT.replace("you two", "you\u2028two")], True, id="line-separator"),
+        pytest.param([" " + PLAIN_PROMPT], True, id="leading-space"),
+        pytest.param(["--permission-mode", "acceptEdits", "--add-dir=C:/x"], True, id="prompt-like-an-option"),
+        pytest.param(["--append-system-prompt", "a&b", PLAIN_PROMPT], True, id="configured-argument"),
+        pytest.param(["--add-dir=C:/path/to/x%PATH%y", PLAIN_PROMPT], True, id="variable-in-the-grant"),
+    ],
+)
+def test_the_cmd_gate_checks_every_word_as_it_stands(monkeypatch, words, refused):
+    monkeypatch.setattr("bugpilot.core.agent_runner.sys.platform", "win32")  # only for this pure check
+    from bugpilot.core.agent_runner import _cmd_exe_problem
+
+    command = ["claude", *words]
+    launch = [_CMD, "/c", r"C:\npm\claude.cmd", *words]
+    assert (_cmd_exe_problem(launch, command) is not None) is refused
+    # A native program's vector is never read by a shell: not checked.
+    assert _cmd_exe_problem([r"C:\bin\claude.exe", *words], command) is None
+
+
+def test_the_shims_own_path_is_checked_too(monkeypatch):
+    monkeypatch.setattr("bugpilot.core.agent_runner.sys.platform", "win32")
+    from bugpilot.core.agent_runner import _cmd_exe_problem
+
+    words = ["--permission-mode", "acceptEdits", PLAIN_PROMPT]
+    assert _cmd_exe_problem([_CMD, "/c", r"C:\path\to\A&B\npm\claude.cmd", *words], ["claude", *words]) is not None
+    assert _cmd_exe_problem([_CMD, "/c", r"C:\path\to\you two\npm\claude.cmd", *words], ["claude", *words]) is None
+
+
+def test_the_cli_falls_back_to_the_manual_handoff_when_the_shim_is_refused(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("BUGPILOT_HOME", str(tmp_path / "data&folder"))
+    root = tmp_path / "repo"
+    root.mkdir()
+    monkeypatch.chdir(root)
+    calls = _through_a_batch_shim(monkeypatch)
+
+    assert main(["bug", "JR-12345", "--allow-mock", "--launch-agent", "claude"]) == 1
+    err = capsys.readouterr().err
+    assert calls == []
+    assert "could not launch claude: claude.cmd is a batch file" in err
+    assert "Open claude manually" in err and _handoff(root) in err
+
+
+# --- the work folder is given only when it is private (S-2) ----------------------------------------------
+
+
+def _verdicts(monkeypatch, answer):
+    """``verify_private`` as storage calls it, answering ``answer(path)``; every question recorded."""
+    from bugpilot.core import private_folder, storage
+
+    asked = []
+
+    def verify(path, role):
+        asked.append((Path(path), role))
+        state, reasons = answer(Path(path))
+        return private_folder.PrivacyVerdict(state, reasons)
+
+    monkeypatch.setattr(storage.private_folder, "verify_private", verify)
+    return asked
+
+
+def _chain(root: Path, key: str = "JR-12345") -> list[Path]:
+    """The data folder, then every folder below it down to the work item's own."""
+    from bugpilot.core import storage
+
+    folder = issue_dir(root, key)
+    data = storage.data_root()
+    below = folder.relative_to(data).parts
+    return [data, *(data.joinpath(*below[:depth]) for depth in range(1, len(below) + 1))]
+
+
+def test_every_folder_from_the_data_folder_down_to_the_work_folder_is_checked_before_the_grant(tmp_path, monkeypatch):
+    _prepared(tmp_path)
+    asked = _verdicts(monkeypatch, lambda path: ("private", ()))
+
+    command = build_agent_command("claude", "JR-12345", load_config(tmp_path))
+
+    assert _grant(tmp_path) in command
+    assert asked == [(place, "data-root") for place in _chain(tmp_path)]
+    assert len(asked) == 5, "the data folder, repositories, the repository's folder, work, work/JR-12345"
+
+
+@pytest.mark.parametrize("level", [0, 2, 4], ids=["data-folder", "repository-folder", "work-item-folder"])
+def test_a_folder_another_account_can_write_to_is_never_granted(tmp_path, monkeypatch, level):
+    _prepared(tmp_path)
+    exposed = _chain(tmp_path)[level]
+    asked = _verdicts(
+        monkeypatch,
+        lambda path: ("not-private", ("Users may write to it",)) if path == exposed else ("private", ()),
+    )
+    calls = _fake_run(monkeypatch)
+
+    result = run_agent(tmp_path, "JR-12345", "claude")
+
+    assert result.ran is False and calls == []
+    assert "will not give an agent this work item's folder" in (result.skipped_reason or "")
+    assert "is not private (Users may write to it)" in (result.skipped_reason or "")
+    assert "set BUGPILOT_HOME to a private folder" in (result.skipped_reason or "")
+    assert asked[-1][0] == exposed, "it stops at the first folder that is not private"
+
+
+def test_a_privacy_that_cannot_be_proven_is_refused_too(tmp_path, monkeypatch):
+    _prepared(tmp_path)
+    _verdicts(monkeypatch, lambda path: ("unverifiable", ("the volume keeps no access lists",)))
+    calls = _fake_run(monkeypatch)
+
+    result = run_agent(tmp_path, "JR-12345", "claude")
+
+    assert result.ran is False and calls == []
+    assert "cannot confirm that" in (result.skipped_reason or "")
+    assert "does not give an agent this work item's folder" in (result.skipped_reason or "")
+
+
+def test_the_privacy_check_and_its_refusal_change_nothing_on_disk(tmp_path, monkeypatch):
+    """Reads only: the check, doctor's report and a refused launch leave the data folder and the repository as they were."""
+    from bugpilot.core import storage
+    from bugpilot.core.doctor import storage_report
+
+    _prepared(tmp_path)
+    data = storage.data_root()
+
+    def snapshot() -> list[tuple[str, int]]:
+        return sorted((p.relative_to(base).as_posix(), p.stat().st_mode) for base in (data, tmp_path) for p in base.rglob("*")
+                      if base != tmp_path or data not in p.parents and p != data)
+
+    before = snapshot()
+    assert _grant(tmp_path) in build_agent_command("claude", "JR-12345", load_config(tmp_path))
+    assert storage_report(tmp_path)["privacy"] == "private"
+    _verdicts(monkeypatch, lambda path: ("not-private", ("Users may write to it",)))
+    calls = _fake_run(monkeypatch)
+    assert run_agent(tmp_path, "JR-12345", "claude").ran is False and calls == []
+    assert storage_report(tmp_path)["privacy"] == "not-private"
+    assert snapshot() == before
+
+
+def test_copilot_is_given_no_folder_and_so_needs_no_check(tmp_path, monkeypatch):
+    _prepared(tmp_path)
+    asked = _verdicts(monkeypatch, lambda path: ("not-private", ("Users may write to it",)))
+
+    assert build_agent_command("copilot", "JR-12345", load_config(tmp_path))[-1] == _handoff(tmp_path)
+    assert asked == []
+
+
+def _open_to_others(folder: Path) -> None:
+    """Let every account write to ``folder``: POSIX bits, or a Windows grant to Everyone (that folder only)."""
+    if os.name == "nt":
+        import subprocess
+
+        subprocess.run(["icacls", str(folder), "/grant", "*S-1-1-0:(W)"], check=True, capture_output=True)
+    else:
+        folder.chmod(0o777)
+
+
+def test_a_real_work_folder_others_can_write_to_is_refused_and_a_private_one_granted(tmp_path, monkeypatch):
+    """No stand-in: the real check on a real folder (Windows access list, or POSIX bits)."""
+    folder = _prepared(tmp_path)
+    assert _grant(tmp_path) in build_agent_command("claude", "JR-12345", load_config(tmp_path))
+
+    _open_to_others(folder)
+    calls = _fake_run(monkeypatch)
+    result = run_agent(tmp_path, "JR-12345", "claude")
+
+    assert result.ran is False and calls == []
+    assert "is not private" in (result.skipped_reason or "")
+
+
+def test_doctor_reports_whether_the_work_folders_are_private(tmp_path, monkeypatch):
+    from bugpilot.core.doctor import storage_report
+
+    assert storage_report(tmp_path)["privacy"] == "unverifiable", "nothing is there yet to judge"
+    _prepared(tmp_path)
+    report = storage_report(tmp_path)
+    assert (report["privacy"], report["privacy_problem"]) == ("private", None)
+
+    repository = _chain(tmp_path)[2]
+    _verdicts(
+        monkeypatch,
+        lambda path: ("not-private", ("Users may write to it",)) if path == repository else ("private", ()),
+    )
+    report = storage_report(tmp_path)
+    assert report["privacy"] == "not-private"
+    assert "is not private (Users may write to it)" in (report["privacy_problem"] or "")

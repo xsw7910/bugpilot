@@ -7,7 +7,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from .executables import child_environment, find_executable
+from .executables import child_environment, find_executable, find_program, not_found_sentence
 from .identity import is_local_work_item_id
 
 
@@ -16,15 +16,24 @@ def command_available(command: str) -> bool:
     return find_executable(command) is not None
 
 
+def program_available(name: str) -> bool:
+    """Whether ``name`` resolves to a native program on PATH: how ``git`` and ``rg`` are looked for (S-8)."""
+    return find_program(name) is not None
+
+
 #: What :func:`run_command` returns for a command that outlived its ``timeout``.
 TIMEOUT_EXIT_CODE = 124
 
 
 def run_command(args: list[str], cwd: Path, timeout: float | None = None) -> tuple[int, str]:
-    """Run a program by its absolute PATH location, never one found in ``cwd``."""
-    program = find_executable(args[0]) if args else None
+    """Run a program by its absolute PATH location, never one found in ``cwd``, and never a batch file.
+
+    ``git`` is handed text from an issue (``--grep`` patterns, file names), and a
+    batch file would put it through ``cmd.exe`` (S-8): :func:`find_program`.
+    """
+    program = find_program(args[0]) if args else None
     if program is None:
-        return 127, f"{args[0] if args else 'program'} command not found"
+        return 127, not_found_sentence(args[0]) if args else "program command not found"
     try:
         completed = subprocess.run(
             [program, *args[1:]],

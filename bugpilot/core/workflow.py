@@ -23,10 +23,12 @@ from .config import (
     readable_data_dir,
     shown_memory,
     shown_work,
+    writable_attachments_dir,
     writable_issue_dir,
     writable_memory_file,
 )
 from .safe_paths import (
+    DATA_FOLDER_BOUNDARY,
     decode_text,
     generated_file_exists,
     generated_file_names,
@@ -270,7 +272,12 @@ def refine_investigation(
     # Refining takes the same options as a first run, so it takes attachments
     # too. Accepting them and copying nothing would be the quietest kind of
     # bug: the caller passed files and the agent never hears of them.
-    copied = copy_attachments(target, options.attachments, options.attachment_descriptions)
+    copied = copy_attachments(
+        target,
+        options.attachments,
+        options.attachment_descriptions,
+        folder=lambda: writable_attachments_dir(repo_root, work_item_id),
+    )
     attachment_warnings = [
         f"Attachment not added ({reason}): {source}" for source, reason in copied.skipped
     ]
@@ -456,7 +463,10 @@ def run_investigation(
     # listed: telling an agent to read something that is not there is worse
     # than not offering it at all.
     attachment_result = copy_attachments(
-        target, request.options.attachments, request.options.attachment_descriptions
+        target,
+        request.options.attachments,
+        request.options.attachment_descriptions,
+        folder=lambda: writable_attachments_dir(repo_root, issue_key),
     )
     # Which files the work item now has and what each is for, recorded with the
     # hint in issue.json. With --replace-attachments the selection is the whole
@@ -1699,7 +1709,9 @@ def notify_step(
         log(target, f"[GENERATED] work/{issue_key}/email_draft.md")
 
         eml_path = target / "notification.eml"
-        refuse_link(eml_path).write_bytes(render_eml(draft, email_config.sender, email_config.recipients))
+        refuse_link(eml_path, boundary=DATA_FOLDER_BOUNDARY).write_bytes(
+            render_eml(draft, email_config.sender, email_config.recipients)
+        )
         log(target, f"[GENERATED] work/{issue_key}/notification.eml")
 
         if not execute:

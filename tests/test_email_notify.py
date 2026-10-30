@@ -372,6 +372,27 @@ def test_notify_eml_written_even_without_any_transport(tmp_path, monkeypatch):
     assert (config_issue_dir(tmp_path, "JR-12345") / "notification.eml").is_file()
 
 
+def test_a_linked_notification_eml_is_refused_in_the_data_folders_words(tmp_path, monkeypatch, capsys):
+    """ST-2: the draft is written in the work item's folder in BugPilot's data folder, and the refusal says so."""
+    import os
+
+    _seed_result_artifacts(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    canary = tmp_path / "outside.txt"
+    canary.write_text("not BugPilot's", encoding="utf-8")
+    eml = config_issue_dir(tmp_path, "JR-12345") / "notification.eml"
+    try:
+        os.symlink(canary, eml)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"cannot create a symbolic link here: {exc}")
+
+    assert main(["notify", "JR-12345"]) == 1
+    err = capsys.readouterr().err
+    assert "notification.eml is a symbolic link or junction" in err
+    assert "inside BugPilot's data folder" in err and "this repository" not in err
+    assert canary.read_text(encoding="utf-8") == "not BugPilot's"
+
+
 def test_graph_transport_sends_over_https(tmp_path, monkeypatch, capsys):
     _set_graph_env(monkeypatch)
     calls = _install_fake_graph(monkeypatch)

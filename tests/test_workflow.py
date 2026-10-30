@@ -584,7 +584,7 @@ def test_rg_subprocess_uses_utf8_replace_and_include_globs(tmp_path, monkeypatch
         calls.append((args, kwargs))
         return CompletedProcess(args, 0, stdout="employee_search.py:1:EmployeeSearch cache\n", stderr="")
 
-    monkeypatch.setattr("bugpilot.core.search.command_available", lambda command: command == "rg")
+    monkeypatch.setattr("bugpilot.core.search.program_available", lambda command: command == "rg")
     monkeypatch.setattr("bugpilot.core.search.subprocess.run", fake_run)
 
     retrieval = run_code_search(

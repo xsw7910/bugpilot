@@ -29,7 +29,7 @@
  * is used or refused, never swapped for another agent (`AgentService.resolve`).
  */
 
-import { promptPath } from "./dataFolder.ts";
+import { promptPath, type WorkFolderPrivacy } from "./dataFolder.ts";
 import { resumeCommand } from "./session.ts";
 
 export type AgentId = "codex-cli" | "claude-cli" | "codex-extension" | "claude-extension" | "custom";
@@ -122,6 +122,12 @@ export interface AiFixRequest {
    * is given needs this one (`CliAgentDefinition.workFolderFlag`). Review with AI writes nothing.
    */
   readonly workFolder?: string;
+  /**
+   * Asked just before `workFolder` is given to an agent (0.1.7, S-2): whether BugPilot's data folder is private
+   * to this user, in the CLI's words. Without it, or with any answer but yes, the folder is not given and the
+   * launch is refused: fail closed.
+   */
+  readonly workFolderPrivacy?: () => Promise<WorkFolderPrivacy>;
   /** What is being handed over, for the words a bridge uses. */
   readonly purpose: "fix" | "review";
   /**
@@ -151,7 +157,14 @@ export type AiFixResult =
    * continues this conversation once the agent has exited, when the agent was
    * started under a session id it can be resumed by.
    */
-  | { readonly kind: "terminal"; readonly label: string; readonly commandLine: string; readonly resumeCommandLine?: string }
+  | {
+      readonly kind: "terminal";
+      readonly label: string;
+      readonly commandLine: string;
+      readonly resumeCommandLine?: string;
+      /** Both command lines give the agent the work item's folder, so starting either again asks again (S-2). */
+      readonly grantsWorkFolder?: boolean;
+    }
   /** Handed to an extension through a command that takes the prompt. */
   | { readonly kind: "native"; readonly label: string; readonly message: string }
   /**
@@ -320,7 +333,20 @@ async function workFolderGrant(
   const folder = promptPath(request.workFolder);
   if (!PLAIN_FOLDER.test(folder)) return { refused: REFUSED_FOLDER };
   const supported = await (probes.supportsFlags?.(definition.command, [flag]) ?? Promise.resolve(false)).catch(() => false);
-  return supported === true ? { word: `${flag}=${quote(folder)}` } : {};
+  if (supported !== true) return {};
+  // Given only when no other account can change what is in it (S-2): the CLI's answer, asked now.
+  const privacy: WorkFolderPrivacy = request.workFolderPrivacy
+    ? await request.workFolderPrivacy().catch((): WorkFolderPrivacy => ({ private: false, problem: PRIVACY_UNKNOWN }))
+    : { private: false, problem: PRIVACY_UNKNOWN };
+  if (!privacy.private) return { refused: refusedPrivateFolder(definition.label, privacy.problem) };
+  return { word: `${flag}=${quote(folder)}` };
+}
+
+const PRIVACY_UNKNOWN = "BugPilot could not confirm that its data folder is private to you.";
+
+/** Why an agent was not started with the work item's folder: not proven private (S-2), in the CLI's words. */
+export function refusedPrivateFolder(label: string, problem: string): string {
+  return `${problem} BugPilot did not start ${label} with the work item's folder; use Copy Handoff Prompt to hand the task over yourself.`;
 }
 
 // --- CLI agents ------------------------------------------------------------------
@@ -428,6 +454,7 @@ export function cliAgent(definition: CliAgentDefinition, probes: AgentProbes): A
         commandLine,
         // Resumed with the same folder: whether a resumed session keeps it is the CLI's business.
         ...(sessionId === undefined ? {} : { resumeCommandLine: `${session!.resume(sessionId)}${granted}` }),
+        ...(grant.word === undefined ? {} : { grantsWorkFolder: true }),
       };
     },
   };

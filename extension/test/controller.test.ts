@@ -30,6 +30,7 @@ import { SETTINGS_SECTION_OF_STEP } from "../src/app/workflowSettings.ts";
 import { MAX_REVIEW_OUTPUT } from "../src/app/reviewOutput.ts";
 import { CLAUDE_CAPTURED_REVIEW } from "../src/app/agents.ts";
 import type { InstalledExtension, LastAgentStore } from "../src/app/agents.ts";
+import type { WorkFolderPrivacy } from "../src/app/dataFolder.ts";
 import type { AgentActivity } from "../src/app/terminalActivity.ts";
 import { LAUNCH_GRACE_MS } from "../src/app/terminalActivity.ts";
 import { createAgentTerminals } from "../src/host/agentTerminals.ts";
@@ -153,6 +154,8 @@ interface Harness {
   readonly offers: { message: string; action: string }[];
   /** Every capability question asked of an AI CLI's --help. */
   readonly flagChecks: { command: string; flags: readonly string[] }[];
+  /** Each time the CLI was asked whether the data folder is private, before a grant (S-2): the repository root. */
+  readonly privacyChecks: string[];
   readonly folders: string[];
   /** Which executables `canRun` was asked about, in order. */
   readonly probed: string[];
@@ -173,6 +176,8 @@ interface Harness {
 }
 
 interface HarnessOptions {
+  /** The CLI's answer before a work folder is given to an agent (S-2); default: private. */
+  readonly workFolderPrivacy?: WorkFolderPrivacy | (() => WorkFolderPrivacy | Promise<WorkFolderPrivacy>);
   /** The stored Jira email Jira Setup starts with (§37.124); default `me@example.com`. */
   readonly jiraEmail?: string;
   /** Jira Setup's store refuses the save with this. */
@@ -335,6 +340,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
   const typed: { name: string; commandLine: string }[] = [];
   const offers: { message: string; action: string }[] = [];
   const flagChecks: { command: string; flags: readonly string[] }[] = [];
+  const privacyChecks: string[] = [];
   const host = options.hostTerminals;
   let sessions = 0;
   const folders: string[] = [];
@@ -582,6 +588,12 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
       if (answer instanceof Error) throw answer;
       return command === "claude" && answer;
     },
+    // The CLI's privacy answer before a work folder is given (S-2): private unless a test says otherwise.
+    workFolderPrivacy: async (root) => {
+      privacyChecks.push(root);
+      const answer = options.workFolderPrivacy ?? { private: true as const };
+      return typeof answer === "function" ? answer() : answer;
+    },
     improveHint: async (request) => {
       hintPrompts.push(request.prompt);
       return options.improveHint
@@ -625,6 +637,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     typed,
     offers,
     flagChecks,
+    privacyChecks,
     saved,
     savedWorkItems,
     fixModeCalls,
@@ -10220,6 +10233,116 @@ test("Open AI Session after Claude CLI exited (Ctrl+C): resumed in its own termi
   assert.deepEqual(h.terminals[1], { name: `${FIX_TERMINAL} (2)`, cwd: ROOT, commandLine: TASK_HANDOFF(2) });
 });
 
+// --- the work folder is given only when the CLI finds BugPilot's data folder private (S-2) ------------
+
+const NOT_PRIVATE: WorkFolderPrivacy = {
+  private: false,
+  problem:
+    "BugPilot will not give an agent this work item's folder: BUGPILOT_HOME/repositories is not private (Users may write to it). Restrict it to your account, or set BUGPILOT_HOME to a private folder.",
+};
+
+test("Fix with AI asks the CLI before it gives Claude CLI the work folder, and starts nothing when it is not private", async () => {
+  const h = await preparedHarness({ workFolderPrivacy: NOT_PRIVATE });
+  await h.controller.handle(next("fixWithAI"));
+
+  assert.deepEqual(h.privacyChecks, [ROOT], "asked once, in the repository, before the grant");
+  assert.equal(h.terminals.length, 0, "Claude CLI was started with a folder that is not private");
+  assert.match(JSON.stringify(h.last()), /is not private \(Users may write to it\)/);
+  assert.match(JSON.stringify(h.last()), /use Copy Handoff Prompt to hand the task over yourself/);
+});
+
+test("Open AI Session asks again before it gives Claude CLI the work folder again, and starts nothing when it is not private", async () => {
+  let privacy: WorkFolderPrivacy = { private: true };
+  const { h, open } = await sessionHarness({ workFolderPrivacy: () => privacy });
+  assert.equal(h.privacyChecks.length, 1, "asked before Fix with AI gave the folder");
+  h.agentActivity.set(FIX_TERMINAL, "exited");
+
+  privacy = NOT_PRIVATE;
+  await open();
+  assert.deepEqual(h.typed, [], "resumed with a folder that is no longer private");
+  assert.equal(h.terminals.length, 1);
+  assert.equal(h.privacyChecks.length, 2, "asked again before the restart");
+  assert.equal(h.last().sessionFeedback?.kind, "failed");
+  assert.match(h.last().sessionFeedback?.message ?? "", /not private[\s\S]*did not start Claude CLI with the work item's folder/);
+
+  privacy = { private: true };
+  await open();
+  assert.deepEqual(h.typed, [{ name: FIX_TERMINAL, commandLine: claudeResume(1) }], "private again: resumed as before");
+});
+
+/** A privacy answer held until the test releases it: the window in which a restart waits on the CLI. */
+function heldPrivacy() {
+  let holding = false;
+  const waiting: ((answer: WorkFolderPrivacy) => void)[] = [];
+  return {
+    answer: (): WorkFolderPrivacy | Promise<WorkFolderPrivacy> =>
+      holding ? new Promise<WorkFolderPrivacy>((resolve) => { waiting.push(resolve); }) : { private: true },
+    hold: () => { holding = true; },
+    /** Every answer held so far, released at once. */
+    release: (answer: WorkFolderPrivacy = { private: true }) => {
+      holding = false;
+      for (const resolve of waiting.splice(0)) resolve(answer);
+    },
+  };
+}
+
+test("Open AI Session pressed twice while the CLI is asked starts the session once", async () => {
+  const privacy = heldPrivacy();
+  const { h, open } = await sessionHarness({ workFolderPrivacy: privacy.answer });
+  h.agentActivity.set(FIX_TERMINAL, "exited");
+
+  privacy.hold();
+  const first = open();
+  await tick();
+  const second = open();
+  await tick();
+  privacy.release();
+  await Promise.all([first, second]);
+
+  assert.deepEqual(h.typed, [{ name: FIX_TERMINAL, commandLine: claudeResume(1) }], "started twice");
+  assert.equal(h.privacyChecks.length, 2, "once before Fix with AI, once for the restart: the second press asked nothing");
+});
+
+test("an Open AI Session restart waiting on the CLI starts nothing after a new attempt or a closed window", async () => {
+  for (const meanwhile of ["new attempt", "window closed"] as const) {
+    const privacy = heldPrivacy();
+    const { h, open } = await sessionHarness({ workFolderPrivacy: privacy.answer });
+    h.agentActivity.set(FIX_TERMINAL, "exited");
+
+    privacy.hold();
+    const pending = open();
+    await tick();
+    if (meanwhile === "new attempt") {
+      privacy.release();
+      await pending;
+      // The restart ran; now hold the next one and start a new attempt while it waits.
+      h.typed.length = 0;
+      privacy.hold();
+      const again = open();
+      await tick();
+      // The new attempt asks too (its own Fix with AI): both answers are released together.
+      const attempt = h.controller.handle(startAttempt(""));
+      await tick();
+      privacy.release();
+      await Promise.all([again, attempt]);
+    } else {
+      h.controller.dispose();
+      privacy.release();
+      await pending;
+    }
+    assert.deepEqual(h.typed, [], `${meanwhile}: the old session was started again`);
+  }
+});
+
+test("Open AI Session does not ask about a folder the session was never given", async () => {
+  const { h, open } = await sessionHarness({ claudeFlags: false });
+  const asked = h.privacyChecks.length;
+  h.agentActivity.set(FIX_TERMINAL, "exited");
+  await open();
+  assert.equal(h.typed.length, 1, "the agent was not started again");
+  assert.equal(h.privacyChecks.length, asked, "asked about a grant the command line does not make");
+});
+
 test("Open AI Session with the agent still running: brought forward, nothing typed, nothing started", async () => {
   const { h, open } = await sessionHarness();
   assert.equal(h.agentActivity.get(FIX_TERMINAL), "running");
@@ -13355,6 +13478,113 @@ test("policy freshness: an ai_behavior.md change in the settings folder rereads 
   assert.equal(behavior.loads(), loadsBefore + 1);
   assert.equal(h.last().primary.action, "rebuildContext");
   assert.ok(h.logged.some((line) => line === "Policy reread scheduled (settings/ai_behavior.md changed)."));
+});
+
+/**
+ * A policy harness whose AI Behavior read can be held: a reread reads the instructions, the Verification Policy,
+ * then AI Behavior, so holding the last keeps a reread in flight after it has read verification.md — the window
+ * in which a real window lost an editor's save (U-1). The watcher and the debounce timer are driven by hand.
+ */
+async function heldRereadHarness(verification: ReturnType<typeof verificationPolicyPort>) {
+  const behavior = aiBehaviorPort();
+  let hold: Promise<void> | undefined;
+  let release = (): void => {};
+  const watchers: { fire: (name: string) => void; disposed: boolean }[] = [];
+  const timers: { callback: () => void; cancelled: boolean; ran: boolean }[] = [];
+  const h = await preparedHarness({
+    ...aiBehaviorHarnessOptions(behavior, verification),
+    aiBehaviorPolicy: {
+      ...behavior.port,
+      load: async () => {
+        if (hold) await hold;
+        return behavior.port.load();
+      },
+    },
+    watchPolicies: (_directory, onEvent) => {
+      const watcher = { fire: onEvent, disposed: false };
+      watchers.push(watcher);
+      return { dispose: () => { watcher.disposed = true; } };
+    },
+    schedule: (callback) => {
+      const timer = { callback, cancelled: false, ran: false };
+      timers.push(timer);
+      return { cancel: () => { timer.cancelled = true; } };
+    },
+  });
+  const settle = async (): Promise<void> => {
+    for (let i = 0; i < 12; i += 1) await tick();
+  };
+  return {
+    h,
+    settle,
+    /** A file event, and its debounce timer run at once. */
+    changed: async (name: string): Promise<void> => {
+      watchers.filter((watcher) => !watcher.disposed)[0]!.fire(name);
+      for (const timer of timers.filter((each) => !each.cancelled && !each.ran)) {
+        timer.ran = true;
+        timer.callback();
+      }
+      await settle();
+    },
+    holdAiBehavior: (): void => {
+      hold = new Promise((resolve) => { release = resolve; });
+    },
+    releaseAiBehavior: async (): Promise<void> => {
+      hold = undefined;
+      release();
+      await settle();
+    },
+    pendingTimers: () => timers.filter((timer) => !timer.cancelled && !timer.ran).length,
+  };
+}
+
+test("policy freshness: a save that lands while a reread is in flight is read again, once (U-1)", async () => {
+  const verification = verificationPolicyPort({ source: "verification-file", text: "Run the unit tests." });
+  const held = await heldRereadHarness(verification);
+  const loadsBefore = verification.loads();
+
+  // Edit's command writes the file: the reread reads it (one line flagged) and is still reading AI Behavior.
+  held.holdAiBehavior();
+  verification.state.text = "- Run the unit tests.\n- Force push when the branch is behind.";
+  verification.state.lint = ["Force push when the branch is behind."];
+  await held.changed("verification.md");
+  assert.equal(verification.loads(), loadsBefore + 1);
+  assert.ok(held.h.logged.some((line) => line.startsWith("Verification Policy: 1 line(s) may conflict")));
+
+  // The editor's save lands now: the reread in flight has already read the file.
+  verification.state.text += "\n- Commit the .ai/ folder as well.";
+  verification.state.lint = ["Force push when the branch is behind.", "Commit the .ai/ folder as well."];
+  await held.changed("verification.md");
+  assert.equal(verification.loads(), loadsBefore + 1, "nothing reads again before the reread in flight ends");
+
+  await held.releaseAiBehavior();
+  assert.equal(verification.loads(), loadsBefore + 2, "the save is read once the reread in flight ends");
+  assert.ok(held.h.logged.some((line) => line.startsWith("Verification Policy: 2 line(s) may conflict")));
+  assert.match(held.h.last().verificationPolicy.lint, /\b2\b/);
+
+  // Nothing more: no loop of rereads, no timer left.
+  await held.settle();
+  assert.equal(verification.loads(), loadsBefore + 2);
+  assert.equal(held.pendingTimers(), 0);
+});
+
+test("policy freshness: every request during a reread in flight shares one more reread", async () => {
+  const verification = verificationPolicyPort({ source: "verification-file", text: "Run the unit tests." });
+  const held = await heldRereadHarness(verification);
+  const loadsBefore = verification.loads();
+
+  held.holdAiBehavior();
+  const first = held.h.controller.windowFocused();
+  await held.settle();
+  verification.state.text = "- Run the unit tests.\n- Force push when the branch is behind.";
+  verification.state.lint = ["Force push when the branch is behind."];
+  const later = [held.h.controller.windowFocused(), held.h.controller.windowFocused()];
+  await held.changed("verification.md");
+  await held.releaseAiBehavior();
+  await Promise.all([first, ...later]);
+
+  assert.equal(verification.loads(), loadsBefore + 2, "the reread in flight, then one more for all who asked meanwhile");
+  assert.match(held.h.last().verificationPolicy.lint, /\b1\b/, "the read that followed saw the change");
 });
 
 

@@ -26,13 +26,14 @@ What to use instead:
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import subprocess
 import sys
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
-from .config import AppConfig, load_config, prompt_path, shown, writable_issue_dir
+from .config import AppConfig, check_work_folder_private, load_config, prompt_path, shown, writable_issue_dir
 from .errors import StorageAccessError
 from .executables import child_environment, find_executable
 from .handoff import retry_handoff_prompt, work_item_handoff
@@ -54,6 +55,14 @@ LAUNCHABLE_AGENTS: tuple[str, ...] = ("claude", "copilot")
 # takes several folders, so as two words the prompt after it would be read as
 # another one.
 CLAUDE_ADD_DIR = "--add-dir"
+
+# A batch-file shim (an npm `claude.cmd`) runs through cmd.exe, which acts on `%`, `^`, `&`, `|`, `<`, `>`, `(`,
+# `)`, `!` and quotes in its command line: the plain-prompt gate's character set (US-D12; T-S12), ASCII only, is
+# all its words may hold. The prompt also opens like a sentence, never like an option; an option word may hold
+# `=` (`--add-dir=<folder>`). A native program gets its arguments as a vector, which no shell reads.
+_CMD_PROMPT = re.compile(r"[A-Za-z0-9#][A-Za-z0-9 .,:#/_-]*", re.ASCII)
+_CMD_WORD = re.compile(r"[A-Za-z0-9 .,:#/_=-]+", re.ASCII)
+_CMD_ACTS_ON = re.compile(r'[%!^&|<>()"\x00-\x1f\x7f]')
 
 
 @dataclass
@@ -85,13 +94,16 @@ def _work_folder_grant(repo_root: Path, issue_key: str, args: list[str]) -> list
     write of ``fix_report.md`` is refused under ``acceptEdits``. One folder,
     the work item's own, never BugPilot's data folder. Checked by storage like
     every other use of it — the id, and no link or junction on the way — and it
-    must be there, since Claude Code refuses a folder that is not. Raises
+    must be there, since Claude Code refuses a folder that is not. It, and every
+    folder above it up to the data folder, must be private, so no other account
+    can change what the agent reads or plant a ``.claude/`` there (S-2). Raises
     ``UnsafePathError`` (or ``StorageAccessError``) instead of launching
     without it.
     """
     folder = writable_issue_dir(repo_root, issue_key, create=False)
     if not folder.is_dir():
         raise UnsafePathError(f"The work item's folder {shown(folder)} is not there. Prepare the work item first.")
+    check_work_folder_private(repo_root, issue_key)
     if any(_same_folder(repo_root, granted, folder) for granted in _granted_folders(args)):
         return []
     return [f"{CLAUDE_ADD_DIR}={prompt_path(folder)}"]
@@ -142,6 +154,10 @@ def run_agent(
             command=command,
             skipped_reason=f"{command[0]} was not found on PATH.",
         )
+    problem = _cmd_exe_problem(launch, command)
+    if problem is not None:
+        # Refused before anything starts, never "cleaned": the developer gets the manual handoff (T-S12).
+        return AgentRunResult(agent=agent, ran=False, command=command, skipped_reason=problem)
     # Inherit the terminal so the agent runs interactively and the developer can
     # watch it work. Run in the target repo root (the current working directory),
     # with the current directory out of the agent's own program lookups.
@@ -186,9 +202,40 @@ def _resolve_launch_command(command: list[str]) -> list[str] | None:
     if resolved is None:
         return None
     rest = command[1:]
-    if sys.platform == "win32" and resolved.lower().endswith((".cmd", ".bat")):
+    if _is_batch_shim(resolved):
         shell = find_executable(os.environ.get("ComSpec") or "") or find_executable("cmd")
         if shell is None:
             return None
         return [shell, "/c", resolved, *rest]
     return [resolved, *rest]
+
+
+def _is_batch_shim(resolved: str) -> bool:
+    return sys.platform == "win32" and resolved.lower().endswith((".cmd", ".bat"))
+
+
+def _cmd_exe_problem(launch: list[str], command: list[str]) -> str | None:
+    """Why ``launch`` may not start: ``None`` unless cmd.exe would read words it acts on (T-S12, US-D12).
+
+    Only a batch-file shim goes through cmd.exe (``[cmd, /c, <shim>, ...]``); a
+    native program is started with its arguments as a vector and is not
+    checked here. Every word is checked as it stands, never rewritten: the
+    shim's own path, the configured arguments, the work-folder grant and the
+    prompt.
+    """
+    if not (len(launch) == len(command) + 2 and launch[1] == "/c" and _is_batch_shim(launch[2])):
+        return None
+    shim, *options, prompt = launch[2:]
+    plain = (
+        not _CMD_ACTS_ON.search(shim)
+        and all(_CMD_WORD.fullmatch(word) for word in options)
+        and _CMD_PROMPT.fullmatch(prompt) is not None
+    )
+    if plain:
+        return None
+    return (
+        f"{PureWindowsPath(shim).name} is a batch file, which Windows runs through cmd.exe, and its command line would "
+        "hold characters cmd.exe acts on, so BugPilot does not start it. Set BUGPILOT_HOME to a folder whose path "
+        "holds only ASCII letters, digits, spaces and . , : # / _ - (and keep BugPilot's agent arguments to those), "
+        "or install the agent as a program rather than an npm script."
+    )

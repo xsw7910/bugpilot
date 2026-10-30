@@ -53,6 +53,27 @@ export function repositoryDirectoryOf(report: Record<string, unknown> | undefine
   return { kind: "ok", directory };
 }
 
+/**
+ * Whether a work item's folder may be given to an agent: the CLI's own answer, `doctor --json`'s
+ * `storage.privacy` (0.1.7, S-2). Only `private` is a yes; anything else — `not-private`, `unverifiable`, a
+ * report without the field — is a no, with the CLI's sentence when it gave one.
+ */
+export type WorkFolderPrivacy = { readonly private: true } | { readonly private: false; readonly problem: string };
+
+export function workFolderPrivacyOf(report: Record<string, unknown> | undefined): WorkFolderPrivacy {
+  const storage = report?.["storage"];
+  const record = typeof storage === "object" && storage !== null && !Array.isArray(storage) ? (storage as Record<string, unknown>) : undefined;
+  if (record?.["privacy"] === "private") return { private: true };
+  const problem = record?.["privacy_problem"];
+  return {
+    private: false,
+    problem:
+      typeof problem === "string" && problem.trim() !== ""
+        ? problem.trim()
+        : "bugpilot did not say whether BugPilot's data folder is private to you.",
+  };
+}
+
 /** `<repository folder>/work/<id>`, for a validated work item id only; `undefined` for anything else. */
 export function workItemDirectory(repositoryDir: string, workItemId: string): string | undefined {
   return isWorkItemId(workItemId) ? path.join(repositoryDir, WORK_FOLDER, workItemId) : undefined;
