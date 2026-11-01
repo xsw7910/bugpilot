@@ -46,8 +46,10 @@ export interface AgentTerminals {
   revealTerminal(matches: (name: string) => boolean): boolean;
   /** What the newest open matching terminal's agent is doing; `closed` when none is open. */
   terminalActivity(matches: (name: string) => boolean): AgentActivity | "closed";
-  /** Type a command line into the newest open matching terminal and bring it forward; false when none. */
-  sendToTerminal(matches: (name: string) => boolean, commandLine: string): boolean;
+  /** The newest open matching terminal, as a token that names it and no other terminal; undefined when none. */
+  terminalToken(matches: (name: string) => boolean): number | undefined;
+  /** Type a command line into the terminal `token` names and bring it forward; false when it is no longer open. */
+  sendToTerminal(token: number, commandLine: string): boolean;
   /** Whether this VS Code reports shell executions to this extension (1.93 and later). */
   readonly tracksExecutions: boolean;
 }
@@ -69,6 +71,17 @@ export function createAgentTerminals<T extends HostTerminal>(
   // session to go back to, and one whose shell has exited is not a session.
   const newestOpen = (matches: (name: string) => boolean) =>
     [...window.terminals].reverse().find((candidate) => candidate.exitStatus === undefined && matches(candidate.name));
+  // A terminal's token: given the first time it is asked for, never given to another terminal (F-2).
+  const tokens = new WeakMap<T, number>();
+  let lastToken = 0;
+  const tokenOf = (terminal: T): number => {
+    let token = tokens.get(terminal);
+    if (token === undefined) {
+      token = ++lastToken;
+      tokens.set(terminal, token);
+    }
+    return token;
+  };
   return {
     tracksExecutions,
     runInTerminal: (name, cwd, commandLine) => {
@@ -90,8 +103,12 @@ export function createAgentTerminals<T extends HostTerminal>(
       const terminal = newestOpen(matches);
       return terminal ? activity.activity(terminal) : "closed";
     },
-    sendToTerminal: (matches, commandLine) => {
+    terminalToken: (matches) => {
       const terminal = newestOpen(matches);
+      return terminal ? tokenOf(terminal) : undefined;
+    },
+    sendToTerminal: (token, commandLine) => {
+      const terminal = window.terminals.find((candidate) => candidate.exitStatus === undefined && tokens.get(candidate) === token);
       if (!terminal) return false;
       terminal.show();
       activity.sent(terminal);

@@ -30,7 +30,8 @@ import { SETTINGS_SECTION_OF_STEP } from "../src/app/workflowSettings.ts";
 import { MAX_REVIEW_OUTPUT } from "../src/app/reviewOutput.ts";
 import { CLAUDE_CAPTURED_REVIEW } from "../src/app/agents.ts";
 import type { InstalledExtension, LastAgentStore } from "../src/app/agents.ts";
-import type { WorkFolderPrivacy } from "../src/app/dataFolder.ts";
+import type { WorkFolderGrant, WorkFolderPrivacy } from "../src/app/dataFolder.ts";
+import { WORK_ITEM_PRIVACY_UNSUPPORTED, promptPath, workItemDirectory } from "../src/app/dataFolder.ts";
 import type { AgentActivity } from "../src/app/terminalActivity.ts";
 import { LAUNCH_GRACE_MS } from "../src/app/terminalActivity.ts";
 import { createAgentTerminals } from "../src/host/agentTerminals.ts";
@@ -51,7 +52,7 @@ import type { WorkflowStepId, WorkflowStepResult } from "../src/app/workflow.ts"
 import type { UserFacingError } from "../src/app/failures.ts";
 import { DATA_FOLDER_UNKNOWN, GITIGNORE_ACTION_NAME, GITIGNORE_FAILED } from "../src/app/controller.ts";
 import { SUPPORTING_FILE_MISSING, SUPPORTING_FILE_NOT_A_FILE, SUPPORTING_FILE_UNCHECKED } from "../src/app/controller.ts";
-import { SESSION_FEEDBACK_MS } from "../src/app/controller.ts";
+import { SESSION_FEEDBACK_MS, SESSION_TERMINAL_CHANGED } from "../src/app/controller.ts";
 import { RESET_WAITS_FOR_HANDOFF } from "../src/app/controller.ts";
 import { RESET_CANCELS_REVIEW, RESET_LEAVES_AGENT, RESET_STOPS_RUN } from "../src/app/sessionReset.ts";
 import type { GitignoreDocument, GitignoreEntry, GitignoreIo } from "../src/app/gitignore.ts";
@@ -156,6 +157,10 @@ interface Harness {
   readonly flagChecks: { command: string; flags: readonly string[] }[];
   /** Each time the CLI was asked whether the data folder is private, before a grant (S-2): the repository root. */
   readonly privacyChecks: string[];
+  /** What each of those questions was about: the work item and the folder the agent would be given (F-1). */
+  readonly privacyGrants: WorkFolderGrant[];
+  /** Close every open terminal of that name and open a new one of the same name: another terminal (F-2). */
+  readonly replaceTerminal: (name: string) => void;
   readonly folders: string[];
   /** Which executables `canRun` was asked about, in order. */
   readonly probed: string[];
@@ -335,12 +340,21 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
   const ranCommands: string[] = [];
   const terminals: { name: string; cwd: string; commandLine: string }[] = [];
   const openTerminals: string[] = [];
+  // Each open terminal's token, in step with `openTerminals`, which a test closes by emptying it: re-synced
+  // before every use, so a terminal opened after that gets a new token.
+  const terminalTokens: number[] = [];
+  let lastToken = 0;
+  const syncTokens = () => {
+    if (terminalTokens.length > openTerminals.length) terminalTokens.length = openTerminals.length;
+    while (terminalTokens.length < openTerminals.length) terminalTokens.push(++lastToken);
+  };
   const revealed: string[] = [];
   const agentActivity = new Map<string, AgentActivity>();
   const typed: { name: string; commandLine: string }[] = [];
   const offers: { message: string; action: string }[] = [];
   const flagChecks: { command: string; flags: readonly string[] }[] = [];
   const privacyChecks: string[] = [];
+  const privacyGrants: WorkFolderGrant[] = [];
   const host = options.hostTerminals;
   let sessions = 0;
   const folders: string[] = [];
@@ -443,7 +457,9 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
         if (options.terminalThrows) throw options.terminalThrows;
         terminals.push({ name, cwd, commandLine });
         if (host) return host.runInTerminal(name, cwd, commandLine);
+        syncTokens();
         openTerminals.push(name);
+        terminalTokens.push(++lastToken);
         agentActivity.set(name, "running");
       },
       revealTerminal: (matches) => {
@@ -459,9 +475,18 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
         const name = [...openTerminals].reverse().find((candidate) => matches(candidate));
         return name === undefined ? "closed" : (agentActivity.get(name) ?? "unknown");
       },
-      sendToTerminal: (matches, commandLine) => {
-        if (host) return host.sendToTerminal(matches, commandLine);
-        const name = [...openTerminals].reverse().find((candidate) => matches(candidate));
+      terminalToken: (matches) => {
+        if (host) return host.terminalToken(matches);
+        syncTokens();
+        for (let index = openTerminals.length - 1; index >= 0; index -= 1) {
+          if (matches(openTerminals[index]!)) return terminalTokens[index];
+        }
+        return undefined;
+      },
+      sendToTerminal: (token, commandLine) => {
+        if (host) return host.sendToTerminal(token, commandLine);
+        syncTokens();
+        const name = openTerminals[terminalTokens.indexOf(token)];
         if (name === undefined) return false;
         if (options.terminalThrows) throw options.terminalThrows;
         typed.push({ name, commandLine });
@@ -589,8 +614,9 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
       return command === "claude" && answer;
     },
     // The CLI's privacy answer before a work folder is given (S-2): private unless a test says otherwise.
-    workFolderPrivacy: async (root) => {
+    workFolderPrivacy: async (root, grant) => {
       privacyChecks.push(root);
+      privacyGrants.push(grant);
       const answer = options.workFolderPrivacy ?? { private: true as const };
       return typeof answer === "function" ? answer() : answer;
     },
@@ -638,6 +664,18 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     offers,
     flagChecks,
     privacyChecks,
+    privacyGrants,
+    replaceTerminal: (name) => {
+      syncTokens();
+      for (let index = openTerminals.length - 1; index >= 0; index -= 1) {
+        if (openTerminals[index] === name) {
+          openTerminals.splice(index, 1);
+          terminalTokens.splice(index, 1);
+        }
+      }
+      openTerminals.push(name);
+      terminalTokens.push(++lastToken);
+    },
     saved,
     savedWorkItems,
     fixModeCalls,
@@ -976,6 +1014,7 @@ test("an unusable CLI is re-checked on Run before refusing", async () => {
       runInTerminal: () => {},
       revealTerminal: () => false,
       terminalActivity: () => "closed",
+      terminalToken: () => undefined,
       sendToTerminal: () => false,
       offer: async () => false,
       openFolder: async () => {},
@@ -1668,6 +1707,7 @@ test("overlapping environment refreshes share one probe", async () => {
       runInTerminal: () => {},
       revealTerminal: () => false,
       terminalActivity: () => "closed",
+      terminalToken: () => undefined,
       sendToTerminal: () => false,
       offer: async () => false,
       openFolder: async () => {},
@@ -10251,6 +10291,13 @@ test("Fix with AI asks the CLI before it gives Claude CLI the work folder, and s
   assert.match(JSON.stringify(h.last()), /use Copy Handoff Prompt to hand the task over yourself/);
 });
 
+test("with a bugpilot that has no doctor --work-item, Fix with AI starts nothing and says to update bugpilot (F-1)", async () => {
+  const h = await preparedHarness({ workFolderPrivacy: { private: false, problem: WORK_ITEM_PRIVACY_UNSUPPORTED } });
+  await h.controller.handle(next("fixWithAI"));
+  assert.equal(h.terminals.length, 0, "Claude CLI was started with, or without, an unchecked folder");
+  assert.match(JSON.stringify(h.last()), /Update bugpilot to the version that came with this extension\. BugPilot did not start Claude CLI/);
+});
+
 test("Open AI Session asks again before it gives Claude CLI the work folder again, and starts nothing when it is not private", async () => {
   let privacy: WorkFolderPrivacy = { private: true };
   const { h, open } = await sessionHarness({ workFolderPrivacy: () => privacy });
@@ -10559,6 +10606,178 @@ for (const api of ["absent", "gated"] as const) {
     assert.equal(h.last().sessionFeedback?.message, "Resuming Claude CLI in a new terminal");
   });
 }
+
+// --- F-1: the CLI is asked about the very folder the agent is given --------------------------------------
+
+test("Fix with AI and Open AI Session ask the CLI about the work item's own folder, the one on the command line (F-1)", async () => {
+  const { h, open } = await sessionHarness();
+  const folder = workItemDirectory(DATA, "JR-12345")!;
+  assert.deepEqual(h.privacyGrants, [{ workItemId: "JR-12345", workFolder: folder }]);
+  assert.ok(h.terminals[0]!.commandLine.includes(`--add-dir=${JSON.stringify(promptPath(folder))}`), "asked about another folder than the one given");
+  h.agentActivity.set(FIX_TERMINAL, "exited");
+  await open();
+  assert.deepEqual(h.privacyGrants, [{ workItemId: "JR-12345", workFolder: folder }, { workItemId: "JR-12345", workFolder: folder }]);
+  assert.deepEqual(h.typed, [{ name: FIX_TERMINAL, commandLine: claudeResume(1) }]);
+});
+
+// --- F-2: a restart is typed only into the terminal it waited for -----------------------------------------
+
+test("a restart waiting on the CLI types nothing when its terminal is replaced, closed or running again meanwhile (F-2)", async () => {
+  for (const meanwhile of ["replaced", "closed", "running again"] as const) {
+    const privacy = heldPrivacy();
+    const { h, open } = await sessionHarness({ workFolderPrivacy: privacy.answer });
+    h.agentActivity.set(FIX_TERMINAL, "exited");
+
+    privacy.hold();
+    const pending = open();
+    await tick();
+    if (meanwhile === "replaced") {
+      // Another terminal of the same name, whose agent has exited too: the name alone would pick it.
+      h.replaceTerminal(FIX_TERMINAL);
+    } else if (meanwhile === "closed") {
+      h.openTerminals.length = 0;
+    } else {
+      // The developer started something in it while BugPilot asked.
+      h.agentActivity.set(FIX_TERMINAL, "running");
+    }
+    const logBefore = h.logged.length;
+    privacy.release();
+    await pending;
+
+    assert.deepEqual(h.typed, [], `${meanwhile}: typed into a terminal it did not wait for`);
+    assert.equal(h.terminals.length, 1, `${meanwhile}: a terminal was started instead`);
+    assert.deepEqual(
+      { kind: h.last().sessionFeedback?.kind, message: h.last().sessionFeedback?.message },
+      { kind: "failed", message: SESSION_TERMINAL_CHANGED },
+      meanwhile,
+    );
+    assert.deepEqual(h.logged.slice(logBefore), ["Not starting the AI session for JR-12345 again: its terminal changed while BugPilot was checking."]);
+
+    // Nothing half-done: the next press decides afresh from the terminal as it is now.
+    await open();
+    if (meanwhile === "replaced") assert.deepEqual(h.typed, [{ name: FIX_TERMINAL, commandLine: claudeResume(1) }]);
+    if (meanwhile === "closed") assert.deepEqual(h.terminals[1], { name: FIX_TERMINAL, cwd: ROOT, commandLine: claudeResume(1) });
+    if (meanwhile === "running again") assert.deepEqual([h.typed, h.revealed], [[], [FIX_TERMINAL]]);
+  }
+});
+
+test("a restart in a new terminal starts nothing when a terminal of that name opened while the CLI was asked (F-2)", async () => {
+  const privacy = heldPrivacy();
+  const { h, open } = await sessionHarness({ workFolderPrivacy: privacy.answer });
+  h.openTerminals.length = 0;
+
+  privacy.hold();
+  const pending = open();
+  await tick();
+  h.replaceTerminal(FIX_TERMINAL);
+  privacy.release();
+  await pending;
+
+  assert.equal(h.terminals.length, 1, "a second terminal of that name was started next to the new one");
+  assert.deepEqual(h.typed, []);
+  assert.equal(h.last().sessionFeedback?.message, SESSION_TERMINAL_CHANGED);
+});
+
+test("a restart waiting on the CLI starts nothing after another work item was shown, even when it comes back (F-2)", async () => {
+  const privacy = heldPrivacy();
+  const { h, open } = await sessionHarness({ workFolderPrivacy: privacy.answer });
+  h.agentActivity.set(FIX_TERMINAL, "exited");
+
+  privacy.hold();
+  const pending = open();
+  await tick();
+  await h.controller.showWorkItem("JR-999");
+  await h.controller.showWorkItem("JR-12345");
+  privacy.release();
+  await pending;
+
+  assert.deepEqual(h.typed, [], "a press made for the work item before the switch was typed after it");
+  assert.equal(h.terminals.length, 1);
+});
+
+test("a restart whose terminal is unchanged is typed once, however often it is pressed while the CLI is asked (F-2)", async () => {
+  const privacy = heldPrivacy();
+  const { h, open } = await sessionHarness({ workFolderPrivacy: privacy.answer });
+  h.agentActivity.set(FIX_TERMINAL, "exited");
+
+  privacy.hold();
+  const presses = [open(), open(), open()];
+  await tick();
+  privacy.release();
+  await Promise.all(presses);
+  await open();
+
+  assert.deepEqual(h.typed, [{ name: FIX_TERMINAL, commandLine: claudeResume(1) }]);
+  assert.equal(h.terminals.length, 1);
+  assert.equal(h.privacyChecks.length, 2, "once for Fix with AI, once for the one restart");
+});
+
+/** VS Code 1.93+'s `vscode.window`, as far as the terminals go: shell-execution events a test fires itself. */
+function currentVsCodeWindow() {
+  const terminals: HostTerminalDouble[] = [];
+  const listeners = { start: [] as ((event: { terminal: HostTerminalDouble }) => unknown)[], end: [] as ((event: { terminal: HostTerminalDouble }) => unknown)[] };
+  const subscribe = (kind: "start" | "end") => (listener: (event: { terminal: HostTerminalDouble }) => unknown) => {
+    listeners[kind].push(listener);
+    return { dispose: () => {} };
+  };
+  const window = {
+    terminals,
+    createTerminal: (options: { name: string }) => {
+      const terminal = new HostTerminalDouble(options.name);
+      terminals.push(terminal);
+      return terminal;
+    },
+    onDidStartTerminalShellExecution: subscribe("start"),
+    onDidEndTerminalShellExecution: subscribe("end"),
+  };
+  return {
+    window: window as unknown as HostTerminalWindow<HostTerminalDouble>,
+    terminals,
+    ran: (terminal: HostTerminalDouble) => {
+      listeners.start.forEach((listener) => listener({ terminal }));
+      listeners.end.forEach((listener) => listener({ terminal }));
+    },
+    started: (terminal: HostTerminalDouble) => listeners.start.forEach((listener) => listener({ terminal })),
+  };
+}
+
+test("with the host's own terminals: a restart is never typed into a terminal that replaced the one it waited for (F-2)", async () => {
+  for (const meanwhile of ["replaced", "replaced by one whose agent exited too", "running again"] as const) {
+    const vscode = currentVsCodeWindow();
+    const host = createAgentTerminals(vscode.window, { subscriptions: [], env: () => ({}) });
+    const privacy = heldPrivacy();
+    const h = await attemptedHarness({ hostTerminals: host, workFolderPrivacy: privacy.answer });
+    const agent = vscode.terminals[0]!;
+    // The agent ran and exited (Ctrl+C), as shell integration reports it.
+    vscode.ran(agent);
+
+    privacy.hold();
+    const pending = h.controller.handle(next("openSession"));
+    await tick();
+    let other: HostTerminalDouble | undefined;
+    if (meanwhile === "replaced") {
+      // Closed, and a terminal of the same name opened by something else: a name is all the old code went by.
+      agent.exitStatus = { code: 0 };
+      other = vscode.window.createTerminal({ name: FIX_TERMINAL, cwd: ROOT, env: {} });
+    } else if (meanwhile === "replaced by one whose agent exited too") {
+      // Its name, and an agent that exited, are all the same: only which terminal it is tells them apart.
+      agent.exitStatus = { code: 0 };
+      host.runInTerminal(FIX_TERMINAL, ROOT, "another agent");
+      other = vscode.terminals[1]!;
+      vscode.ran(other);
+    } else {
+      vscode.started(agent);
+    }
+    const otherBefore = [...(other?.sent ?? [])];
+    privacy.release();
+    await pending;
+
+    assert.deepEqual(agent.sent, [TASK_HANDOFF()], `${meanwhile}: typed into the agent's terminal`);
+    assert.deepEqual(other?.sent ?? [], otherBefore, `${meanwhile}: typed into a terminal it never looked at`);
+    assert.equal(vscode.terminals.length, other === undefined ? 1 : 2, `${meanwhile}: a terminal was started instead`);
+    assert.equal(h.last().sessionFeedback?.message, SESSION_TERMINAL_CHANGED, meanwhile);
+  }
+});
 
 test("a Claude CLI without --session-id/--resume: started as it always was, and started fresh on the same task after it exits", async () => {
   const { h, open } = await sessionHarness({ claudeFlags: false });

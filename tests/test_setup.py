@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import urllib.error
 
 import pytest
@@ -142,6 +143,7 @@ def test_env_overrides_user_config(monkeypatch, tmp_path):
 
 def _all_tools_present(monkeypatch):
     monkeypatch.setattr("bugpilot.core.git_ops.command_available", lambda command: True)
+    monkeypatch.setattr("bugpilot.core.git_ops.program_available", lambda command: True)
 
 
 def test_run_setup_success_saves_config(monkeypatch):
@@ -215,6 +217,7 @@ def test_run_setup_auth_failure_does_not_save(monkeypatch):
 def test_run_setup_warns_when_copilot_missing(monkeypatch):
     availability = {"git": True, "rg": True, "copilot": False}
     monkeypatch.setattr("bugpilot.core.git_ops.command_available", lambda command: availability.get(command, False))
+    monkeypatch.setattr("bugpilot.core.git_ops.program_available", lambda command: availability.get(command, False))
     monkeypatch.setattr(
         "bugpilot.core.jira.validate_credentials",
         lambda *a, **k: JiraValidationResult(ok=True),
@@ -229,6 +232,83 @@ def test_run_setup_warns_when_copilot_missing(monkeypatch):
     assert "GitHub Copilot CLI not found" in text
     assert "✓ Git" in text
     assert "✓ ripgrep" in text
+
+
+def _setup_text(monkeypatch) -> str:
+    monkeypatch.setattr("bugpilot.core.jira.validate_credentials", lambda *a, **k: JiraValidationResult(ok=True))
+    answers = iter(["https://acme.example.com", "e@example.com", "t"])
+    out = []
+    assert run_setup(prompt=lambda p: next(answers), out=out.append) == 0
+    return "\n".join(out)
+
+
+def _tool_file(folder, name: str):
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / name).write_text("@echo off\r\n" if name.endswith((".cmd", ".bat")) else "", encoding="utf-8")
+    return folder / name
+
+
+@pytest.fixture
+def windows_lookup(monkeypatch):
+    """Windows' lookup rules (PATHEXT, batch files), on any system: only `executables` is told it runs on Windows."""
+    from bugpilot.core import executables
+
+    monkeypatch.setattr(executables, "_is_windows", lambda: True)
+    monkeypatch.setenv("PATHEXT", ".com;.exe;.bat;.cmd")
+
+
+def test_run_setup_reports_git_and_rg_as_every_run_finds_them_never_as_a_batch_file(tmp_path, monkeypatch, windows_lookup):
+    """F-3: setup's check is runtime's (S-8). A batch file alone is no Git or ripgrep; a program after it is."""
+    shims = tmp_path / "shims"
+    for name in ("git.cmd", "rg.bat", "copilot.cmd"):
+        _tool_file(shims, name)
+    monkeypatch.setenv("PATH", str(shims))
+
+    text = _setup_text(monkeypatch)
+    lines = text.splitlines()
+    assert "✓ Git" not in lines and "✓ ripgrep" not in lines
+    assert "! Git not found" in text and "! ripgrep not found" in text
+    assert "git is on PATH only as a batch file (git.cmd), which BugPilot does not start" in text
+    assert "rg is on PATH only as a batch file (rg.bat)" in text
+    # An agent keeps the general lookup: the launcher gates its batch file itself (S-1).
+    assert "✓ GitHub Copilot CLI" in lines
+
+    programs = tmp_path / "programs"
+    _tool_file(programs, "git.exe")
+    _tool_file(programs, "rg.exe")
+    monkeypatch.setenv("PATH", f"{shims}{os.pathsep}{programs}")
+    text = _setup_text(monkeypatch)
+    assert {"✓ Git", "✓ ripgrep"} <= set(text.splitlines()), "a program later on PATH was not found"
+    assert "batch file" not in text
+
+
+def test_run_setup_finds_git_and_rg_as_before_elsewhere_than_windows(tmp_path, monkeypatch):
+    import stat
+
+    from bugpilot.core import executables
+
+    monkeypatch.setattr(executables, "_is_windows", lambda: False)
+    tools = tmp_path / "bin"
+    for name in ("git", "rg"):
+        tool = _tool_file(tools, name)
+        tool.chmod(tool.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("PATH", str(tools))
+    text = _setup_text(monkeypatch)
+    assert {"✓ Git", "✓ ripgrep"} <= set(text.splitlines())
+    assert "! GitHub Copilot CLI not found" in text
+
+
+def test_run_setup_and_runtime_ask_the_same_question_for_git_and_rg(monkeypatch):
+    """One rule: whatever runtime's `program_available` answers, setup reports; `command_available` is not asked."""
+    asked = []
+    monkeypatch.setattr("bugpilot.core.git_ops.program_available", lambda command: asked.append(command) or command == "git")
+    monkeypatch.setattr(
+        "bugpilot.core.git_ops.command_available",
+        lambda command: pytest.fail(f"setup looked {command} up with the general lookup") if command in ("git", "rg") else False,
+    )
+    text = _setup_text(monkeypatch)
+    assert asked == ["git", "rg"]
+    assert "✓ Git" in text.splitlines() and "! ripgrep not found" in text
 
 
 def test_run_setup_aborts_when_email_abandoned(monkeypatch):

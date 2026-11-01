@@ -581,6 +581,35 @@ test("a work folder the CLI does not find private is never given: the launch is 
   assert.ok(refused.kind === "failed" && refused.reason.startsWith(problem), "the CLI's own sentence comes first");
 });
 
+test("the privacy answer is the last thing waited for: after every --help question, right before the terminal (F-1)", async () => {
+  const events: string[] = [];
+  const { probes } = machine({ onPath: ["claude"] });
+  const claude = cliAgent(CLAUDE_CLI, {
+    ...probes,
+    supportsFlags: async (_command, flags) => {
+      events.push(`probe ${flags.join(" ")}`);
+      return true;
+    },
+  });
+  const launch: AgentLaunch = {
+    runInTerminal: (commandLine) => events.push(commandLine.includes(`--add-dir=${quoted(WINDOWS_SHOWN)}`) ? "terminal, given the folder" : "terminal"),
+    copyToClipboard: async () => {},
+    executeCommand: async () => true,
+  };
+  const privacy = async (): Promise<WorkFolderPrivacy> => {
+    events.push("privacy");
+    return { private: true };
+  };
+  await claude.run({ ...FIX, workFolderPrivacy: privacy, sessionId: SESSION }, launch);
+  assert.deepEqual(events, ["probe --add-dir", "probe --session-id --resume", "privacy", "terminal, given the folder"]);
+
+  // Refused at that point: the --help questions were asked, and still nothing is started.
+  events.length = 0;
+  const refused = await claude.run({ ...FIX, workFolderPrivacy: async () => { events.push("privacy"); return { private: false, problem: "no" }; }, sessionId: SESSION }, launch);
+  assert.equal(refused.kind, "failed");
+  assert.deepEqual(events, ["probe --add-dir", "probe --session-id --resume", "privacy"]);
+});
+
 test("the privacy is asked only when a folder would be given: not for a Claude CLI that cannot take one", async () => {
   let asked = 0;
   const { claude } = claudeListing({ addDir: false, session: false });

@@ -133,7 +133,7 @@ test("with the API (VS Code 1.93+): both subscribed for disposal, and a start an
   s.end(terminal);
   assert.equal(s.host.terminalActivity(named(AGENT)), "exited");
   // The restart is typed into that same terminal, which is brought forward.
-  assert.equal(s.host.sendToTerminal(named(AGENT), "claude --resume 1"), true);
+  assert.equal(s.host.sendToTerminal(s.host.terminalToken(named(AGENT))!, "claude --resume 1"), true);
   assert.deepEqual(terminal.sent, ["claude \"Read it.\"", "claude --resume 1"]);
   assert.equal(s.host.terminalActivity(named(AGENT)), "running");
 });
@@ -149,9 +149,11 @@ test("a terminal BugPilot did not start is unknown whatever its shell reports", 
 test("closed — removed, or its shell gone — is closed, and nothing is typed or shown", () => {
   const s = setup("absent");
   s.host.runInTerminal(AGENT, "/repo", "agent");
+  const token = s.host.terminalToken(named(AGENT))!;
   s.terminals[0]!.exitStatus = { code: 0 };
   assert.equal(s.host.terminalActivity(named(AGENT)), "closed");
-  assert.equal(s.host.sendToTerminal(named(AGENT), "agent"), false);
+  assert.equal(s.host.terminalToken(named(AGENT)), undefined);
+  assert.equal(s.host.sendToTerminal(token, "agent"), false);
   assert.equal(s.host.revealTerminal(named(AGENT)), false);
   s.terminals.length = 0;
   assert.equal(s.host.terminalActivity(named(AGENT)), "closed");
@@ -161,6 +163,22 @@ test("the newest open terminal of that name is the session: a restart in a new t
   const s = setup("absent");
   s.host.runInTerminal(AGENT, "/repo", "agent");
   s.host.runInTerminal(AGENT, "/repo", "agent --resume");
-  assert.equal(s.host.sendToTerminal(named(AGENT), "typed"), true);
+  assert.equal(s.host.sendToTerminal(s.host.terminalToken(named(AGENT))!, "typed"), true);
   assert.deepEqual(s.terminals.map((terminal) => terminal.sent), [["agent"], ["agent --resume", "typed"]]);
+});
+
+test("a terminal's token names that terminal and no other: once it closes, a new one of the same name is not it (F-2)", () => {
+  const s = setup("present");
+  s.host.runInTerminal(AGENT, "/repo", "agent");
+  const first = s.host.terminalToken(named(AGENT))!;
+  assert.equal(s.host.terminalToken(named(AGENT)), first, "asked again, the same terminal has the same token");
+  s.terminals[0]!.exitStatus = { code: 0 };
+  s.host.runInTerminal(AGENT, "/repo", "someone else's");
+  const second = s.host.terminalToken(named(AGENT))!;
+  assert.notEqual(second, first);
+  assert.equal(s.host.sendToTerminal(first, "claude --resume 1"), false);
+  assert.deepEqual(s.terminals.map((terminal) => terminal.sent), [["agent"], ["someone else's"]], "typed into a terminal it was not meant for");
+  assert.equal(s.terminals[1]!.shown, 1, "another terminal was brought forward");
+  assert.equal(s.host.sendToTerminal(second, "typed"), true);
+  assert.deepEqual(s.terminals[1]!.sent, ["someone else's", "typed"]);
 });

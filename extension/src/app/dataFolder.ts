@@ -54,24 +54,75 @@ export function repositoryDirectoryOf(report: Record<string, unknown> | undefine
 }
 
 /**
- * Whether a work item's folder may be given to an agent: the CLI's own answer, `doctor --json`'s
- * `storage.privacy` (0.1.7, S-2). Only `private` is a yes; anything else — `not-private`, `unverifiable`, a
- * report without the field — is a no, with the CLI's sentence when it gave one.
+ * Whether a work item's folder may be given to an agent: the CLI's own answer for that one work item,
+ * `doctor --json --work-item <id>`'s `storage.work_item_privacy` (0.1.7, S-2, F-1). The CLI judges BugPilot's data
+ * folder and every folder below it down to the work item's own, as its own launcher does before a grant, and
+ * refuses a link, a missing folder or a namespace it will not use. Only `private` is a yes; anything else —
+ * `not-private`, `unverifiable`, an answer about another work item or folder, a report without the field — is a
+ * no, with the CLI's sentence when it gave one. `storage.privacy`, the repository-level answer, stops at `work/`
+ * and is not what decides a grant.
  */
 export type WorkFolderPrivacy = { readonly private: true } | { readonly private: false; readonly problem: string };
 
-export function workFolderPrivacyOf(report: Record<string, unknown> | undefined): WorkFolderPrivacy {
+/** The work item whose folder is about to be given, and that folder, as this extension built it. */
+export interface WorkFolderGrant {
+  readonly workItemId: string;
+  readonly workFolder: string;
+}
+
+/** `doctor --work-item <id>`, for a validated work item id only (the runner adds `--json`); `undefined` otherwise. */
+export function workItemPrivacyArgs(workItemId: string): readonly string[] | undefined {
+  return isWorkItemId(workItemId) ? ["doctor", "--work-item", workItemId] : undefined;
+}
+
+/** Why the folder is not given by a bugpilot without `doctor --work-item` (a 0.1.7 build before it): update it. */
+export const WORK_ITEM_PRIVACY_UNSUPPORTED =
+  "This bugpilot cannot check a work item's folder (it has no doctor --work-item option). Update bugpilot to the version that came with this extension.";
+
+/**
+ * The extension's question, asked of the CLI through `runJson` (which adds `--json`): may `grant`'s folder be
+ * given to an agent? A CLI that does not know the option exits with argparse's usage error and no envelope; that
+ * is a no that says to update bugpilot, never a fall back to the repository-level `storage.privacy`. Any other
+ * failure is thrown, for the caller to word as a no.
+ */
+export async function askWorkFolderPrivacy(
+  runJson: (args: readonly string[]) => Promise<{ readonly ok: boolean; readonly [field: string]: unknown }>,
+  grant: WorkFolderGrant,
+): Promise<WorkFolderPrivacy> {
+  const args = workItemPrivacyArgs(grant.workItemId);
+  if (args === undefined) return { private: false, problem: "This is not a work item BugPilot gives an agent." };
+  let envelope;
+  try {
+    envelope = await runJson(args);
+  } catch (error) {
+    const stderr = (error as { readonly stderr?: unknown } | null)?.stderr;
+    if (typeof stderr === "string" && /error: unrecognized arguments:.*--work-item/.test(stderr)) {
+      return { private: false, problem: WORK_ITEM_PRIVACY_UNSUPPORTED };
+    }
+    throw error;
+  }
+  return workFolderPrivacyOf(envelope.ok ? (envelope["report"] as Record<string, unknown> | undefined) : undefined, grant);
+}
+
+export function workFolderPrivacyOf(report: Record<string, unknown> | undefined, grant: WorkFolderGrant): WorkFolderPrivacy {
   const storage = report?.["storage"];
   const record = typeof storage === "object" && storage !== null && !Array.isArray(storage) ? (storage as Record<string, unknown>) : undefined;
-  if (record?.["privacy"] === "private") return { private: true };
-  const problem = record?.["privacy_problem"];
-  return {
+  const problem = record?.["work_item_privacy_problem"];
+  const refused = (fallback: string): WorkFolderPrivacy => ({
     private: false,
-    problem:
-      typeof problem === "string" && problem.trim() !== ""
-        ? problem.trim()
-        : "bugpilot did not say whether BugPilot's data folder is private to you.",
-  };
+    problem: typeof problem === "string" && problem.trim() !== "" ? problem.trim() : fallback,
+  });
+  if (record?.["work_item_privacy"] !== "private") {
+    return refused("bugpilot did not say whether this work item's folder is private to you.");
+  }
+  // The answer is about the folder the agent would be given, or it is not an answer: the same work item, in the
+  // repository folder the CLI reports now.
+  const directory = record["repository_dir"];
+  const checked = typeof directory === "string" && path.isAbsolute(directory) ? workItemDirectory(directory, grant.workItemId) : undefined;
+  if (record["work_item_id"] !== grant.workItemId || checked === undefined || path.resolve(checked) !== path.resolve(grant.workFolder)) {
+    return refused("bugpilot answered for a different folder than the one BugPilot would give the agent.");
+  }
+  return { private: true };
 }
 
 /** `<repository folder>/work/<id>`, for a validated work item id only; `undefined` for anything else. */

@@ -142,6 +142,15 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--hide-token", action="store_true", help="Hide the API token while typing (default: shown so you can verify the paste).")
     doctor_parser = subparsers.add_parser("doctor", help="Check local environment readiness.")
     _add_json_flag(doctor_parser)
+    doctor_parser.add_argument(
+        "--work-item",
+        dest="work_item",
+        metavar="ID",
+        help=(
+            "Also report whether this work item's folder, and every folder above it up to BugPilot's data folder, "
+            "is private: what a client asks before it gives an agent that folder. Reads only; creates nothing."
+        ),
+    )
     subparsers.add_parser("agent-check", help="Check AI agent readiness.")
 
     for name in ("parse", "keywords", "search", "git-context", "context", "status", "agent-instructions", "review-package", "delivery-check", "push-plan", "retry-prompt"):
@@ -829,9 +838,9 @@ def _dispatch(args, repo_root: Path) -> int | _AgentLaunch:
                 # The handshake of an extension older than 0.1.7: it shows this sentence and runs nothing.
                 cli_json.emit_failure("doctor", errors.EXTENSION_OUTDATED, outdated)
                 return 1
-            cli_json.emit(cli_json.success("doctor", report=doctor.collect_doctor_report(repo_root)))
+            cli_json.emit(cli_json.success("doctor", report=doctor.collect_doctor_report(repo_root, args.work_item)))
             return 0
-        for line in doctor.doctor_report_lines(repo_root):
+        for line in doctor.doctor_report_lines(repo_root, args.work_item):
             print(line)
         return 0
 

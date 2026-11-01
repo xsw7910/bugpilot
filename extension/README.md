@@ -132,9 +132,11 @@ path, in BugPilot's data folder. When the installed `claude` lists `--add-dir` i
 `--help`, the command line also gives Claude that one folder (`--add-dir="<folder>"`), so
 writing `fix_report.md` there follows Claude's usual edit permissions; otherwise Claude asks
 before writing outside the repository. Before it gives the folder, the extension asks the
-CLI whether BugPilot's data folder is private to you (no other account can write to it, or
-to any folder down to the work item's); if the answer is not a clear yes, it starts nothing
-and says why. On Windows, an npm-installed `claude.cmd` cannot be asked for its options
+CLI about that work item's folder (`bugpilot doctor --json --work-item <id>`): whether it,
+and every folder above it up to BugPilot's data folder, is private to you (no other account
+can write to any of them) and reached through no link. It asks again before Open AI Session
+starts Claude again with the folder. If the answer is not a clear yes about the very folder
+it is about to give, it starts nothing and says why. On Windows, an npm-installed `claude.cmd` cannot be asked for its options
 without a shell, so it is started without `--add-dir`; the native Claude Code executable can
 be asked. Claude Code also loads a `.claude/` folder it finds in a folder it is given;
 BugPilot never writes one there. The path names your home folder, so your user name
@@ -631,7 +633,11 @@ conversation when the installed Claude CLI supports it: BugPilot asks its
 that one (`claude --resume <id>`). Otherwise — an older Claude CLI, or one that
 cannot be asked without a shell, such as an npm-installed `claude.cmd` on
 Windows — Claude CLI is started the way it always was, and started again on the
-same task after it exits. BugPilot requires no particular Claude version. Codex
+same task after it exits. BugPilot requires no particular Claude version. When
+Claude CLI is started again with the work item's folder, BugPilot first asks the CLI
+again whether that folder is private; if, meanwhile, the terminal was closed or
+replaced, or something was started in it, nothing is typed or started, and the panel
+says so: press Open AI Session again. Codex
 CLI and a custom command start again on the same task, reading the same
 prepared files, because their sessions cannot be identified reliably. Nothing
 is prepared, rebuilt, written or deleted for it, and it is not a new attempt —

@@ -41,7 +41,7 @@ CAPABILITIES: tuple[str, ...] = (
 )
 
 
-def storage_report(repo_root: Path) -> dict[str, str | None]:
+def storage_report(repo_root: Path, work_item_id: str | None = None) -> dict[str, str | None]:
     """Where this repository's BugPilot files are, and whether they can be used. Never raises; creates nothing.
 
     ``state`` is storage's read-only check: ``usable``, ``uninitialized`` (the
@@ -56,16 +56,28 @@ def storage_report(repo_root: Path) -> dict[str, str | None]:
     ``privacy`` is whether the folders that hold this repository's work items
     are private (``private``, ``not-private`` or ``unverifiable``), with
     ``privacy_problem`` saying why not: a client gives an agent a work item's
-    folder only when it is ``private`` (0.1.7, S-2).
+    folder only when it is ``private`` (0.1.7, S-2). It is repository-level:
+    the folders down to ``work``, no work item's own.
+
+    With ``work_item_id`` (``doctor --work-item``), three keys more answer for
+    that one work item, the folder a client is about to give an agent (0.1.7,
+    F-1): ``work_item_id`` as asked, ``work_item_privacy`` (the same three
+    values) and ``work_item_privacy_problem``. Every folder from the data
+    folder down to the work item's own is judged, and a link, a missing folder
+    or a namespace storage refuses is never ``private``. Without it the report
+    is as before.
     """
     try:
         namespace = storage.repository_storage(repo_root)
     except storage.StorageError as error:
-        return {"state": "refused", "problem": str(error)}
+        refused: dict[str, str | None] = {"state": "refused", "problem": str(error)}
+        if work_item_id is not None:
+            refused.update(work_item_id=work_item_id, work_item_privacy="unverifiable", work_item_privacy_problem=str(error))
+        return refused
     paths = namespace.diagnostics()
     check = namespace.check()
     privacy, privacy_problem = namespace.privacy()
-    return {
+    report: dict[str, str | None] = {
         "data_root": paths["data_root"],
         "data_root_display": paths["data_root_display"],
         "data_root_source": paths["data_root_source"],
@@ -77,9 +89,15 @@ def storage_report(repo_root: Path) -> dict[str, str | None]:
         "privacy": privacy,
         "privacy_problem": privacy_problem,
     }
+    if work_item_id is not None:
+        work_item_privacy, work_item_problem = namespace.work_item_privacy(work_item_id)
+        report.update(
+            work_item_id=work_item_id, work_item_privacy=work_item_privacy, work_item_privacy_problem=work_item_problem
+        )
+    return report
 
 
-def collect_doctor_report(repo_root: Path) -> dict[str, object]:
+def collect_doctor_report(repo_root: Path, work_item_id: str | None = None) -> dict[str, object]:
     config = load_config(repo_root)
     email_config = load_email_config()
     graph_config = load_graph_config()
@@ -102,7 +120,7 @@ def collect_doctor_report(repo_root: Path) -> dict[str, object]:
         # Where this repository's work items, memory and settings are (0.1.7).
         # Nothing is written into the repository any more, so there is no
         # `.gitignore` rule to ask about (`ai_artifacts_ignored*` are gone).
-        "storage": storage_report(repo_root),
+        "storage": storage_report(repo_root, work_item_id),
         "rg_available": program_available("rg"),
         "jira_base_url_present": bool(config.jira_base_url),
         "jira_email_present": bool(config.jira_email),
@@ -114,13 +132,13 @@ def collect_doctor_report(repo_root: Path) -> dict[str, object]:
     }
 
 
-def doctor_report_lines(repo_root: Path) -> list[str]:
+def doctor_report_lines(repo_root: Path, work_item_id: str | None = None) -> list[str]:
     """The ``bugpilot doctor`` report, as lines for a caller to print.
 
     Rendering stays out of core so the MCP server — which owns stdout for its
     JSON-RPC frames — can consume :func:`collect_doctor_report` safely.
     """
-    report = collect_doctor_report(repo_root)
+    report = collect_doctor_report(repo_root, work_item_id)
     lines = ["bugpilot doctor"]
     for key, value in report.items():
         if isinstance(value, dict):

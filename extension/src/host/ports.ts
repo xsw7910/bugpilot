@@ -143,6 +143,7 @@ export function createUiPort(deps: UiPortDeps): UiPort {
     runInTerminal: terminals.runInTerminal,
     revealTerminal: terminals.revealTerminal,
     terminalActivity: terminals.terminalActivity,
+    terminalToken: terminals.terminalToken,
     sendToTerminal: terminals.sendToTerminal,
     offer: async (message, action) => (await vscode.window.showInformationMessage(message, action)) === action,
     openFolder: async (directory) => {

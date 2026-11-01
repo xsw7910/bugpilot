@@ -16,8 +16,9 @@
   always gives it), so it can write `fix_report.md` there. On Windows an
   npm-installed `claude.cmd` cannot be asked for its options, so it gets no
   `--add-dir` and Claude asks before writing there. The folder is given only
-  when BugPilot's data folder is private to you; otherwise nothing is started,
-  and BugPilot says why. Claude Code also loads a `.claude/` folder it finds in
+  when it, and every folder above it up to BugPilot's data folder, is private
+  to you (`bugpilot doctor --json --work-item <id>` reports it); otherwise
+  nothing is started, and BugPilot says why. Claude Code also loads a `.claude/` folder it finds in
   a folder it is given; BugPilot never writes one. The path names your home
   folder; set `BUGPILOT_HOME` to a neutral folder to keep your user name out of
   the agent's instructions.

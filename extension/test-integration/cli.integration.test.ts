@@ -22,7 +22,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -53,6 +53,7 @@ import { aiBehaviorFingerprint, readsAiBehaviorText, runAiBehaviorPolicy } from 
 import { readsProtectedRules, runProtectedRules } from "../src/app/protectedRules.ts";
 import { readsTaskPreview, runTaskPreview, taskBlocks } from "../src/app/effectiveTask.ts";
 import { readsContextPreview, runContextPreview } from "../src/app/effectiveContext.ts";
+import { askWorkFolderPrivacy, workItemDirectory } from "../src/app/dataFolder.ts";
 import { isolateIntegrationSuite } from "./isolation.ts";
 
 /** The repository under development, not whatever happens to be installed. */
@@ -704,6 +705,77 @@ test("Reset Session's Delete runs the real clean on work/<id>/ only, and never d
 
   // Nothing there: missing, and the CLI is not asked.
   assert.deepEqual(await deleteWorkItemArtifacts({ base, workItemId: "JR-3", clean: clean("JR-3") }), { kind: "missing" });
+});
+
+// --- the work folder's privacy, asked as Fix with AI asks it (0.1.7, S-2, F-1) ------------------
+
+/** Let every other account write to `folder` (Everyone on Windows, `0777` elsewhere), or take that back. */
+function openToOthers(folder: string, open: boolean): void {
+  if (process.platform === "win32") {
+    const args = open ? [folder, "/grant", "*S-1-1-0:(W)"] : [folder, "/remove:g", "*S-1-1-0"];
+    execFileSync("icacls", args, { stdio: "ignore", env: ISOLATION.checkedEnv({ ...process.env }, "icacls", args) });
+  } else {
+    chmodSync(folder, open ? 0o777 : 0o700);
+  }
+}
+
+test("the work folder's privacy through the real CLI: yes only for that folder, private all the way down; no for an open folder, a link or a missing one", async () => {
+  const root = repository();
+  const built = buildPrepareArgs(manualForm(), { root });
+  assert.ok(built.ok);
+  if (!built.ok) return;
+  const tracker = new ProgressTracker(DEFAULT_FORM.plan);
+  await runner().runStreaming([...MODULE, ...built.args.filter((arg) => arg !== "--json-lines")], { cwd: root, env: ENVIRONMENT, timeoutMs: 300_000 }, (event) => tracker.apply(event));
+  const workItemId = tracker.view().workItemId!;
+  const base = await dataFolder(root);
+  const workFolder = workItemDirectory(base, workItemId)!;
+  assert.ok(existsSync(workFolder), workFolder);
+
+  // The extension's port (extension.ts): the shipped askWorkFolderPrivacy, over a runner of the real CLI.
+  const ask = (id: string, folder: string) =>
+    askWorkFolderPrivacy((args) => runner().runJson([...MODULE, ...args], { cwd: root, env: ENVIRONMENT, timeoutMs: 120_000 }), {
+      workItemId: id,
+      workFolder: folder,
+    });
+  const repositoryLevel = async () => {
+    const result = await runner().run([...MODULE, "doctor", "--json"], { cwd: root, env: ENVIRONMENT, timeoutMs: 120_000 });
+    return (parseEnvelope(result.stdout, result.stderr)["report"] as { storage: Record<string, unknown> }).storage;
+  };
+
+  assert.deepEqual(await ask(workItemId, workFolder), { private: true });
+  assert.equal((await ask(workItemId, path.join(base, "elsewhere", workItemId))).private, false, "a yes about another folder was taken");
+
+  // F-1, as measured: every parent private, only the work item's own folder open to other accounts.
+  openToOthers(workFolder, true);
+  try {
+    const opened = await ask(workItemId, workFolder);
+    assert.equal(opened.private, false, "a work folder other accounts can write to was found private");
+    assert.match(opened.private ? "" : opened.problem, /is not private/);
+    const level = await repositoryLevel();
+    assert.equal(level["privacy"], "private", "the repository-level answer stops at work/, which is why it decides no grant");
+    assert.equal("work_item_privacy" in level, false, "doctor --json without the option changed");
+  } finally {
+    openToOthers(workFolder, false);
+  }
+  assert.deepEqual(await ask(workItemId, workFolder), { private: true });
+
+  // The work item's folder replaced by a link to a folder elsewhere: no, and nothing followed or written there.
+  const outside = mkdtempSync(path.join(tmpdir(), "bugpilot-it-outside-"));
+  writeFileSync(path.join(outside, "canary.txt"), "not BugPilot's\n", "utf8");
+  renameSync(workFolder, `${workFolder}-moved`);
+  symlinkSync(outside, workFolder, process.platform === "win32" ? "junction" : "dir");
+  const linked = await ask(workItemId, workFolder);
+  assert.equal(linked.private, false);
+  assert.match(linked.private ? "" : linked.problem, /symbolic link or junction/);
+  assert.deepEqual(readdirSync(outside), ["canary.txt"]);
+
+  // A work item that is not there: no, and nothing is created.
+  const absent = workItemDirectory(base, "JR-99999")!;
+  const missing = await ask("JR-99999", absent);
+  assert.equal(missing.private, false);
+  assert.match(missing.private ? "" : missing.problem, /is not there/);
+  assert.equal(existsSync(absent), false, "asking created the work item's folder");
+  assertRepositoryClean(root);
 });
 
 // --- the Repository Profile through the real CLI -------------------------------

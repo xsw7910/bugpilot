@@ -1765,10 +1765,65 @@ class RepositoryStorage:
         """
         with request_scope():
             self._check_containment()
-            for place in self._places(("work", _validated(work_item_id))):
-                verdict = private_folder.verify_private(place, "data-root")
-                if not verdict.private:
-                    raise StorageError(_not_private_for_agent(place, verdict))
+            found = self._first_not_private(work_item_id)
+            if found is not None:
+                raise StorageError(_not_private_for_agent(*found))
+
+    def work_item_privacy(self, work_item_id: str) -> tuple[private_folder.State, str | None]:
+        """For ``doctor --work-item``: may this one work item's folder be given to an agent (0.1.7, F-1)? Never raises.
+
+        The question ``--launch-agent claude`` asks before its grant, for one
+        work item, answered rather than raised. In one request scope:
+
+        - the id is a work item id; the data root and the repository are kept
+          apart, outside every Git working tree; every folder down to
+          ``work/<id>`` is a real folder, never a link or junction; the
+          namespace's identity record is this repository's (as
+          :meth:`work_item_dir` checks them);
+        - the work item's folder is there. A missing one is not created;
+        - :meth:`check_private_for_agent`'s rule on the data root and every
+          folder below it down to ``work/<id>``: the first one not proven
+          private answers, with its sentence.
+
+        ``not-private``: a link, a junction or a file on the way, or a folder
+        another account may write to. ``unverifiable``: anything else that
+        stops the check (an id that is not one, a missing folder, a namespace
+        storage refuses, a file system or access list that does not answer):
+        fail closed. No other folder in ``work/`` is looked at. Reads only.
+        """
+        unsafe: list[str] = []
+
+        def refusal(parts: tuple[str, ...], reason: str) -> str:
+            unsafe.append(reason)
+            return _read_refusal(parts, reason)
+
+        try:
+            with request_scope():
+                self._check_containment()
+                folder = _existing(self._data_root, self._parts("work", _validated(work_item_id)), refusal=refusal)
+                self._check_record(folder)
+                if not os.path.lexists(folder):
+                    return "unverifiable", (
+                        f"The work item's folder {display_path(folder)} is not there, so BugPilot does not give it to "
+                        "an agent. Prepare the work item first."
+                    )
+                found = self._first_not_private(work_item_id)
+        except StorageError as error:
+            return ("not-private" if unsafe else "unverifiable"), str(error)
+        except OSError as error:
+            return "unverifiable", f"BugPilot could not check whether its data folder is private: {error.strerror or error}."
+        if found is None:
+            return "private", None
+        place, verdict = found
+        return verdict.state, _not_private_for_agent(place, verdict)
+
+    def _first_not_private(self, work_item_id: str) -> tuple[Path, private_folder.PrivacyVerdict] | None:
+        """The first folder from the data root down to ``work/<id>`` not proven private, and why; None when every one is."""
+        for place in self._places(("work", _validated(work_item_id))):
+            verdict = private_folder.verify_private(place, "data-root")
+            if not verdict.private:
+                return place, verdict
+        return None
 
     def privacy(self) -> tuple[private_folder.State, str | None]:
         """For ``doctor``: whether the folders that hold this repository's work items are private (S-2).
@@ -1777,6 +1832,9 @@ class RepositoryStorage:
         the repository's folder and ``work``, as far as they exist: the first one
         not proven private answers, with its sentence. A data folder that is not
         there yet cannot be judged. Never raises; reads only.
+
+        Repository-level: it stops at ``work``, and judges no work item's own
+        folder. Before a grant a client asks :meth:`work_item_privacy` instead.
         """
         places = [place for place in self._places(("work",)) if os.path.lexists(place)]
         if not places:

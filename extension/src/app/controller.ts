@@ -77,6 +77,7 @@ import {
   repositoryDirectoryOf,
   settingsFile,
   workItemDirectory,
+  type WorkFolderGrant,
   type WorkFolderPrivacy,
 } from "./dataFolder.ts";
 import { AgentService, capturedReviewOf, refusedPrivateFolder } from "./agents.ts";
@@ -394,11 +395,18 @@ export interface UiPort {
    */
   terminalActivity(matches: (name: string) => boolean): AgentActivity | "closed";
   /**
-   * Type one command line into that terminal and bring it forward. False when
-   * none is open. Only for a terminal whose agent is known to have exited:
-   * typed into a running agent, the line would be a message to it.
+   * That terminal, as a token naming it and no other for as long as this
+   * window runs: `undefined` when none is open. Open AI Session holds it while
+   * it waits, to type only into the terminal it looked at (F-2).
    */
-  sendToTerminal(matches: (name: string) => boolean, commandLine: string): boolean;
+  terminalToken(matches: (name: string) => boolean): number | undefined;
+  /**
+   * Type one command line into the terminal `token` names and bring it
+   * forward. False when that terminal is no longer open: never another one.
+   * Only for a terminal whose agent is known to have exited: typed into a
+   * running agent, the line would be a message to it.
+   */
+  sendToTerminal(token: number, commandLine: string): boolean;
   /**
    * A non-modal notification with one action; true when the developer pressed
    * it, false when it was dismissed or ignored.
@@ -471,11 +479,11 @@ export interface ControllerPorts {
    */
   readonly cliSupportsFlags?: (command: string, flags: readonly string[]) => Promise<boolean>;
   /**
-   * Whether BugPilot's data folder is private to this user, asked of the CLI (`doctor --json`'s
-   * `storage.privacy`) just before an agent is given a work item's folder (0.1.7, S-2). Absent: never proven,
-   * so no folder is given.
+   * Whether a work item's folder, and every folder above it up to BugPilot's data folder, is private to this
+   * user, asked of the CLI (`doctor --json --work-item <id>`) just before an agent is given that folder (0.1.7,
+   * S-2, F-1). Absent: never proven, so no folder is given.
    */
-  readonly workFolderPrivacy?: (root: string) => Promise<WorkFolderPrivacy>;
+  readonly workFolderPrivacy?: (root: string, grant: WorkFolderGrant) => Promise<WorkFolderPrivacy>;
   /**
    * The installed AI extensions, through VS Code's extension API, and a way to
    * run their commands (§37.94). Only `agents.ts` names an extension or a
@@ -698,6 +706,9 @@ export const SESSION_FEEDBACK_MS = 1800;
 export const SESSION_FOCUSED = "AI session focused";
 export const SESSION_FOCUS_FAILED = "Could not open the existing AI session.";
 export const SESSION_RELAUNCH_FAILED = "Could not start the AI session again.";
+/** A restart whose terminal was closed, replaced or started again while BugPilot asked the CLI (F-2). */
+export const SESSION_TERMINAL_CHANGED =
+  "The AI session's terminal changed while BugPilot was checking, so nothing was started. Press Open AI Session again.";
 /** An attempt this window never saw start (a reload, another window). */
 export const SESSION_NOT_IN_WINDOW =
   "AI session is no longer available in this window. To continue, use ⋯ → Start New Attempt.";
@@ -832,7 +843,13 @@ interface SessionRecord {
    * otherwise the handoff's own command line, the same task from the same
    * prepared files. Never a new attempt: no feedback, no retry package.
    */
-  readonly relaunch: { readonly commandLine: string; readonly resumes: boolean; readonly grantsWorkFolder: boolean };
+  readonly relaunch: {
+    readonly commandLine: string;
+    readonly resumes: boolean;
+    readonly grantsWorkFolder: boolean;
+    /** The folder the command line gives the agent, when it gives one: asked about again before a restart. */
+    readonly workFolder?: string;
+  };
 }
 
 /** What a handoff hands over, and what the row says once it has. */
@@ -2597,22 +2614,34 @@ export class Controller {
    * Start the attempt's agent again: typed into its terminal when that
    * terminal's agent is known to have exited, otherwise in a new terminal of
    * the same name — the one Open AI Session goes back to next time.
+   *
+   * The terminal it was decided for is held while the CLI is asked (F-2).
+   * When the line is sent, the session's terminal must still be that one (or
+   * still none), and — to be typed into — its agent still exited; otherwise
+   * nothing is typed or started, and that is said. Never redirected into
+   * whichever terminal is there now.
    */
   async #relaunchSession(workItemId: string, session: SessionRecord, where: "same" | "new"): Promise<void> {
+    const matches = (name: string) => name === session.terminal;
+    // Read in the same turn as the activity that chose `where`: the terminal this restart is for, or none.
+    const terminal = this.#ports.ui.terminalToken(matches);
     if (session.relaunch.grantsWorkFolder) {
       // The command line gives the agent the work item's folder again: asked again, as at the first start (S-2).
       // A second press while the CLI is asked starts nothing more; and an answer that arrives after the window
-      // closed, another work item opened, a new attempt started or the session was started again starts nothing.
+      // closed, another work item opened, a run or Reset started, a new attempt started or the session was
+      // started again starts nothing.
       if (this.#relaunchChecks.has(session)) return;
       this.#relaunchChecks.add(session);
       const before = this.#relaunches.get(session) ?? 0;
+      const epoch = this.#fixEpoch;
       let privacy: WorkFolderPrivacy;
       try {
-        privacy = await this.#workFolderPrivacy(session.root);
+        privacy = await this.#workFolderPrivacy(session.root, workItemId, session.relaunch.workFolder);
       } finally {
         this.#relaunchChecks.delete(session);
       }
-      if (this.#disposed || this.#workItemId !== workItemId || this.#sessions.get(workItemId) !== session) return;
+      if (this.#disposed || epoch !== this.#fixEpoch) return;
+      if (this.#workItemId !== workItemId || this.#sessions.get(workItemId) !== session) return;
       if ((this.#relaunches.get(session) ?? 0) !== before) return;
       if (!privacy.private) {
         this.#ports.log.info(`Not starting the AI session for ${workItemId} again: ${privacy.problem}`);
@@ -2620,11 +2649,23 @@ export class Controller {
         return;
       }
     }
-    const matches = (name: string) => name === session.terminal;
-    let placed = where;
+    // Looked at again in the turn that types or starts, so nothing can change in between (F-2).
+    const unchanged =
+      this.#ports.ui.terminalToken(matches) === terminal &&
+      (where === "new" || (terminal !== undefined && this.#ports.ui.terminalActivity(matches) === "exited"));
+    if (!unchanged) {
+      this.#terminalChanged(workItemId);
+      return;
+    }
     try {
-      if (placed === "same" && !this.#ports.ui.sendToTerminal(matches, session.relaunch.commandLine)) placed = "new";
-      if (placed === "new") this.#ports.ui.runInTerminal(session.terminal, session.root, session.relaunch.commandLine);
+      if (where === "same") {
+        if (!this.#ports.ui.sendToTerminal(terminal!, session.relaunch.commandLine)) {
+          this.#terminalChanged(workItemId);
+          return;
+        }
+      } else {
+        this.#ports.ui.runInTerminal(session.terminal, session.root, session.relaunch.commandLine);
+      }
     } catch (error) {
       this.#ports.log.error(`Could not start the AI session for ${workItemId} again: ${(error as Error)?.message ?? String(error)}`);
       this.#showSessionFeedback(workItemId, "failed", SESSION_RELAUNCH_FAILED);
@@ -2633,9 +2674,15 @@ export class Controller {
     this.#relaunches.set(session, (this.#relaunches.get(session) ?? 0) + 1);
     // The agent, never the command line (§37.95).
     this.#ports.log.info(
-      `Starting ${session.adapter} again for ${workItemId}${session.relaunch.resumes ? ", resuming its session" : " on the same task"}, in ${placed === "same" ? "its terminal" : "a new terminal"}.`,
+      `Starting ${session.adapter} again for ${workItemId}${session.relaunch.resumes ? ", resuming its session" : " on the same task"}, in ${where === "same" ? "its terminal" : "a new terminal"}.`,
     );
-    this.#showSessionFeedback(workItemId, "restarted", sessionRelaunched(session.agent, session.relaunch.resumes, placed));
+    this.#showSessionFeedback(workItemId, "restarted", sessionRelaunched(session.agent, session.relaunch.resumes, where));
+  }
+
+  /** A restart whose terminal changed while it waited: nothing typed, nothing started, and said (F-2). */
+  #terminalChanged(workItemId: string): void {
+    this.#ports.log.info(`Not starting the AI session for ${workItemId} again: its terminal changed while BugPilot was checking.`);
+    this.#showSessionFeedback(workItemId, "failed", SESSION_TERMINAL_CHANGED);
   }
 
   /**
@@ -2659,12 +2706,16 @@ export class Controller {
     await this.#relaunchSession(workItemId, session, "new");
   }
 
-  /** The CLI's answer, asked now: may a work item's folder be given to an agent (S-2)? Never proven is a no. */
-  async #workFolderPrivacy(root: string): Promise<WorkFolderPrivacy> {
+  /**
+   * The CLI's answer, asked now: may this work item's folder be given to an agent (S-2, F-1)? Asked about that
+   * folder, and every folder above it up to the data folder; never proven is a no.
+   */
+  async #workFolderPrivacy(root: string, workItemId: string, workFolder: string | undefined): Promise<WorkFolderPrivacy> {
     const ask = this.#ports.workFolderPrivacy;
     if (!ask) return { private: false, problem: "This BugPilot cannot ask whether its data folder is private to you." };
+    if (workFolder === undefined) return { private: false, problem: "BugPilot does not know which folder this session was given." };
     try {
-      return await ask(root);
+      return await ask(root, { workItemId, workFolder });
     } catch (error) {
       return {
         private: false,
@@ -3094,16 +3145,17 @@ export class Controller {
     // the terminal list — can tell this attempt's terminal from the last one.
     const attempts = (this.#sessions.get(workItemId)?.attempts ?? 0) + 1;
     const terminal = attempts === 1 ? fixTerminalName(workItemId) : `${fixTerminalName(workItemId)} (${attempts})`;
+    // Where the agent writes fix_report.md, outside the repository (0.1.7): an agent that edits only
+    // where it is told may (Claude CLI's --add-dir) is told this folder, and no other — and only when the
+    // CLI, asked then about this very folder, finds it and every folder above it private (S-2, F-1).
+    const workFolder = this.#knownWorkDir(workItemId);
     const request: AiFixRequest = {
       workspacePath: root,
       workItemId,
       prompt: text,
       preparedContextPath: this.#itemFile(workItemId, TASK_ARTIFACT),
-      // Where the agent writes fix_report.md, outside the repository (0.1.7): an agent that edits only
-      // where it is told may (Claude CLI's --add-dir) is told this folder, and no other — and only when the
-      // CLI, asked then, finds BugPilot's data folder private (S-2).
-      workFolder: this.#knownWorkDir(workItemId),
-      workFolderPrivacy: () => this.#workFolderPrivacy(root),
+      workFolder,
+      workFolderPrivacy: () => this.#workFolderPrivacy(root, workItemId, workFolder),
       purpose: "fix",
       // A fresh one per attempt: an agent that can be started under it can be
       // resumed by it, which is how Open AI Session continues this attempt's
@@ -3144,6 +3196,7 @@ export class Controller {
             ? { commandLine: result.commandLine, resumes: false }
             : { commandLine: result.resumeCommandLine, resumes: true }),
           grantsWorkFolder: result.grantsWorkFolder === true,
+          ...(result.grantsWorkFolder === true ? { workFolder } : {}),
         },
       });
       // A new session: what the last Open AI Session press said is about the old one.

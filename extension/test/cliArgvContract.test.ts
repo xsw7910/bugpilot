@@ -41,6 +41,7 @@ import { jiraSiteArgs } from "../src/app/jiraSite.ts";
 import { recordReviewArgs } from "../src/app/reviewCapture.ts";
 import { recordVerificationArgs } from "../src/app/verificationCapture.ts";
 import { repositoryProfileArgs } from "../src/app/repositoryProfile.ts";
+import { workItemPrivacyArgs } from "../src/app/dataFolder.ts";
 
 const FIXTURE = new URL("../../tests/fixtures/extension_cli_argv.json", import.meta.url);
 
@@ -129,6 +130,8 @@ function contract(): { readonly name: string; readonly argv: readonly string[] }
     },
     { name: "retry", argv: json(buildRetryArgs("JR-12345")) },
     { name: "doctor (start-up handshake)", argv: json(["doctor"]) },
+    // Asked just before Claude CLI is given a work item's folder, and before Open AI Session gives it again (F-1).
+    { name: "doctor --work-item (the work folder's privacy)", argv: json(workItemPrivacyArgs("JR-12345")!) },
     { name: "list (History)", argv: json(["list"]) },
     { name: "issue-details (hint improver)", argv: json(["issue-details", "JR-12345"]) },
     { name: "clean (Reset Session)", argv: ["clean", "JR-12345"] },

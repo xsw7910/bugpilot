@@ -6571,6 +6571,7 @@ function loop(options: { holdRun?: boolean; deleteArtifacts?: ControllerPorts["d
       },
       // Every launched agent still running: the page's loop never sees one exit.
       terminalActivity: (matches) => ([...terminalNames].some((candidate) => matches(candidate)) ? "running" : "closed"),
+      terminalToken: (matches) => ([...terminalNames].some((candidate) => matches(candidate)) ? 1 : undefined),
       sendToTerminal: () => false,
       offer: async () => false,
       openFolder: async (directory) => { folders.push(directory.replaceAll("\\", "/")); },

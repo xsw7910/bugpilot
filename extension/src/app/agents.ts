@@ -123,9 +123,9 @@ export interface AiFixRequest {
    */
   readonly workFolder?: string;
   /**
-   * Asked just before `workFolder` is given to an agent (0.1.7, S-2): whether BugPilot's data folder is private
-   * to this user, in the CLI's words. Without it, or with any answer but yes, the folder is not given and the
-   * launch is refused: fail closed.
+   * Asked just before `workFolder` is given to an agent (0.1.7, S-2, F-1): whether that folder, and every folder
+   * above it up to BugPilot's data folder, is private to this user, in the CLI's words. Without it, or with any
+   * answer but yes, the folder is not given and the launch is refused: fail closed.
    */
   readonly workFolderPrivacy?: () => Promise<WorkFolderPrivacy>;
   /** What is being handed over, for the words a bridge uses. */
@@ -321,7 +321,7 @@ const REFUSED_FOLDER =
  * (Review with AI), or an installed CLI whose `--help` does not list the option, which is started as it
  * always was. One word with `=`: the option takes several folders, and as two words the prompt after it
  * would be read as one more. Forward slashes, as the prompt names the folder, so no shell reads a
- * backslash as an escape.
+ * backslash as an escape. Whether the folder is private is asked separately, last (`privateFolderRefusal`).
  */
 async function workFolderGrant(
   definition: CliAgentDefinition,
@@ -334,12 +334,19 @@ async function workFolderGrant(
   if (!PLAIN_FOLDER.test(folder)) return { refused: REFUSED_FOLDER };
   const supported = await (probes.supportsFlags?.(definition.command, [flag]) ?? Promise.resolve(false)).catch(() => false);
   if (supported !== true) return {};
-  // Given only when no other account can change what is in it (S-2): the CLI's answer, asked now.
+  return { word: `${flag}=${quote(folder)}` };
+}
+
+/**
+ * Why the work item's folder may not be given after all, or `undefined` when it may: given only when no other
+ * account can change what is in it (S-2). The CLI's answer for that work item's folder, asked now — the last wait
+ * before the command line is typed, so nothing else is waited for between the answer and the launch.
+ */
+async function privateFolderRefusal(definition: CliAgentDefinition, request: AiFixRequest): Promise<string | undefined> {
   const privacy: WorkFolderPrivacy = request.workFolderPrivacy
     ? await request.workFolderPrivacy().catch((): WorkFolderPrivacy => ({ private: false, problem: PRIVACY_UNKNOWN }))
     : { private: false, problem: PRIVACY_UNKNOWN };
-  if (!privacy.private) return { refused: refusedPrivateFolder(definition.label, privacy.problem) };
-  return { word: `${flag}=${quote(folder)}` };
+  return privacy.private ? undefined : refusedPrivateFolder(definition.label, privacy.problem);
 }
 
 const PRIVACY_UNKNOWN = "BugPilot could not confirm that its data folder is private to you.";
@@ -443,6 +450,10 @@ export function cliAgent(definition: CliAgentDefinition, probes: AgentProbes): A
         (await (probes.supportsFlags?.(command, session.flags) ?? Promise.resolve(false)).catch(() => false)) === true
           ? request.sessionId
           : undefined;
+      if (grant.word !== undefined) {
+        const refused = await privateFolderRefusal(definition, request);
+        if (refused !== undefined) return { kind: "failed", reason: refused };
+      }
       const commandLine =
         sessionId === undefined
           ? `${command}${granted} ${quote(flatten(request.prompt))}`

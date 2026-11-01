@@ -688,3 +688,237 @@ def test_doctor_reports_whether_the_work_folders_are_private(tmp_path, monkeypat
     report = storage_report(tmp_path)
     assert report["privacy"] == "not-private"
     assert "is not private (Users may write to it)" in (report["privacy_problem"] or "")
+
+
+# --- doctor --work-item: the extension's question, as wide as the launcher's (F-1) ------------------------
+
+
+def _link_folder(link: Path, target: Path) -> None:
+    """``link`` made a link to ``target``: a junction on Windows, a symbolic link elsewhere (skipped if refused)."""
+    target.mkdir(parents=True, exist_ok=True)
+    if sys.platform == "win32":
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+        return
+    try:
+        os.symlink(target, link, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"cannot create a symbolic link here: {exc}")
+
+
+def _disk(root: Path) -> list[tuple[str, int]]:
+    """Every name below the data folder and the repository, with its mode: what a read-only check must leave alone."""
+    from bugpilot.core import storage
+
+    data = storage.data_root()
+    found = []
+    for base in (data, root):
+        if base.exists():
+            found += [(f"{base.name}/{p.relative_to(base).as_posix()}", p.lstat().st_mode) for p in base.rglob("*")
+                      if base != root or (data not in p.parents and p != data)]
+    return sorted(found)
+
+
+def test_doctor_work_item_judges_every_folder_down_to_that_work_item_and_no_other(tmp_path, monkeypatch):
+    from bugpilot.core.doctor import storage_report
+
+    _prepared(tmp_path)
+    _prepared(tmp_path, "JR-23456")
+    asked = _verdicts(monkeypatch, lambda path: ("private", ()))
+
+    report = storage_report(tmp_path, "JR-12345")
+
+    assert (report["work_item_id"], report["work_item_privacy"], report["work_item_privacy_problem"]) == ("JR-12345", "private", None)
+    assert asked[-5:] == [(place, "data-root") for place in _chain(tmp_path)], "the launcher's chain, in its order"
+    assert not any("JR-23456" in place.parts for place, _ in asked), "an unrelated work item's folder was looked at"
+
+
+def test_doctor_work_item_refuses_when_only_that_work_items_folder_is_open_to_others(tmp_path, monkeypatch):
+    """The measured F-1 case: every parent private, the work item's own folder writable by another account."""
+    from bugpilot.core.doctor import storage_report
+
+    folder = _prepared(tmp_path)
+    _open_to_others(folder)
+
+    report = storage_report(tmp_path, "JR-12345")
+
+    assert report["privacy"] == "private", "repository-level: it still stops at work/, as documented"
+    assert report["work_item_privacy"] == "not-private"
+    assert "will not give an agent this work item's folder" in (report["work_item_privacy_problem"] or "")
+    assert "JR-12345 is not private" in (report["work_item_privacy_problem"] or "")
+    calls = _fake_run(monkeypatch)
+    assert run_agent(tmp_path, "JR-12345", "claude").ran is False and calls == [], "the CLI launcher agrees"
+
+
+def test_doctor_work_item_is_not_refused_for_another_work_items_open_folder(tmp_path):
+    from bugpilot.core.doctor import storage_report
+
+    _prepared(tmp_path)
+    _open_to_others(_prepared(tmp_path, "JR-23456"))
+
+    assert storage_report(tmp_path, "JR-12345")["work_item_privacy"] == "private"
+    assert storage_report(tmp_path, "JR-23456")["work_item_privacy"] == "not-private"
+
+
+@pytest.mark.parametrize("level", [0, 1, 2, 3], ids=["data-folder", "repositories", "repository-folder", "work"])
+def test_doctor_work_item_refuses_a_parent_folder_open_to_others(tmp_path, monkeypatch, level):
+    from bugpilot.core.doctor import storage_report
+
+    _prepared(tmp_path)
+    exposed = _chain(tmp_path)[level]
+    asked = _verdicts(
+        monkeypatch,
+        lambda path: ("not-private", ("Users may write to it",)) if path == exposed else ("private", ()),
+    )
+
+    report = storage_report(tmp_path, "JR-12345")
+
+    assert report["work_item_privacy"] == "not-private"
+    assert "is not private (Users may write to it)" in (report["work_item_privacy_problem"] or "")
+    assert asked[-1] == (exposed, "data-root"), "it stops at the first folder that is not private"
+
+
+@pytest.mark.parametrize("where", ["work-item", "work"])
+def test_doctor_work_item_refuses_a_link_or_junction_and_follows_none(tmp_path, monkeypatch, where):
+    from bugpilot.core.doctor import storage_report
+
+    _prepared(tmp_path, "JR-1")
+    elsewhere = tmp_path / "elsewhere"
+    if where == "work-item":
+        _link_folder(issue_dir(tmp_path, "JR-12345"), elsewhere)
+    else:
+        work = issue_dir(tmp_path, "JR-1").parent
+        work.rename(tmp_path / "old-work")
+        _link_folder(work, elsewhere / "work")
+        (elsewhere / "work" / "JR-12345").mkdir()
+    asked = _verdicts(monkeypatch, lambda path: ("private", ()))
+    before = _disk(tmp_path)
+
+    report = storage_report(tmp_path, "JR-12345")
+
+    assert report["work_item_privacy"] == "not-private"
+    assert "is a symbolic link or junction" in (report["work_item_privacy_problem"] or "")
+    assert not any(place == elsewhere or elsewhere in place.parents for place, _ in asked), "a link was followed"
+    assert not any(place.name == "JR-12345" for place, _ in asked), "the linked folder was judged"
+    assert _disk(tmp_path) == before
+
+
+@pytest.mark.parametrize("work_item", ["JR-99999", "../JR-12345", "JR-12345/..", "", "a b"])
+def test_doctor_work_item_refuses_a_missing_or_invalid_work_item_and_creates_nothing(tmp_path, work_item):
+    from bugpilot.core.doctor import storage_report
+
+    _prepared(tmp_path)
+    before = _disk(tmp_path)
+
+    report = storage_report(tmp_path, work_item)
+
+    assert report["work_item_id"] == work_item
+    assert report["work_item_privacy"] == "unverifiable"
+    assert report["work_item_privacy_problem"]
+    assert _disk(tmp_path) == before
+
+
+def test_doctor_work_item_before_any_data_folder_exists_creates_none(tmp_path):
+    from bugpilot.core import storage
+    from bugpilot.core.doctor import storage_report
+
+    assert not storage.data_root().exists()
+
+    report = storage_report(tmp_path, "JR-12345")
+
+    assert report["work_item_privacy"] == "unverifiable"
+    assert "is not there" in (report["work_item_privacy_problem"] or "")
+    assert not storage.data_root().exists(), "a read-only check created the data folder"
+
+
+def test_doctor_work_item_privacy_that_cannot_be_proven_is_refused(tmp_path, monkeypatch):
+    from bugpilot.core import storage
+    from bugpilot.core.doctor import storage_report
+
+    _prepared(tmp_path)
+    _verdicts(monkeypatch, lambda path: ("unverifiable", ("the volume keeps no access lists",)))
+    report = storage_report(tmp_path, "JR-12345")
+    assert report["work_item_privacy"] == "unverifiable"
+    assert "cannot confirm that" in (report["work_item_privacy_problem"] or "")
+
+    def broken(path, role):
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr(storage.private_folder, "verify_private", broken)
+    report = storage_report(tmp_path, "JR-12345")
+    assert report["work_item_privacy"] == "unverifiable"
+    assert "could not check" in (report["work_item_privacy_problem"] or "")
+
+
+def test_doctor_work_item_refuses_a_namespace_storage_refuses(tmp_path, monkeypatch):
+    """A data folder inside the repository is refused before anything is judged: never private."""
+    from bugpilot.core.doctor import storage_report
+
+    monkeypatch.setenv("BUGPILOT_HOME", str(tmp_path / "data-inside"))
+    report = storage_report(tmp_path, "JR-12345")
+    assert report["work_item_privacy"] == "unverifiable"
+    assert "inside this repository" in (report["work_item_privacy_problem"] or "")
+    assert not (tmp_path / "data-inside").exists()
+
+
+def test_doctor_work_item_leaves_the_disk_as_it_was_on_success_and_on_every_refusal(tmp_path, monkeypatch):
+    from bugpilot.core.doctor import storage_report
+
+    _prepared(tmp_path)
+    _prepared(tmp_path, "JR-23456")
+    before = _disk(tmp_path)
+    assert storage_report(tmp_path, "JR-12345")["work_item_privacy"] == "private"
+    assert storage_report(tmp_path, "JR-99999")["work_item_privacy"] == "unverifiable"
+    assert storage_report(tmp_path, "../x")["work_item_privacy"] == "unverifiable"
+    _verdicts(monkeypatch, lambda path: ("not-private", ("Users may write to it",)))
+    assert storage_report(tmp_path, "JR-12345")["work_item_privacy"] == "not-private"
+    assert _disk(tmp_path) == before
+
+
+@pytest.mark.parametrize("scenario", ["private", "work-item-open", "parent-open", "missing", "unverifiable"])
+def test_doctor_work_item_and_the_launcher_agree(tmp_path, monkeypatch, scenario):
+    """The extension's answer (doctor --work-item) and the CLI launcher's grant are the same decision."""
+    from bugpilot.core.doctor import storage_report
+
+    if scenario != "missing":
+        _prepared(tmp_path)
+    chain = _chain(tmp_path)
+    if scenario == "work-item-open":
+        _verdicts(monkeypatch, lambda path: ("not-private", ("Users may write to it",)) if path == chain[4] else ("private", ()))
+    elif scenario == "parent-open":
+        _verdicts(monkeypatch, lambda path: ("not-private", ("Users may write to it",)) if path == chain[2] else ("private", ()))
+    elif scenario == "unverifiable":
+        _verdicts(monkeypatch, lambda path: ("unverifiable", ("its owner cannot be read",)))
+    calls = _fake_run(monkeypatch)
+
+    granted = storage_report(tmp_path, "JR-12345")["work_item_privacy"] == "private"
+    result = run_agent(tmp_path, "JR-12345", "claude")
+
+    assert granted == (result.ran is not False and bool(calls)), (scenario, result.skipped_reason)
+    assert granted == (scenario == "private")
+
+
+def test_doctor_json_without_work_item_is_unchanged_and_with_it_only_gains_three_keys(tmp_path, monkeypatch, capsys):
+    import json
+
+    _prepared(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["doctor", "--json"]) == 0
+    plain = json.loads(capsys.readouterr().out)
+    assert main(["doctor", "--json", "--work-item", "JR-12345"]) == 0
+    asked = json.loads(capsys.readouterr().out)
+
+    storage_keys = [
+        "data_root", "data_root_display", "data_root_source", "repository_id", "repository_dir", "config_dir",
+        "state", "problem", "privacy", "privacy_problem",
+    ]
+    assert list(plain["report"]["storage"]) == storage_keys, "doctor --json changed without the new option"
+    assert list(asked["report"]["storage"]) == [*storage_keys, "work_item_id", "work_item_privacy", "work_item_privacy_problem"]
+    assert {key: asked["report"]["storage"][key] for key in storage_keys} == plain["report"]["storage"]
+    assert set(asked["report"]) == set(plain["report"]) and asked["ok"] is plain["ok"] is True
+    assert asked["report"]["storage"]["work_item_privacy"] == "private"
+
+    assert main(["doctor", "--work-item", "JR-12345"]) == 0
+    assert "  work_item_privacy: private" in capsys.readouterr().out.splitlines()

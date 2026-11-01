@@ -715,7 +715,9 @@ and before the pipeline runs — and is shown separately from the current select
   item's folder is outside the repository; one `=` word, since the option takes several folders; not when the
   configured args already name that folder; refused, and nothing started, when storage's checks refuse the folder,
   it is not there, or it is not private: `storage.RepositoryStorage.check_private_for_agent` on the data folder and
-  every folder down to the work item's own); `run_agent` resolves the executable
+  every folder down to the work item's own; the extension asks the same question of one work item through
+  `doctor --json --work-item <id>`, answered by `RepositoryStorage.work_item_privacy` without raising); `run_agent`
+  resolves the executable
   (`_resolve_launch_command`, wrapping `.cmd`/`.bat` in `cmd /c` on Windows) and
   runs it inheriting the terminal. A batch file's command line passes `_cmd_exe_problem` first: cmd.exe acts on
   `%`, `^`, `&` and more, so every word must hold only the plain-prompt gate's characters, or nothing starts (T-S12).

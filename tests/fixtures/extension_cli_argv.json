@@ -106,6 +106,15 @@
       ]
     },
     {
+      "name": "doctor --work-item (the work folder's privacy)",
+      "argv": [
+        "doctor",
+        "--work-item",
+        "JR-12345",
+        "--json"
+      ]
+    },
+    {
       "name": "list (History)",
       "argv": [
         "list",

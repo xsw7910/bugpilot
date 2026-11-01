@@ -21,7 +21,7 @@ import type { Environment } from "./app/environment.ts";
 import { TASK_ARTIFACT } from "./app/artifacts.ts";
 import { AttachmentReferenceRegistry, initializeAttachmentGc, runAttachmentGc } from "./app/attachmentStorage.ts";
 import { Controller } from "./app/controller.ts";
-import { workFolderPrivacyOf } from "./app/dataFolder.ts";
+import { askWorkFolderPrivacy } from "./app/dataFolder.ts";
 import { isWorkItemId, restoreForm } from "./app/form.ts";
 import { commandForLog, redactKnown, rejectedValueForLog, sensitiveValues } from "./app/logSafety.ts";
 import { deleteWorkItemArtifacts } from "./app/sessionReset.ts";
@@ -420,12 +420,11 @@ export function activate(context: vscode.ExtensionContext): void {
           trustedRunner(executable).runJson(args, { cwd: root, env: environment, timeoutMs: 30_000 });
         return loadIssueDetails(runJson, issueKey);
       },
-      // Before Claude CLI is given a work item's folder: the CLI's own check of BugPilot's data folder,
-      // asked then (`doctor --json`'s storage.privacy, 0.1.7, S-2). Anything but a clear yes is a no.
-      workFolderPrivacy: async (root) => {
-        const envelope = await trustedRunner(executable).runJson(["doctor"], { cwd: root, timeoutMs: 60_000 });
-        return workFolderPrivacyOf(envelope.ok ? (envelope["report"] as Record<string, unknown> | undefined) : undefined);
-      },
+      // Before Claude CLI is given a work item's folder: the CLI's own check of that folder and every folder
+      // above it up to BugPilot's data folder, asked then (`doctor --json --work-item <id>`, 0.1.7, S-2, F-1).
+      // Anything but a clear yes about that very folder is a no.
+      workFolderPrivacy: (root, grant) =>
+        askWorkFolderPrivacy((args) => trustedRunner(executable).runJson(args, { cwd: root, timeoutMs: 60_000 }), grant),
       improveHint: improveHintWithProvider,
       // Review with AI's captured one-shot run: the agent's own argv, the prompt
       // on stdin, the repository as cwd, stdout read at exit. No terminal.
