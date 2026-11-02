@@ -5,8 +5,8 @@
 | **Reviewed commit** | `d05c0253943785b328fa12a280c34bef3b1554e5` (branch `verify/0.1.7-storage`), tree `0b80a3d05b693756612d61d554c12249d6b513af` |
 | **Date** | 2026-10-29 |
 | **Kind of review** | Release-candidate review, verification and documentation only. Nothing was changed in the product, staged, committed, pushed, merged, tagged, published or released. |
-| **Technical classification** | **RC BLOCKED**: documentation defects in the shipped READMEs, and owner-only acceptance not done (§12, §14). *(Later on 2026-10-29: the owner's remediation batch — D-1 to D-6, S-1, S-2, U-1, ST-1, ST-2 — is fixed locally and verified on Windows, uncommitted (§15). Still **RC BLOCKED** until a corrected candidate commit passes cross-platform CI and its follow-up review.)* *(Later: the conditional commit approval's checks stopped on a new finding, S-8: no commit; a new owner decision is needed (§16).)* *(Later: the owner decided to fix S-8 in this commit; it is fixed, every condition is met, and the remediation is committed with this record and pushed for cross-platform CI (§17). Still **RC BLOCKED** until all nine CI jobs pass and the follow-up review is complete.)* *(Later on 2026-10-31: CI run 41068475707 passed 9 of 9 on `35040af`. The follow-up review found F-1: the extension's privacy check stops short of the work item's own folder. **RC BLOCKED** pending the owner's decision on its remediation (§18).)* *(Later on 2026-11-01: F-1, F-2 and F-3 remediated with the owner's Option A′, verified on Windows, and committed with this record on the owner's approval. Still **RC BLOCKED** until all nine CI jobs pass on that commit and a short final RC review is done (§19).)* |
-| **Public-distribution authorization** | **UNRESOLVED**: release-governance decisions are the owner's (§13) |
+| **Technical classification** | **RC BLOCKED**: documentation defects in the shipped READMEs, and owner-only acceptance not done (§12, §14). *(Later on 2026-10-29: the owner's remediation batch — D-1 to D-6, S-1, S-2, U-1, ST-1, ST-2 — is fixed locally and verified on Windows, uncommitted (§15). Still **RC BLOCKED** until a corrected candidate commit passes cross-platform CI and its follow-up review.)* *(Later: the conditional commit approval's checks stopped on a new finding, S-8: no commit; a new owner decision is needed (§16).)* *(Later: the owner decided to fix S-8 in this commit; it is fixed, every condition is met, and the remediation is committed with this record and pushed for cross-platform CI (§17). Still **RC BLOCKED** until all nine CI jobs pass and the follow-up review is complete.)* *(Later on 2026-10-31: CI run 41068475707 passed 9 of 9 on `35040af`. The follow-up review found F-1: the extension's privacy check stops short of the work item's own folder. **RC BLOCKED** pending the owner's decision on its remediation (§18).)* *(Later on 2026-11-01: F-1, F-2 and F-3 remediated with the owner's Option A′, verified on Windows, and committed with this record on the owner's approval. Still **RC BLOCKED** until all nine CI jobs pass on that commit and a short final RC review is done (§19).)* *(Later on 2026-11-01: CI run 41351728876 passed 9 of 9 on `9fe8a8a`. The final RC acceptance found no blocker; three required scenarios need the owner's desktop: **RC REVIEW INCOMPLETE** (§20).)* *(Later on 2026-11-01: the owner reported A-1 to A-5 and A-7's steps 1–3 PASS on the owner's desktop and approved `9fe8a8a` as 0.1.7's technical release candidate: **RC TECHNICALLY READY** (§21). A-6 and A-7's step 4 are not tested.)* |
+| **Public-distribution authorization** | **UNRESOLVED**: release-governance decisions are the owner's (§13) *(Unchanged by the owner's technical approval of `9fe8a8a`: G-1 and G-3 unresolved, G-2 awaiting the owner's confirmation (§21).)* |
 
 This is an internal review by the developer's AI assistant. It is **not** an independent or external security audit, and no such audit has taken place.
 
@@ -1230,3 +1230,334 @@ Records: the final RC follow-up review (§18) and this remediation (§19).
 - G-1 and G-3 have no recorded resolution.
 - G-2 needs the owner's confirmation for 0.1.7.
 - Neither this remediation nor CI authorizes distribution.
+
+## 20. Final RC acceptance of `9fe8a8a` (2026-11-01)
+
+**Status: RC REVIEW INCOMPLETE. No blocker was found: CI 9 of 9 on the exact commit; reproducible artifacts; clean CLI, MCP, VSIX and managed-runtime installs; F-1, F-2 and F-3 accepted wherever this environment can observe them; and the real BugPilot panel driven in a disposable VS Code. Three required scenarios cannot be observed here and are on the owner's desktop checklist below: a terminal running the agent, the clipboard, and Open AI Session typing into the same terminal. One new Low finding (F-8, a misleading card title) and five Informational ones. Public distribution: UNRESOLVED.**
+- A verification and documentation phase. Nothing was implemented, staged, committed, pushed, merged, tagged, published or released. This section and the plan's record are its only edits.
+- No account-using AI session was run. Agents were the argument-echo stand-in. No Jira site was used.
+- An internal review by the developer's AI assistant, with one independent read-only pass by a second AI reviewer that was given the code, not this review's conclusions. It is **not** an independent or external security audit.
+
+### The candidate
+
+| Item | Value | Verified by |
+|---|---|---|
+| Branch | `verify/0.1.7-storage` | `git branch --show-current` |
+| HEAD | `9fe8a8a379c9e9cf83ed8c7f84fbb6c73be1c525` (parent `35040af`), "fix(storage): validate work-item privacy and terminal identity before AI grant", 28 paths | `git rev-parse HEAD` |
+| Tree | `48785521d5b269422a43968bf949c9b8b92ead48` | `git rev-parse HEAD^{tree}` |
+| Origin's branch | `9fe8a8a`, the same commit | `git ls-remote origin` |
+| Origin's `main`; tags | `7feeaf7`, untouched; none | `git ls-remote origin`, `git ls-remote --tags origin` |
+| The reviewed sources | equal to the commit: `bugpilot/`, `extension/src`, `extension/test`, `extension/test-integration`, `scripts/` and `tests/` show no difference from `9fe8a8a`; the artifacts were built from a `git archive` export of the commit, not from the working tree | `git diff --quiet 9fe8a8a -- …`; the export |
+| Working tree | the candidate, plus the owner's three unrelated paths, which were not opened | `git status` |
+
+### CI evidence: run 41351728876
+
+Dispatched by the owner (`workflow_dispatch`) on `verify/0.1.7-storage`. Read from the public API: the run, its jobs and each job's annotations, attempt 1, head `9fe8a8a379c9e9cf83ed8c7f84fbb6c73be1c525`, conclusion `success`. The job logs need a sign-in and were not read; the counts are the jobs' own summary annotations.
+
+| Job | Result | Tests |
+|---|---|---|
+| Full Python suite (windows-latest) | success | 4,235 passed, 93 skipped, 1 deselected |
+| Full Python suite (macos-latest) | success | 4,183 passed, 95 skipped, 1 deselected |
+| Full Python suite (ubuntu-latest) | success | 4,179 passed, 99 skipped, 1 deselected |
+| Safety and baselines, Windows, Python 3.13 | success | 2,120 passed, 93 skipped, 1 deselected |
+| Safety and baselines, macOS, Python 3.13 | success | 2,076 passed, 88 skipped, 1 deselected |
+| Safety and baselines, Ubuntu, Python 3.13 and 3.10 | success, success | 2,072 passed, 92 skipped, 1 deselected, each |
+| The extension's unit tests (ubuntu-latest) | success | 2,403 tests: 2,401 passed, 2 skipped |
+| Extension evidence boundary (ubuntu-latest) | success | 27 passed |
+
+- **Against run 41068475707 (`35040af`):** every full Python job has 28 more passing tests and the same skips, which are the commit's new F-1 and F-3 tests running on every system. The safety jobs are unchanged; the new tests are not in that selection. The extension has 16 more tests.
+- **Green CI is not taken as proof of the manual workflows.** They are below.
+
+### Release artifacts
+
+Built from a clean `git archive` export of `9fe8a8a`, outside the repository: `python -m build` (an isolated build, setuptools 84.2.1) for the wheel and sdist; `npm ci`, then `npm run package` (build, `check-package`, `vsce package`) for the VSIX. Not published or uploaded.
+
+| File | Bytes | SHA-256 |
+|---|---|---|
+| `bugpilot-0.1.7-py3-none-any.whl` | 409,816 | `c6679c089eba0c33b5b2df039bda84f7625d25625ec364222d56d041ed2514a4` |
+| `bugpilot-0.1.7.tar.gz` | 393,227 | `9caf49f43a3154176ea3c28fd54cb56d80cf5fa792263a28d34c24dc250b6f2f` |
+| `bugpilot-0.1.7.vsix` | 581,333 | `abc29a8d8bf46f0bf61598e1b559c4cbd3248fe7acb9ea8281e38b33a0f8844f` |
+
+| Check | Result |
+|---|---|
+| `twine check --strict` | PASSED (wheel), PASSED (sdist) |
+| Version | 0.1.7 everywhere: the wheel's `METADATA` and `bugpilot.__version__`, the sdist's `PKG-INFO`, the VSIX's `package.json` and `extension.vsixmanifest` |
+| Metadata and licence | `License-Expression: BUSL-1.1`, `License-File: LICENSE` (in the wheel's `dist-info/licenses/`, byte-for-byte the committed file); `Requires-Python: >=3.10`; no runtime dependencies (`mcp` and `test` are extras); entry points `bugpilot` and `bugpilot-mcp`; the repository and issue URLs. The VSIX: `SEE LICENSE IN LICENSE.txt`, `LICENSE.txt` and `THIRD_PARTY_NOTICES.md`, engines `vscode ^1.90.0`, `node >=22.18`, the publisher and repository unchanged. The commit changed no licence, notice, manifest or version file. |
+| Members | wheel 71, sdist 77, VSIX 89 (`check-package`: 87 files, 74 of them built JavaScript, all current). No tests, caches, logs, maps, keys, `.bugpilot/`, `.ai/`, `.vscode/`, `node_modules/` or private word lists. |
+| Members against the commit | every one of the wheel's 65 package files and the sdist's 69 source files is byte-for-byte the committed file; the VSIX's 11 static members (licence, notices, readme, changelog, media) match the committed files. |
+| Private data and credentials | none. The scan reads every text member: the publishability scan (the private word list read in place, never printed), credential patterns, e-mail addresses and local paths. The one hit, as in every earlier build, is the README's generic example path under `/home/you/`. |
+| Reproducible contents | a second, independent export and build: every member of all three archives has the same content (SHA-256 per member). The archives' own hashes differ only through timestamps. |
+| Against the `35040af` build | the same member names in all three. Changed members: the 4 Python modules the commit changed (`cli.py`, `doctor.py`, `setup.py`, `storage.py`) and the metadata that carries the README; the 6 extension modules (`agents`, `controller`, `dataFolder`, `extension`, `agentTerminals`, `ports`), the readme and the changelog. Nothing else. |
+| Python and extension requirements | they match. The managed runtime installs `bugpilot==` the extension's own version (0.1.7). The extension requires the `unified-storage` capability, and, to give Claude a folder, `doctor --work-item`; the wheel's CLI has both. The installed-CLI contract check accepts all 40 command lines the extension sends, with `--expect-version 0.1.7`. |
+
+### Clean installs
+
+Each in a new virtual environment or a new disposable VS Code profile, with an isolated home and data folder, no Jira, `BUGPILOT_*`, `PYTHONPATH` or `VSCODE_*` variables, and only synthetic repositories.
+
+| Check | Result |
+|---|---|
+| CLI: a new venv, the wheel only, no index | installs; `bugpilot --version` prints `bugpilot 0.1.7`; imported from `site-packages` |
+| `doctor --json`, `doctor --json --work-item <id>` (installed CLI) | 11 of 11: `doctor --json` is ok, lists `unified-storage` and has no `work_item_*` key; a bug description prepares a work item in the data folder and nothing in the repository; `--work-item` on it answers `private`, about that id, with its three keys after the existing ones; a never-prepared id answers `unverifiable`, creates nothing, and its sentence holds no home path; the text form names the work item |
+| Installed-CLI argv contract (`scripts/check_cli_contract.py`) | all 40 command lines accepted; version 0.1.7; every capability the extension depends on listed |
+| CLI acceptance | 38 of 38 |
+| MCP: a new venv, `bugpilot[mcp]` from the wheel, the SDK from PyPI (`mcp` 2.3.0) | installs; `pip check` clean; bugpilot 0.1.7 from `site-packages`. MCP acceptance (raw JSON-RPC over stdio, `bugpilot-mcp`): 11 of 11 |
+| End to end: a real `cmd.exe` batch stand-in, a real access-list grant | 8 of 8 |
+| Extension × CLI compatibility (the extension's own code; the released 0.1.6 CLI, the `35040af` RC CLI, this wheel) | 16 of 16 |
+| Refusal matrix (the installed wheel) | 92 of 92: §19's 79, plus 13 new (below) |
+| The VSIX in a new disposable VS Code (standalone 1.142) | installs and activates in three new profiles; the extension is listed at 0.1.7 |
+| The managed runtime, from the wheel alone (pip offline, a folder holding only the wheel) | 13 of 13: Install Runtime builds it in the extension's storage, pinned to `bugpilot==0.1.7`; its 65 package files equal the wheel's; `EXTENSION_OUTDATED` without the 0.1.7 declaration; `unified-storage` listed; BugPilot: Doctor runs |
+
+### F-1, F-2 and F-3: final acceptance
+
+**F-1, the work item's privacy.** The CLI's answers were measured through the installed wheel; the grant decisions in the real panel.
+
+| Requirement | Result | Evidence |
+|---|---|---|
+| A private work item permits the grant | **PASS** | Real panel: Fix with AI hands the work item to Claude CLI, and the CLI's last call before the handoff is `doctor --json --work-item <that item>`. Installed CLI: `private`. |
+| The current work item's folder open to others refuses | **PASS** | Real panel: with Everyone granted write on the work item's folder only, Fix with AI starts nothing; the row says "… is not private (Everyone may write to it). Restrict it to your account, or set BUGPILOT_HOME to a private folder. BugPilot did not start Claude CLI with the work item's folder; use Copy Handoff Prompt …". Open AI Session's restart refuses the same way. Installed CLI: `not-private`, while the repository-level `privacy` stays `private`. |
+| An unrelated work item open to others does not block a private one | **PASS** | Installed CLI (refusal matrix): another work item stays `private` while JR-12345's folder is open |
+| A parent folder open to others refuses | **PASS** | Installed CLI, new: `work/`, the repository's folder and `repositories/`, each open to Everyone in turn: `not-private`, naming that folder; `private` again once the grant is removed |
+| A missing work item refuses, creating nothing | **PASS** | Installed CLI: never-prepared and invalid ids answer `unverifiable`; the data folder is unchanged |
+| Links and junctions refuse | **PASS** | Installed CLI: a junction, and (new) a directory symbolic link, at `work/<id>` and at `work/`: `not-private`, naming the link; the target untouched |
+| Unprovable privacy refuses | **PASS** | Installed CLI, new: an access list this account may not read answers `unverifiable` ("its access list cannot be read"); the access list was then written back exactly and the answer is `private` again |
+| No disk mutation | **PASS** | Installed CLI: the data folder's files and modes are the same before and after every answer |
+| A CLI without `--work-item` refuses with an update message | **PASS** | Real panel, with the `35040af` CLI as the executable: Run prepares, then Fix with AI starts nothing and says "This bugpilot cannot check a work item's folder (it has no doctor --work-item option). Update bugpilot to the version that came with this extension. …". No handoff, no terminal, no fall back. Compatibility matrix: the same. |
+
+**F-2, terminal identity.** In the real panel, with the session's terminal created by VS Code. No terminal process starts in this sandbox, so what a terminal would run is not observed. A test-only hook in the scratch runtime delayed the CLI's privacy answer by 3–6 s, so each race had a known window.
+
+| Requirement | Result | Evidence |
+|---|---|---|
+| A normal Open AI Session restart | **PASS** for a closed terminal; **NOT TESTED** for typing into the same terminal after the agent exited (it needs shell integration from a running shell) | The terminal closed: Open AI Session asks the CLI again, then starts Claude CLI in a new terminal of the same name, resuming its session; the panel says "Resuming Claude CLI in a new terminal". With the terminal open: "AI session focused", nothing new started. |
+| A double press starts one session | **PASS** | Two presses 150 ms apart: one privacy question, one start, one terminal |
+| A terminal replaced during the privacy check cancels | **PASS** | A terminal of the session's name opened during the wait: nothing started; the panel says "The AI session's terminal changed while BugPilot was checking, so nothing was started. Press Open AI Session again."; only the developer's terminal is there |
+| A work-item switch cancels | **PASS** | Another work item shown during the wait: nothing started for the first; shown again, it still offers Open AI Session |
+| Reset or a new run cancels | **PASS** | A new run (Rebuild Context) during the wait, and Reset Session during the wait: nothing started; after Reset the files are kept and the form is empty |
+| A closed or disposed terminal receives nothing | **PASS** as far as observable | The closed terminal is never typed into: the restart creates a new one. Typing itself cannot be observed without a running shell; the unit tests with the real host module show that a closed terminal's token types into no other terminal |
+
+**F-3, Git and ripgrep (Windows, the installed wheel):** 12 of 12.
+- With only `git.cmd` and `rg.cmd` on `PATH`, `bugpilot setup` reports Git and ripgrep as not found and says each is there only as a batch file, which BugPilot does not start. `doctor --json` agrees (`git_available` and `rg_available` false).
+- With the real `git.exe` and `rg.exe` later on `PATH`, setup reports both, and `doctor` agrees.
+- The batch stand-ins never ran.
+- Setup was given a synthetic Jira site that never resolves, so it stopped at "Authentication failed" and saved nothing.
+
+### Real VS Code acceptance
+
+**Method.** A disposable standalone VS Code (1.142) with its own user data, extensions folder and home; the RC VSIX installed; the managed runtime built from the wheel alone; a synthetic Git repository; no BugPilot, real `claude`, Jira, `BUGPILOT_*` or `VSCODE_*` on `PATH` or in the environment. New in this review: **the BugPilot panel itself was driven** through VS Code's remote-debugging port.
+- The Issue field was typed into with real input events, its buttons clicked (DOM clicks on the real elements, so the panel's own handlers ran and posted to the real host), and its text read.
+- VS Code's own confirmation dialogs were read and pressed in a normal window: a test-host window refuses dialogs.
+- The previous review's command-path runners were run again too.
+- A PATH guard before every Fix with AI press confirmed that the only `claude` was the stand-in.
+
+| Required check | Result | Evidence |
+|---|---|---|
+| Run from a bug description | **PASS** | Typed into Issue, which reads it as a bug description; Fix with AI left unticked; Run. The run ends, the primary becomes Fix with AI, one new work item is in the data folder with `context.md` and `task.md`, the context names `src/record.py`, no row failed, and the repository is unchanged. |
+| Build Context | **PASS** | The Build context row says "Context ready"; its `context.md` link opens the file from the work item's folder in the data folder |
+| Fix with AI | **PASS** up to the terminal; what the terminal runs is **NOT TESTED** (no terminal process here) | The panel: the F-1 refusal, then the handoff to Claude CLI in the work item's terminal; the primary becomes Open AI Session. The flag probes ran first (`--add-dir`, `--session-id`, `--resume`). |
+| Open AI Session | **PASS** for focusing and for a restart in a new terminal; **NOT TESTED** for typing into the same terminal | As F-2 above |
+| Restart (quit and reopen) and Reset Session | **PASS** | VS Code quit through its own Quit and reopened: the work item shown before opens again from the data folder (2 of 2, twice). Reset Session through ⋯ More: the dialog opens with Keep chosen; Cancel resets nothing; Reset keeps the files and empties the form. |
+| Verification Policy Edit and Reset | **PASS** | Edit creates and opens `settings/verification.md` from the repository's folder in the data folder. A conflicting line saved in the editor is reported on the row. Reset asks through VS Code: "Reset the Verification Policy? This deletes settings/verification.md. …", with Keep File, Delete File and Cancel. Keep File keeps it; Delete File deletes it, and the row shows the default again. The repository is unchanged. |
+| Policy watcher freshness | **PASS** for two editor saves 300 ms apart (the preview shows the second) and for a write from outside VS Code; **NOT TESTED**: a save followed by a focus switch | The panel's Preview, read after each change |
+| Copy Handoff Prompt | **NOT TESTED** | The command runs, but the clipboard reads back nothing in this sandbox, in a test window and in a normal window alike |
+| Advanced Settings | **PASS** | It replaces the workflow; AI Agent offers Auto-detect, Claude CLI, Codex CLI, Claude Extension, Codex Extension and Custom command; the Verification policy row has Edit, Reset and Preview; Back returns |
+| Error and refusal messages | **PASS**, with F-8 below | The privacy refusal (Fix with AI and the restart); the old CLI's update sentence; no agent on `PATH` ("No supported AI agent detected. BugPilot looked for Claude CLI, Codex CLI, Codex Extension and Claude Extension."); the released 0.1.6 extension with this CLI (`EXTENSION_OUTDATED`, 9 of 9) |
+| Reload and recovery | **PASS** | Reload Webviews: the panel comes back offering the same next step. The quit-and-reopen restart above. |
+
+**Every runner's count, and every failed check explained:**
+
+| Runner | Result | The failed checks |
+|---|---|---|
+| Managed runtime (profile 1) | 13 of 13 | — |
+| Main, policy, Fix with AI, restart, the released 0.1.6 extension (the previous review's command paths) | 26 of 28; 19 of 19; 5 of 9; 2 of 2 and 2 of 2; 9 of 9 | Main: the clipboard (2). Fix with AI: what the terminal ran (4), since no terminal process starts here. As in §18. |
+| The panel, test window (profile 2) | 72 of 79 | None is a product failure. **Harness (3):** a radio read as a checkbox; then VS Code's "refused to show dialog in tests" (2), so both dialogs were re-run in a normal window. **Expectation (1):** a changed description makes the primary Rebuild Context, as designed. **Environment (1):** the clipboard. **Shared project (2):** the earlier runners' planted 0.1.6 canaries, untouched. |
+| The panel, normal window | 14 of 15 | the clipboard |
+| The `35040af` CLI as the executable | 8 of 9 | the shared project's planted canaries, untouched |
+| No agent on `PATH` | 7 of 8 | the same |
+| Managed runtime (profile 2, the same home and project) | 11 of 13 | two fresh-state checks, which cannot hold after the earlier runners in the same home and project |
+
+The planted canaries are a 0.1.6 `.ai/JR-12345/context.md` and `.bugpilot/verification.md` in the synthetic repository. The main runner checks that 0.1.7 never reads or changes them, and every runner found the repository's `git status` unchanged from its start.
+
+### Regression and security review
+
+| Area | Result | Evidence |
+|---|---|---|
+| Approved U7-1 to U7-142 baselines | **Preserved** | All 142 entries, each `approved: 2026-10-29`; no file under `tests/baselines/` or `tests/golden/` changed since `59db0b4` |
+| Golden output | **Preserved** | the same; the task and prompt-boundary golden tests pass in CI and from the export |
+| The baseline normalizer; the storage inventory | **Unchanged** | since `d05c025`; since `35040af` |
+| Unified Storage contracts | **Preserved** | `doctor --json` without the option is byte-for-byte the `35040af` CLI's output (compatibility matrix). No error code, layout, `DATA_ROOT_BOUNDARY` or storage importer changed. The storage suites from the export: 1,297 passed, 44 skipped, 0 failed (24 files) |
+| Repository identity and containment | **Preserved** | a foreign or corrupt record, a data folder inside the repository and a relative `BUGPILOT_HOME` all fail closed through the installed wheel; the record is never rewritten |
+| Claude directory-grant restrictions | **Preserved** | a grant only for Claude CLI, only when its `--help` lists `--add-dir`, only for a plain folder path, as one `--add-dir=<folder>` word, and now only after a `private` answer about that very folder; never for Codex, Copilot, a custom command or a review |
+| Shell safety and executable discovery | **Preserved** | `git` and `rg` only as native programs on Windows (S-8), and `setup` now agrees (F-3); the S-1 gate unchanged; end to end 8 of 8 |
+| Extension and CLI fail-closed version handling | **Preserved** | the 0.1.7 extension refuses the 0.1.6 CLI; the 0.1.6 extension is refused by this CLI (`EXTENSION_OUTDATED`); the `35040af` CLI is refused every grant |
+| The extension, from the export | **PASS: typecheck clean; unit tests 2,402 passed, 1 skipped, 0 failed; CLI integration 22 of 22** | typecheck, unit tests and the CLI integration suite (`npm run integration`, the export's own CLI) |
+
+**The independent read-only review** of `9fe8a8a` (the commit and its surrounding code; no tests run): no Critical, High or Medium finding. Its Informational points were checked against the code and are in the table below.
+
+**Findings, new in this review.** None blocks the RC.
+
+| ID | Severity | Finding | Evidence | Smallest remediation, if the owner wants one | Blocks? |
+|---|---|---|---|---|---|
+| F-8 | Low (UX; the privacy refusal has shown it since `35040af`) | **A refused Fix with AI shows a card titled "AI agent unavailable"**, whose message says to check that the agent is installed or choose another, with an Open Settings button. That is the card for every handoff that does not start. For a privacy refusal or an old CLI that headline is wrong: the agent is there. The row under the step says the real reason in full, and so does the card's Details. It fails closed. | Real panel: the privacy refusal and the old-CLI refusal (`failures.ts`, `handoffError`; `controller.ts`, where a failed handover sets it) | A card kind for a refusal BugPilot made itself, for example "Fix with AI was not started", whose message is the reason's first sentence; Open Settings only where a setting is the fix. **Tests:** controller tests for the privacy, old-CLI, plain-folder and prompt-gate refusals, and a real-window check of the card. | No |
+| F-9 | Informational | The CLI's batch-file sentence names `git.CMD` for a file named `git.cmd`: the case of the `PATHEXT` entry, not the file's | Installed wheel, F-3 run | None needed | No |
+| F-10 | Informational | `work_item_privacy` is documented never to raise. A `display_path` `ValueError` could escape if the data folder's real path changed during the call, for example a data-folder link re-pointed by the same user. `doctor --json` then answers `ok: false`, which the extension refuses; the text form prints a traceback. | Independent review; code reading (`storage.py`, the missing-folder branch and `_not_private_for_agent`) | Catch `ValueError` beside `StorageError` and answer `unverifiable` | No |
+| F-11 | Informational | A namespace whose identity record is missing is accepted, as the launcher's `work_item_dir` accepts it; every folder must still be private | Independent review; `_check_record` | None needed; noted for the owner | No |
+| F-12 | Informational | The old-CLI sentence relies on argparse's English "unrecognized arguments". Another wording would give the general refusal: still a no. | `dataFolder.ts`, `askWorkFolderPrivacy` | None needed | No |
+| F-13 | Informational | When the developer accepts the restart offer for a terminal whose state is unknown, the token is read after that offer, not with the activity. That path always starts a new terminal, and the work-item, session and count checks still apply. If the old terminal closes during the wait, the press says "terminal changed" when it could have started. | Independent review; `#offerRelaunch` | None needed; UX only | No |
+
+**The earlier findings:**
+- F-1 is resolved, as accepted above, and F-6 by §19.
+- F-2 and F-3 are fixed and accepted.
+- F-5 is documented, with the S-1 gate unchanged.
+- F-4 and F-7 are unchanged, Informational.
+- The earlier Low and Informational findings (§18's re-evaluation) are unchanged by `9fe8a8a`: none of their code changed.
+- None of them, and none of F-8 to F-13, becomes release-blocking.
+
+### Manual acceptance on the owner's desktop
+
+What this sandbox cannot observe. Each item is short; §18's checklist has the setup (a separate VS Code profile, the candidate's VSIX and wheel by the hashes above, a synthetic repository) and the variants.
+
+| # | Scenario | Why it is here | Steps | Expected |
+|---|---|---|---|---|
+| A-1 | Fix with AI runs Claude CLI in a real terminal (M-2 a, b) | **BLOCKED**: an account-using run needs the owner's approval for each run (G-5); no terminal process here | Claude CLI selected; on a prepared work item, press Fix with AI; read the typed line | One terminal for the work item; `claude --add-dir="<work folder>" --session-id <uuid> "<prompt naming task.md>"`. With the native `claude.exe` Claude writes `fix_report.md` without asking; with only the npm `claude.cmd` there is no `--add-dir` |
+| A-2 | Open AI Session resumes in the same terminal (M-3 step 2) | **BLOCKED**: needs A-1's running agent and shell integration | After A-1, `/exit` in the terminal, then press Open AI Session | After a moment, `--resume <the same id>` with the same `--add-dir`, typed into that terminal |
+| A-3 | A race in a real terminal (M-3 steps 3–4) | **NOT TESTED** here for the same-terminal path (the new-terminal path passed above) | As A-2, but press twice within a second; then again, showing another work item right after pressing | Exactly one start; nothing for the first work item |
+| A-4 | Copy Handoff Prompt (M-6) | **NOT TESTED**: the clipboard reads back nothing here | Run **BugPilot: Copy Handoff Prompt** on a prepared item; paste into an editor | One line, `Read <data folder>/repositories/<repo>-<16 hex>/work/<id>/task.md and complete the workflow.`, with forward slashes, naming a file that exists |
+| A-5 | Policy watcher with a focus switch (M-5 step 2) | **NOT TESTED** | Edit `verification.md`, save, switch to another window and back at once | The row and the Preview show the saved text within a few seconds |
+| A-6 | The Jira workflow (M-7) | **BLOCKED**: needs a test Jira site and token; never a production site | As §18's M-7 | As §18's M-7 |
+| A-7 | Agent selection, a non-ASCII `BUGPILOT_HOME`, and the supported agents (M-9 steps 1–4) | Steps 1–3 **NOT TESTED** in a real window for every agent choice (Auto-detect with no agent passed); step 4 **BLOCKED** on the owner's list (plan §9.10) | As §18's M-9 | As §18's M-9 |
+
+The rest of §18's checklist passed here:
+- in the real panel: M-1, M-4 (its buttons), M-5 steps 1 and 3, M-8, and M-2 (d), the refusal for the work item's own folder;
+- through the installed CLI: M-2 (c), a parent folder open to others.
+
+### Remaining known limitations
+
+- **F-5** (Low, documented): `--launch-agent` cannot start a batch-file agent whose own path holds a space. The workarounds are documented; the S-1 gate is unchanged.
+- **F-8** (Low): the refused handoff's card headline, above.
+- **The time between the privacy answer and the agent's start.** A change of the folder's permissions in that window is not detected. The window is inherent to a check made before a start, and short, since the answer is the last wait. It is not among S-2's listed limitations (§16), so it is recorded here for the owner.
+- **S-2's accepted limitations** (§16): folders above the data folder, macOS extended ACLs, volumes without access lists, the added `doctor` call, and agents given no folder.
+- **Open AI Session without shell integration** cannot tell a running agent from an exited one. It offers a restart and never types blind.
+- **The extension and CLI must be the same release.** The old-CLI refusal shows when they are not.
+- **N-1 to N-4, R-1, S-3 to S-7 and ST-3 to ST-7:** as accepted or recorded before, and unchanged.
+
+### Security assessment
+
+- **No Critical, High or Medium finding** in `9fe8a8a`, by this review's reading, the measurements above, and the independent read-only review.
+- **The security property the remediation was for now holds end to end.** Claude CLI is given a work item's folder only after the CLI, asked about that very folder, proves every folder from the data folder down to it private. Proved here:
+  - in the real panel, for Fix with AI and for Open AI Session's restart;
+  - through the installed wheel, for parents, the work item's own folder, links, junctions, an unreadable access list and a missing folder;
+  - with an older CLI, which is refused.
+- **Nothing found widens a grant.** No fall back to the repository-level answer, no redirection into another terminal, and no start after a switch, a reset, a new run, or a terminal change during the check.
+- **This is not an independent or external security audit.**
+
+### Classification and recommendation
+
+**Technical readiness: RC REVIEW INCOMPLETE.**
+- **No blocker was found,** and every check this environment can run passed: CI, the artifacts, the installs, F-1, F-2 and F-3, and the real panel.
+- **What is missing is evidence, not a fix.** The brief counts a missing required manual check as incomplete. Three required scenarios need the owner's desktop: A-1 and A-2 (a terminal running the agent: an account-using run, approved per run) and A-4 (the clipboard). A-3, A-5 and A-7's steps 1–3 should be run with them; A-6 and A-7's step 4 need a Jira test site and the owner's agent list.
+- **Recommendation:** run A-1 to A-5, and A-7's steps 1–3, on the owner's desktop with these exact artifacts (check the hashes first). If they pass, `9fe8a8a` is technically suitable as the 0.1.7 release candidate as built here, and the classification can become RC TECHNICALLY READY without a new commit. F-8 is the owner's choice: fixing it before the release means a new commit, CI and a short review; deferring it changes nothing else.
+
+**Public distribution: UNRESOLVED.**
+- G-1 (ownership and employment policy) and G-3 (a qualified review of the licence parameters) have no recorded resolution.
+- G-2 needs the owner's confirmation for 0.1.7.
+- G-5 and G-6 are as in §13.
+- Neither CI nor this review authorizes distribution. Nothing was published.
+
+**Not done, as the brief requires:**
+- nothing implemented, staged, committed, pushed, merged, tagged, released or published;
+- no account-using AI session run;
+- no Jira site used.
+
+## 21. Technical RC approval of `9fe8a8a` (2026-11-01)
+
+**Status: RC TECHNICALLY READY. The owner approved `9fe8a8a379c9e9cf83ed8c7f84fbb6c73be1c525` as BugPilot 0.1.7's technical release candidate, after reporting A-1 to A-5 and A-7's steps 1–3 PASS on the owner's desktop. A-6 and A-7's step 4 are not tested. Public distribution: UNRESOLVED.**
+- The approval does **not** authorize public distribution, a merge into `main`, a tag, a release, or publication to PyPI or the VS Code Marketplace.
+- A documentation phase. No product code, U7 baseline, golden file, test or packaging configuration changed. Nothing was merged, tagged, released or published. This section, its header notes and the plan's record are the only edits.
+- **The approved source commit is `9fe8a8a`; the documentation commit is separate.** On the owner's approval, §20, §21 and the plan's records were committed afterwards in one documentation-only commit on `verify/0.1.7-storage`, whose parent is `9fe8a8a`, and pushed. That commit changes only this report and the plan. It does not replace the candidate: the release candidate's source, CI run and artifacts are `9fe8a8a`'s. No CI run was dispatched for it, since it changes no executable, test, baseline, packaging or workflow file.
+
+### The approved candidate
+
+| Item | Value | Verified by |
+|---|---|---|
+| Commit | `9fe8a8a379c9e9cf83ed8c7f84fbb6c73be1c525` on `verify/0.1.7-storage` (parent `35040af`) | `git rev-parse HEAD` |
+| Tree | `48785521d5b269422a43968bf949c9b8b92ead48` | `git rev-parse HEAD^{tree}` |
+| Origin | `verify/0.1.7-storage` at `9fe8a8a`; `main` at `7feeaf7`, untouched; no tags | `git ls-remote origin`, `git ls-remote --tags origin`, on the approval day |
+| The working tree | the product, tests, scripts, packaging and licence files equal `9fe8a8a`; only this record, the plan and the owner's unrelated paths differ | `git diff --quiet 9fe8a8a -- bugpilot extension scripts tests pyproject.toml LICENSE README.md` |
+| Cross-platform CI | run 41351728876 (`workflow_dispatch`, attempt 1, head `9fe8a8a`): **9 of 9** | §20 |
+| Artifacts | wheel `c6679c089eba0c33b5b2df039bda84f7625d25625ec364222d56d041ed2514a4`, sdist `9caf49f43a3154176ea3c28fd54cb56d80cf5fa792263a28d34c24dc250b6f2f`, VSIX `abc29a8d8bf46f0bf61598e1b559c4cbd3248fe7acb9ea8281e38b33a0f8844f`; not published or uploaded | §20 |
+
+### Evidence, by source
+
+The approval rests on two kinds of evidence, kept apart here.
+
+| Source | What it covers | Where recorded |
+|---|---|---|
+| **Agent-observed:** measured by the developer's AI assistant in this review, with one independent read-only pass by a second AI reviewer | CI run 41351728876, read from the public API. The artifacts: built from a clean export, hashed, inspected, and rebuilt with identical contents. Clean installs: the CLI, MCP, the VSIX and the managed runtime. F-1, F-2 and F-3 through the installed wheel and the real panel. The real VS Code acceptance in a disposable profile. The regression and security review. | §20 |
+| **Owner-reported:** run by the owner on the owner's desktop, and accepted as owner-reported evidence | A-1, A-2, A-3, A-4, A-5, and A-7's steps 1–3 | the table below |
+
+- This review did not observe or re-run the owner's tests. It holds the owner's PASS for each, not their logs.
+- **Which build was installed for them is not confirmed.** The owner has not stated it, so this record does not claim that the hashed artifacts above were used; §20 asked for them, checked against their hashes. The owner does not require another desktop test to record the approval.
+
+### The owner's desktop acceptance
+
+| # | Scenario (§20's checklist) | In §20 | Now | Source |
+|---|---|---|---|---|
+| A-1 | Fix with AI runs Claude CLI in a real terminal (M-2 a, b) | BLOCKED | **PASS** | Owner-reported |
+| A-2 | Open AI Session resumes in the same terminal (M-3 step 2) | BLOCKED | **PASS** | Owner-reported |
+| A-3 | A race in a real terminal (M-3 steps 3–4) | NOT TESTED | **PASS** | Owner-reported |
+| A-4 | Copy Handoff Prompt (M-6) | NOT TESTED | **PASS** | Owner-reported |
+| A-5 | The policy watcher with a focus switch (M-5 step 2) | NOT TESTED | **PASS** | Owner-reported |
+| A-6 | The Jira workflow (M-7) | BLOCKED | **NOT TESTED** (still BLOCKED: no Jira test site) | — |
+| A-7, steps 1–3 | Agent selection, Agent Check, and a non-ASCII `BUGPILOT_HOME` (M-9 steps 1–3) | NOT TESTED | **PASS** | Owner-reported |
+| A-7, step 4 | The installed agents on the owner's list (M-9 step 4, plan §9.10) | BLOCKED | **NOT TESTED** (still BLOCKED: the owner's list) | — |
+
+- **A-1 and A-2 use an AI account.** The owner ran them on the owner's own desktop (G-5). This review ran no account-using session.
+- **Together with §20, every required scenario now has evidence**, except A-6 and A-7's step 4. That includes what §20 could not observe here: a terminal running the agent, Open AI Session typing into the same terminal, and the clipboard.
+
+### Outstanding manual coverage
+
+These are not tested, and are not counted as passed:
+- **A-6, the Jira workflow (M-7).** It needs a Jira test site with a synthetic issue and a test account's token, never a production site. Today only CI's Jira transport and refusal tests and CLI acceptance's mock issue path cover it.
+- **A-7 step 4, the installed agents on the owner's list (plan §9.10).** Each is an account-using run. This approval adds no agent and provider combination to a supported list.
+- **Platforms.** This review's real VS Code acceptance ran on Windows. Linux and macOS have CI's coverage only.
+
+### Low and Informational findings accepted for 0.1.7
+
+The owner approved `9fe8a8a` unchanged, so these ship as known limitations. None blocks, and none changes the classification.
+
+| ID | Severity | Finding | Recorded in |
+|---|---|---|---|
+| F-8 | Low (UX) | A handoff that BugPilot itself refuses (folder not private, or an old CLI) shows the card "AI agent unavailable". The row under the step states the real reason. It fails closed. The proposed remediation and its test plan stay in §20 for a later release. | §20 |
+| F-5 | Low (documented) | `--launch-agent` cannot start a batch-file agent whose own path holds a space. The workarounds are documented; the S-1 gate is unchanged. | §18, §19 |
+| F-9 to F-13 | Informational | `git.CMD` letter case; a rare `ValueError` in the privacy check (JSON mode fails closed); a missing identity record accepted, as the launcher accepts it; the old-CLI sentence relies on argparse's English; a restart-offer timing quirk that affects only the message. | §20 |
+| F-4, F-7 | Informational | Unchanged. | §18 |
+| Earlier | Low and Informational | D-7 to D-9 and D-11 to D-15 (D-10 resolved by D-3); S-3 to S-7; ST-3 to ST-7; R-1; N-1 to N-4 (accepted by the owner on 2026-10-29); S-2's accepted limitations (§16); the time between the privacy answer and the agent's start (§20) | §16, §18 (re-evaluated), §20 |
+
+### Release governance
+
+Unchanged from §13 and §20. This record claims no ownership, no employment-policy clearance and no licence approval. Legal and employment questions need the owner's own qualified advice; this review gives none.
+
+| ID | Question | State |
+|---|---|---|
+| G-1 | Ownership and employment policy | **UNRESOLVED**: no explicit resolution recorded |
+| G-2 | Confidentiality | The artifacts are clean (§20). The history's earlier risk acceptance awaits the owner's confirmation for 0.1.7. **Open.** |
+| G-3 | Licence parameters (REL-2) | **UNRESOLVED**: no qualified review recorded |
+| G-4 | Third-party IP | As §13 |
+| G-5 | Account-using runs | A-1 and A-2 were run by the owner, on the owner's desktop; this review ran none |
+| G-6 | Publication accounts | The owner's; publication stays manual |
+
+### Classification and freeze
+
+**Technical readiness: RC TECHNICALLY READY.** The owner approved `9fe8a8a` as 0.1.7's technical release candidate. The approval rests on:
+- §20's agent-observed evidence: CI 9 of 9 on the exact commit; reproducible, inspected artifacts; clean installs; F-1, F-2 and F-3; the real panel; and the regression and security review, with no Critical, High or Medium finding;
+- the owner-reported desktop acceptance above.
+
+**Public distribution: UNRESOLVED.** G-1 and G-3 are unresolved, and G-2 awaits the owner's confirmation. Neither the technical approval nor CI authorizes distribution.
+
+**The candidate is frozen.**
+- No change to 0.1.7's product code, the U7 baselines, the golden files, the tests or the packaging configuration.
+- A new development batch only if a release-blocking issue is demonstrated.
+- The owner's three unrelated paths are preserved, unopened.
+
+**Not done:**
+- nothing merged into `main`, tagged, released or published; the only commit is the documentation commit above, which is not the release candidate;
+- no account-using AI session, and no Jira site, in this phase.
