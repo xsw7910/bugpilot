@@ -6,7 +6,7 @@
 - Mode ID: `investigate-first`
 - Execution: investigate
 
-This retry runs under the same Fix Mode as `.ai/JR-12345/task.md`. Follow the mode as written there. BugPilot's safety, evidence and delivery rules still win any conflict with it.
+This retry runs under the same Fix Mode as `task.md`. Follow the mode as written there. BugPilot's safety, evidence and delivery rules still win any conflict with it.
 
 ## Purpose
 
@@ -14,8 +14,10 @@ The previous investigation did not answer the question, or the developer wants a
 
 ## Required Reading
 
-- .ai/JR-12345/fix_report.md
-- .ai/JR-12345/user_feedback.md
+The work item's files are in its work folder, outside the repository: `/home/user/.bugpilot/repositories/repo-0123456789abcdef/work/JR-12345/`. The names below are in that folder.
+
+- fix_report.md
+- user_feedback.md
 - current git diff
 
 ## Developer Feedback
@@ -60,7 +62,7 @@ The dialog rebuilt its state.
 
 ## Retry Instructions
 
-- BugPilot's rules in `.ai/JR-12345/task.md` still apply to this retry.
+- BugPilot's rules in `task.md` still apply to this retry.
 - First explain why the previous investigation did not settle the root cause.
 - Use user_feedback.md as the main correction for this retry.
 - Name the evidence that is still missing, and what would confirm or rule out each hypothesis.
@@ -96,7 +98,7 @@ For every commit or push made from this task, in every Fix Mode, including a lat
 This Fix Mode is investigation-only. There is no fix to deliver in this pass.
 
 When the investigation is complete:
-- Write `.ai/JR-12345/fix_report.md`, every section investigation-phrased.
+- Write `fix_report.md` in the work folder, every section investigation-phrased.
 - Tell the developer: "Investigation complete. No source changes have been applied."
 - Show the leading root-cause hypothesis, the evidence for it, the competing hypotheses, the proposed fix plan, and the proposed verification.
 - Name any evidence that is still missing.
@@ -112,10 +114,10 @@ When the investigation is complete:
 
 ## Required Output Files
 
-- .ai/JR-12345/fix_report.md — update every section for this attempt: Summary, Analysis, Changes, Tests, Review Notes. Do not leave a previous attempt's claims standing where this attempt learned otherwise.
+- /home/user/.bugpilot/repositories/repo-0123456789abcdef/work/JR-12345/fix_report.md — update every section for this attempt: Summary, Analysis, Changes, Tests, Review Notes. Do not leave a previous attempt's claims standing where this attempt learned otherwise.
 
 ## How to Run
 
 Run your AI agent manually from the target repo root and paste:
 
-Read .ai/JR-12345/agent_retry_prompt.md and continue the workflow.
+Read /home/user/.bugpilot/repositories/repo-0123456789abcdef/work/JR-12345/agent_retry_prompt.md and continue the workflow.

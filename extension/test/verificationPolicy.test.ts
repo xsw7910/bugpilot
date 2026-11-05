@@ -1,7 +1,7 @@
 /**
  * The Verification Policy as the panel holds it (0.1.3, §42.2, §42.5): only
  * what `bugpilot verification show --json` says — a source, a hash, a problem,
- * the text and its state — whether the CLI can read `.bugpilot/verification.md`
+ * the text and its state — whether the CLI can read `settings/verification.md`
  * at all, and the row and Preview the host builds from it. Nothing here
  * composes a policy.
  */
@@ -172,10 +172,10 @@ test("the row: source in words, Reset only with a file, and nothing before BugPi
 
 test("the row: a problem is the default in force and an actionable sentence, with Edit and Reset kept", () => {
   const row = verificationRowView(snapshot({ source: "verification-file", fileExists: true, problem: "it has no front matter.", lintCount: 2 }), READY);
-  assert.equal(row.source, "Source: BugPilot default (.bugpilot/verification.md is not used)");
+  assert.equal(row.source, "Source: BugPilot default (settings/verification.md is not used)");
   assert.equal(
     row.problem,
-    ".bugpilot/verification.md is not used: it has no front matter. BugPilot's default applies until it is fixed. Edit opens the file; Reset removes it.",
+    "settings/verification.md is not used: it has no front matter. BugPilot's default applies until it is fixed. Edit opens the file; Reset removes it.",
   );
   assert.equal(row.lint, "", "a file that is not used has no warnings to count");
   assert.deepEqual([row.canEdit, row.canReset], [true, true]);
@@ -200,7 +200,7 @@ test("the row: default_changed is one informational sentence, and Needs rebuild 
 
 test("the row: an old CLI says so on the row and offers nothing; a run in flight holds writes, not reads", () => {
   const old = verificationRowView(undefined, { ...READY, readsText: false });
-  assert.match(old.unavailable, /installed BugPilot CLI cannot read \.bugpilot\/verification\.md\. Update it to edit the Verification Policy here\./);
+  assert.match(old.unavailable, /installed BugPilot CLI cannot read settings\/verification\.md\. Update it to edit the Verification Policy here\./);
   assert.deepEqual([old.canEdit, old.canReset, old.canPreview, old.source], [false, false, false, ""]);
 
   const busyRun = verificationRowView(snapshot(), { ...READY, writesHeld: true });
@@ -223,7 +223,7 @@ test("the Preview: the text, where it comes from, the versions, the lint in the 
       defaultChanged: true,
       differsFromDefault: true,
       lintCount: 1,
-      lint: ["Line 6 of .bugpilot/verification.md may conflict with a BugPilot rule (force push)."],
+      lint: ["Line 6 of settings/verification.md may conflict with a BugPilot rule (force push)."],
     }),
     3,
   );
@@ -231,20 +231,20 @@ test("the Preview: the text, where it comes from, the versions, the lint in the 
   assert.equal(preview.text, "Run the unit tests.");
   assert.deepEqual(preview.facts, [
     { label: "Source", value: "Repository verification.md" },
-    { label: "File", value: ".bugpilot/verification.md" },
+    { label: "File", value: "settings/verification.md" },
     { label: "Based on default", value: "version 1" },
     { label: "Current default", value: "version 2" },
     { label: "Same as default", value: "No" },
   ]);
   assert.equal(preview.defaultChanged, VERIFICATION_DEFAULT_CHANGED);
-  assert.deepEqual(preview.lint, ["Line 6 of .bugpilot/verification.md may conflict with a BugPilot rule (force push)."]);
+  assert.deepEqual(preview.lint, ["Line 6 of settings/verification.md may conflict with a BugPilot rule (force push)."]);
 
   const fallback = verificationPreviewView(snapshot({ source: "verification-file", fileExists: true, problem: "it has no front matter." }), 1);
-  assert.deepEqual(fallback.facts[0], { label: "Source", value: "BugPilot default — .bugpilot/verification.md is not used" });
+  assert.deepEqual(fallback.facts[0], { label: "Source", value: "BugPilot default — settings/verification.md is not used" });
   assert.match(fallback.problem, /BugPilot's default applies until it is fixed/);
 
   const none = verificationPreviewView(snapshot(), 1);
-  assert.deepEqual(none.facts[1], { label: "File", value: ".bugpilot/verification.md (not created)" });
+  assert.deepEqual(none.facts[1], { label: "File", value: "settings/verification.md (not created)" });
   assert.deepEqual(none.facts.at(-1), { label: "Same as default", value: "Yes" });
   assert.equal(none.facts.some((fact) => fact.label === "Based on default"), false);
 });
@@ -307,11 +307,11 @@ test("a create sends the CLI's own text on stdin, a reset sends nothing, and bot
         schema_version: 1,
         ok: false,
         command: "verification",
-        error: { code: "INVALID_INPUT", message: "The Verification Policy was not saved: .bugpilot/verification.md is a link." },
+        error: { code: "INVALID_INPUT", message: "The Verification Policy was not saved: settings/verification.md is a link." },
       }),
       stderr: "",
     }),
     { kind: "set", text: DEFAULT_TEXT },
   );
-  assert.deepEqual(refused, { kind: "failed", message: "The Verification Policy was not saved: .bugpilot/verification.md is a link." });
+  assert.deepEqual(refused, { kind: "failed", message: "The Verification Policy was not saved: settings/verification.md is a link." });
 });

@@ -1,6 +1,7 @@
 """`clean` and `bug --fresh` never delete through a link.
 
-A symlinked or junctioned `.ai`, `.ai/<id>` or `.ai_memory` used to pass the
+A symlinked or junctioned `.ai`, `.ai/<id>` or `.ai_memory` (0.1.7: `work`,
+`work/<id>` or `memory` in BugPilot's data folder) used to pass the
 containment check — both sides were resolved through the same link — and
 `shutil.rmtree` then deleted the link's target. Every case below puts a canary
 outside the repository and proves it survives, that the refusal is one sentence
@@ -19,6 +20,8 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core import storage
+from bugpilot.core.config import data_dir, issue_dir, memory_dir
 from bugpilot.cli import main
 from bugpilot.core.cleanup import clean_issue_artifacts
 from bugpilot.core.safe_paths import UnsafePathError, is_link_or_junction, owned_path
@@ -57,8 +60,10 @@ def _outside(tmp_path: Path) -> Path:
 
 
 def _repo(tmp_path: Path) -> Path:
+    """The repository, and its folder in BugPilot's data folder as a first run makes it (0.1.7)."""
     repo = tmp_path / "repo"
     repo.mkdir()
+    storage.repository_storage(repo).ensure()
     return repo
 
 
@@ -86,33 +91,33 @@ def test_owned_path_refuses_parts_that_are_not_one_name(tmp_path):
             owned_path(tmp_path, parts)
 
 
-# --- `.ai` is a link -----------------------------------------------------------
+# --- `work` is a link -----------------------------------------------------------
 
 
 @pytest.mark.parametrize("make_link", LINKERS)
 def test_clean_refuses_an_ai_folder_that_is_a_link(tmp_path, make_link):
     outside = _outside(tmp_path)
     repo = _repo(tmp_path)
-    make_link(repo / ".ai", outside)
+    make_link((data_dir(repo) / "work"), outside)
 
-    with pytest.raises(UnsafePathError, match=r"\.ai is a symbolic link or junction"):
+    with pytest.raises(UnsafePathError, match=r"Refusing to delete work/JR-12345: work is a symbolic link or junction"):
         clean_issue_artifacts(repo, WORK_ITEM)
 
     assert _canary_intact(outside)
-    assert is_link_or_junction(repo / ".ai"), "the link itself is the developer's, and is left alone"
+    assert is_link_or_junction((data_dir(repo) / "work")), "the link itself is the developer's, and is left alone"
 
 
 @pytest.mark.parametrize("make_link", LINKERS)
 def test_the_clean_command_reports_the_refusal_as_one_sentence(tmp_path, monkeypatch, capsys, make_link):
     outside = _outside(tmp_path)
     repo = _repo(tmp_path)
-    make_link(repo / ".ai", outside)
+    make_link((data_dir(repo) / "work"), outside)
     monkeypatch.chdir(repo)
 
     assert main(["clean", WORK_ITEM]) == 1
     err = capsys.readouterr().err
 
-    assert err.startswith("ERROR: Refusing to delete .ai/JR-12345")
+    assert err.startswith("ERROR: Refusing to delete work/JR-12345")
     assert "Nothing was deleted." in err
     assert "Traceback" not in err
     assert _canary_intact(outside)
@@ -122,13 +127,13 @@ def test_the_clean_command_reports_the_refusal_as_one_sentence(tmp_path, monkeyp
 def test_bug_fresh_refuses_an_ai_folder_that_is_a_link(tmp_path, monkeypatch, capsys, make_link):
     outside = _outside(tmp_path)
     repo = _repo(tmp_path)
-    make_link(repo / ".ai", outside)
+    make_link((data_dir(repo) / "work"), outside)
     monkeypatch.chdir(repo)
 
     assert main(["bug", WORK_ITEM, "--fresh", "--allow-mock"]) == 1
     err = capsys.readouterr().err
 
-    assert "Refusing to delete .ai/JR-12345" in err
+    assert "Refusing to delete work/JR-12345" in err
     assert "Traceback" not in err
     assert _canary_intact(outside)
     # Nothing was written through the link either: the run stopped first.
@@ -140,7 +145,7 @@ def test_bug_fresh_refusal_is_a_terminal_stream_event(tmp_path, monkeypatch, cap
     """The extension's Fresh run reads this, not stderr."""
     outside = _outside(tmp_path)
     repo = _repo(tmp_path)
-    make_link(repo / ".ai", outside)
+    make_link((data_dir(repo) / "work"), outside)
     monkeypatch.chdir(repo)
 
     assert main(["bug", WORK_ITEM, "--fresh", "--allow-mock", "--prepare-only", "--json-lines"]) == 1
@@ -152,29 +157,29 @@ def test_bug_fresh_refusal_is_a_terminal_stream_event(tmp_path, monkeypatch, cap
     assert _canary_intact(outside)
 
 
-# --- `.ai/<id>` is a link -------------------------------------------------------
+# --- `work/<id>` is a link -------------------------------------------------------
 
 
 @pytest.mark.parametrize("make_link", LINKERS)
 def test_clean_refuses_a_work_item_folder_that_is_a_link(tmp_path, make_link):
     outside = _outside(tmp_path)
     repo = _repo(tmp_path)
-    (repo / ".ai").mkdir()
-    make_link(repo / ".ai" / WORK_ITEM, outside / WORK_ITEM)
+    ((data_dir(repo) / "work")).mkdir()
+    make_link(issue_dir(repo, WORK_ITEM), outside / WORK_ITEM)
 
-    with pytest.raises(UnsafePathError, match=r"\.ai/JR-12345 is a symbolic link or junction"):
+    with pytest.raises(UnsafePathError, match=r"Refusing to delete work/JR-12345: work/JR-12345 is a symbolic link or junction"):
         clean_issue_artifacts(repo, WORK_ITEM)
 
     assert _canary_intact(outside)
-    assert is_link_or_junction(repo / ".ai" / WORK_ITEM)
+    assert is_link_or_junction(issue_dir(repo, WORK_ITEM))
 
 
 @pytest.mark.parametrize("make_link", LINKERS)
 def test_bug_fresh_refuses_a_work_item_folder_that_is_a_link(tmp_path, monkeypatch, capsys, make_link):
     outside = _outside(tmp_path)
     repo = _repo(tmp_path)
-    (repo / ".ai").mkdir()
-    make_link(repo / ".ai" / WORK_ITEM, outside / WORK_ITEM)
+    ((data_dir(repo) / "work")).mkdir()
+    make_link(issue_dir(repo, WORK_ITEM), outside / WORK_ITEM)
     monkeypatch.chdir(repo)
 
     assert main(["bug", WORK_ITEM, "--fresh", "--allow-mock"]) == 1
@@ -188,19 +193,19 @@ def test_bug_fresh_refuses_a_work_item_folder_that_is_a_link(tmp_path, monkeypat
 @pytest.mark.parametrize("make_link", LINKERS)
 def test_a_linked_memory_folder_refuses_before_the_work_item_is_touched(tmp_path, make_link):
     outside = tmp_path / "outside"
-    (outside / "bugs").mkdir(parents=True)
-    (outside / "bugs" / f"{WORK_ITEM}.md").write_text("someone else's memory", encoding="utf-8")
+    outside.mkdir()
+    (outside / f"{WORK_ITEM}.md").write_text("someone else's memory", encoding="utf-8")
     repo = _repo(tmp_path)
-    (repo / ".ai" / WORK_ITEM).mkdir(parents=True)
-    (repo / ".ai" / WORK_ITEM / "task.md").write_text("task", encoding="utf-8")
-    make_link(repo / ".ai_memory", outside)
+    (issue_dir(repo, WORK_ITEM)).mkdir(parents=True)
+    (issue_dir(repo, WORK_ITEM) / "task.md").write_text("task", encoding="utf-8")
+    make_link(memory_dir(repo), outside)
 
-    with pytest.raises(UnsafePathError, match=r"\.ai_memory is a symbolic link or junction"):
+    with pytest.raises(UnsafePathError, match=r"Refusing to delete memory/JR-12345\.md: memory is a symbolic link or junction"):
         clean_issue_artifacts(repo, WORK_ITEM, include_memory=True)
 
     # Not a partial clean: the work item folder was checked-then-kept, not deleted.
-    assert (repo / ".ai" / WORK_ITEM / "task.md").exists()
-    assert (outside / "bugs" / f"{WORK_ITEM}.md").exists()
+    assert (issue_dir(repo, WORK_ITEM) / "task.md").exists()
+    assert (outside / f"{WORK_ITEM}.md").exists()
 
 
 # --- the normal cases still work ---------------------------------------------------
@@ -208,7 +213,7 @@ def test_a_linked_memory_folder_refuses_before_the_work_item_is_touched(tmp_path
 
 def test_a_real_work_item_folder_is_cleaned(tmp_path):
     repo = _repo(tmp_path)
-    work_item = repo / ".ai" / WORK_ITEM
+    work_item = issue_dir(repo, WORK_ITEM)
     (work_item / "attachments").mkdir(parents=True)
     (work_item / "task.md").write_text("task", encoding="utf-8")
     (work_item / "attachments" / "crash.log").write_text("log", encoding="utf-8")
@@ -216,7 +221,7 @@ def test_a_real_work_item_folder_is_cleaned(tmp_path):
     result = clean_issue_artifacts(repo, WORK_ITEM)
 
     assert not work_item.exists()
-    assert result.deleted_paths == [f".ai/{WORK_ITEM}/"]
+    assert result.deleted_paths == [f"work/{WORK_ITEM}/"]
 
 
 def test_a_missing_work_item_folder_is_harmless(tmp_path):
@@ -225,27 +230,27 @@ def test_a_missing_work_item_folder_is_harmless(tmp_path):
     result = clean_issue_artifacts(repo, WORK_ITEM, include_memory=True)
 
     assert result.deleted_paths == []
-    assert result.missing_paths == [f".ai/{WORK_ITEM}/", f".ai_memory/bugs/{WORK_ITEM}.md"]
+    assert result.missing_paths == [f"work/{WORK_ITEM}/", f"memory/{WORK_ITEM}.md"]
 
 
 def test_only_the_named_work_item_and_its_memory_are_removed(tmp_path):
     repo = _repo(tmp_path)
     for name in (WORK_ITEM, "JR-99999", "local_20260926010922"):
-        (repo / ".ai" / name).mkdir(parents=True)
-        (repo / ".ai" / name / "task.md").write_text(name, encoding="utf-8")
-    (repo / ".ai" / "notes.txt").write_text("the developer's", encoding="utf-8")
-    (repo / ".ai_memory" / "bugs").mkdir(parents=True)
+        (issue_dir(repo, name)).mkdir(parents=True)
+        (issue_dir(repo, name) / "task.md").write_text(name, encoding="utf-8")
+    (issue_dir(repo, "notes.txt")).write_text("the developer's", encoding="utf-8")
+    (memory_dir(repo)).mkdir(parents=True)
     for name in (WORK_ITEM, "JR-99999"):
-        (repo / ".ai_memory" / "bugs" / f"{name}.md").write_text(name, encoding="utf-8")
+        (memory_dir(repo) / f"{name}.md").write_text(name, encoding="utf-8")
 
     clean_issue_artifacts(repo, WORK_ITEM, include_memory=True)
 
-    assert not (repo / ".ai" / WORK_ITEM).exists()
-    assert not (repo / ".ai_memory" / "bugs" / f"{WORK_ITEM}.md").exists()
-    assert (repo / ".ai" / "JR-99999" / "task.md").exists()
-    assert (repo / ".ai" / "local_20260926010922" / "task.md").exists()
-    assert (repo / ".ai" / "notes.txt").exists()
-    assert (repo / ".ai_memory" / "bugs" / "JR-99999.md").exists()
+    assert not (issue_dir(repo, WORK_ITEM)).exists()
+    assert not (memory_dir(repo) / f"{WORK_ITEM}.md").exists()
+    assert (issue_dir(repo, "JR-99999") / "task.md").exists()
+    assert (issue_dir(repo, "local_20260926010922") / "task.md").exists()
+    assert (issue_dir(repo, "notes.txt")).exists()
+    assert (memory_dir(repo) / "JR-99999.md").exists()
 
 
 @pytest.mark.parametrize("make_link", LINKERS)
@@ -253,12 +258,12 @@ def test_a_link_inside_the_work_item_is_removed_as_a_link_never_followed(tmp_pat
     """A developer's attachment folder linked elsewhere loses the link, not the files."""
     outside = _outside(tmp_path)
     repo = _repo(tmp_path)
-    (repo / ".ai" / WORK_ITEM).mkdir(parents=True)
-    make_link(repo / ".ai" / WORK_ITEM / "attachments", outside / WORK_ITEM)
+    (issue_dir(repo, WORK_ITEM)).mkdir(parents=True)
+    make_link(issue_dir(repo, WORK_ITEM) / "attachments", outside / WORK_ITEM)
 
     clean_issue_artifacts(repo, WORK_ITEM)
 
-    assert not (repo / ".ai" / WORK_ITEM).exists()
+    assert not (issue_dir(repo, WORK_ITEM)).exists()
     assert _canary_intact(outside)
 
 

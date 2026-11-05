@@ -29,7 +29,7 @@ def delivery_safety_block(
     """When to commit and push, and what may be staged, in any Fix Mode.
 
     BugPilot-owned and never editable by a Fix Mode: these are the rules that
-    keep a token, a `.ai/` artifact or a commit on `main` out of the developer's
+    keep a token, a BugPilot artifact or a commit on `main` out of the developer's
     repository, and they do not become optional because a particular workflow
     has nothing to commit yet. Which other branch is right is the developer's
     branch policy (`branch_policy.py`); `main`/`master` never is, in any policy.

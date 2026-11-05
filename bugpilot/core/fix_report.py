@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .artifacts import FIX_REPORT_ARTIFACT
-from .config import issue_dir
+from .config import issue_dir, readable_data_dir
 from .safe_paths import decode_text, read_generated_file
 
 # The section contract task.md asks the agent for, in this order.
@@ -72,7 +72,7 @@ def read_fix_report(repo_root: Path, work_item_id: str) -> FixReport | None:
     Never through a link, and only as a regular file (O-1): anything else at
     its name, or on the way to it, is refused in one sentence.
     """
-    data = read_generated_file(repo_root, fix_report_path(repo_root, work_item_id))
+    data = read_generated_file(readable_data_dir(repo_root), fix_report_path(repo_root, work_item_id))
     if data is None:
         return None
     text = decode_text(data, "utf-8", errors="replace")

@@ -15,6 +15,7 @@ import json
 
 import pytest
 
+from bugpilot.core.config import data_dir
 from bugpilot.cli import main
 from bugpilot.core.jira import JiraFetchError, JiraFetchResult
 
@@ -61,7 +62,7 @@ def test_it_writes_nothing(tmp_path, monkeypatch, capsys, jira):
     assert main(["issue-details", "JR-1", "--json"]) == 0
     capsys.readouterr()
 
-    assert not (tmp_path / ".ai").exists(), "reading an issue created a work item"
+    assert not ((data_dir(tmp_path) / "work")).exists(), "reading an issue created a work item"
     assert list(tmp_path.iterdir()) == []
 
 

@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core.config import issue_dir
 from bugpilot.cli import main
 from bugpilot.core import workflow
 from bugpilot.core.fix_mode_state import (
@@ -54,17 +55,17 @@ def prepare(tmp_path: Path, *args: str) -> int:
 
 
 def task_text(tmp_path: Path, name: str = "task.md") -> str:
-    return (tmp_path / ".ai" / "JR-12345" / name).read_text(encoding="utf-8")
+    return (issue_dir(tmp_path, "JR-12345") / name).read_text(encoding="utf-8")
 
 
 def stored(tmp_path: Path) -> dict:
-    issue = json.loads((tmp_path / ".ai" / "JR-12345" / "issue.json").read_text(encoding="utf-8"))
+    issue = json.loads((issue_dir(tmp_path, "JR-12345") / "issue.json").read_text(encoding="utf-8"))
     return issue["guidance"]["fix_mode"]
 
 
 def record(tmp_path: Path, fix_mode: object) -> None:
     """An issue.json for JR-1 whose recorded selection is ``fix_mode``, verbatim."""
-    target = tmp_path / ".ai" / "JR-1"
+    target = issue_dir(tmp_path, "JR-1")
     target.mkdir(parents=True, exist_ok=True)
     payload = issue_to_dict(jira_stub("JR-1", IssueGuidance()))
     payload["guidance"]["fix_mode"] = fix_mode
@@ -73,7 +74,7 @@ def record(tmp_path: Path, fix_mode: object) -> None:
 
 def status(tmp_path: Path) -> dict:
     return json.loads(
-        (tmp_path / ".ai" / "JR-12345" / "run.json").read_text(encoding="utf-8")
+        (issue_dir(tmp_path, "JR-12345") / "run.json").read_text(encoding="utf-8")
     )
 
 
@@ -128,7 +129,7 @@ def test_an_unknown_explicit_id_raises_rather_than_falling_back(tmp_path):
 
 def test_the_selection_is_recorded_in_issue_json_as_resolvable_audit_metadata(tmp_path):
     recorded = persist_fix_mode(tmp_path, "JR-1", REGISTRY.resolve("investigate-first"))
-    path = tmp_path / ".ai" / "JR-1" / "issue.json"
+    path = issue_dir(tmp_path, "JR-1") / "issue.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
 
     assert payload["schema_version"] == 1
@@ -143,14 +144,14 @@ def test_the_selection_is_recorded_in_issue_json_as_resolvable_audit_metadata(tm
     }
     # What was written is what the caller gets back to keep working with.
     assert recorded.guidance.fix_mode == payload["guidance"]["fix_mode"]
-    assert not (tmp_path / ".ai" / "JR-1" / "fix_mode.json").exists()
+    assert not (issue_dir(tmp_path, "JR-1") / "fix_mode.json").exists()
 
 
 def test_recording_a_mode_keeps_the_rest_of_the_issue(tmp_path):
     persist_fix_mode(tmp_path, "JR-1", REGISTRY.resolve("conservative"))
     persist_fix_mode(tmp_path, "JR-1", REGISTRY.resolve("test-driven"))
 
-    payload = json.loads((tmp_path / ".ai" / "JR-1" / "issue.json").read_text(encoding="utf-8"))
+    payload = json.loads((issue_dir(tmp_path, "JR-1") / "issue.json").read_text(encoding="utf-8"))
     assert payload["id"] == "JR-1"
     assert payload["guidance"]["fix_mode"]["id"] == "test-driven"
 
@@ -174,7 +175,7 @@ def test_metadata_is_one_shape_everywhere(tmp_path):
     ["not json at all", "[]", '"conservative"', "null"],
 )
 def test_an_unreadable_issue_file_fails_clearly(tmp_path, contents):
-    target = tmp_path / ".ai" / "JR-1"
+    target = issue_dir(tmp_path, "JR-1")
     target.mkdir(parents=True)
     (target / "issue.json").write_text(contents, encoding="utf-8")
 
@@ -344,19 +345,19 @@ def test_the_issue_file_is_reported_as_a_generated_artifact(tmp_path, monkeypatc
     assert prepare(tmp_path, "--fix-mode", "conservative") == 0
 
     generated = status(tmp_path)["generated_files"]
-    assert ".ai/JR-12345/issue.json" in generated
-    assert ".ai/JR-12345/fix_mode.json" not in generated
+    assert "work/JR-12345/issue.json" in generated
+    assert "work/JR-12345/fix_mode.json" not in generated
 
 
 def test_a_rejected_mode_costs_no_artifacts(tmp_path, monkeypatch):
     """Resolution happens before a fresh run deletes anything."""
     monkeypatch.chdir(tmp_path)
     assert prepare(tmp_path, "--fix-mode", "conservative") == 0
-    before = sorted(path.name for path in (tmp_path / ".ai" / "JR-12345").iterdir())
+    before = sorted(path.name for path in (issue_dir(tmp_path, "JR-12345")).iterdir())
 
     assert prepare(tmp_path, "--fix-mode", "nope") == 1
 
-    assert sorted(path.name for path in (tmp_path / ".ai" / "JR-12345").iterdir()) == before
+    assert sorted(path.name for path in (issue_dir(tmp_path, "JR-12345")).iterdir()) == before
     assert stored(tmp_path)["id"] == "conservative"
 
 
@@ -494,7 +495,7 @@ def test_an_unknown_mode_on_a_run_is_a_clear_error(tmp_path, monkeypatch, capsys
 def test_regeneration_reports_an_unusable_selection_without_a_traceback(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     assert prepare(tmp_path, "--fix-mode", "conservative") == 0
-    (tmp_path / ".ai" / "JR-12345" / "issue.json").write_text("{oh dear", encoding="utf-8")
+    (issue_dir(tmp_path, "JR-12345") / "issue.json").write_text("{oh dear", encoding="utf-8")
 
     assert main(["agent-task", "JR-12345"]) == 1
     err = capsys.readouterr().err
@@ -533,7 +534,7 @@ def test_json_output_carries_the_selected_mode(tmp_path, monkeypatch, capsys):
     }
     # The keys that were there before are still there.
     assert payload["work_item_id"] == "JR-12345"
-    assert payload["agent_task"] == ".ai/JR-12345/task.md"
+    assert payload["agent_task"] == str(issue_dir(tmp_path, "JR-12345") / "task.md")
 
 
 def test_json_output_defaults_to_standard_metadata(tmp_path, monkeypatch, capsys):

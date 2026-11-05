@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core.config import issue_dir
 from bugpilot.cli import main
 from bugpilot.core import git_history, workflow
 from bugpilot.core.git_history import (
@@ -204,7 +205,7 @@ def test_code_search_still_uses_shared_keywords_git_history_ignores(tmp_path):
         InvestigationOptions(keywords=["postblend"], git_history=GitHistoryOptions(use_shared_keywords=False)),
     )
 
-    terms = json.loads((root / ".ai" / work_item / "retrieval.json").read_text(encoding="utf-8"))["terms"]
+    terms = json.loads((issue_dir(root, work_item) / "retrieval.json").read_text(encoding="utf-8"))["terms"]
     assert {"value": "postblend", "source": "user"}.items() <= terms[0].items()
     history = _history(root, work_item)
     assert "matched shared keyword" not in history
@@ -241,7 +242,7 @@ def test_code_search_still_uses_focus_files_git_history_ignores(tmp_path):
         ),
     )
 
-    related = json.loads((root / ".ai" / work_item / "retrieval.json").read_text(encoding="utf-8"))["related_files"]
+    related = json.loads((issue_dir(root, work_item) / "retrieval.json").read_text(encoding="utf-8"))["related_files"]
     focus = next(item for item in related if item["file"] == "src/Volumes.cpp")
     assert "developer marked this file as a focus area" in focus["reasons"]
     assert "modified focus file" not in _history(root, work_item)
@@ -279,7 +280,7 @@ def test_additional_keywords_and_files_never_reach_code_search(tmp_path):
     settings = GitHistoryOptions(keywords=("blendmerge",), files=("src/Legacy.cpp",))
     root, work_item = _prepared(tmp_path, InvestigationOptions(keywords=["postblend"], git_history=settings))
 
-    retrieval = json.loads((root / ".ai" / work_item / "retrieval.json").read_text(encoding="utf-8"))
+    retrieval = json.loads((issue_dir(root, work_item) / "retrieval.json").read_text(encoding="utf-8"))
     assert "blendmerge" not in [term["value"].lower() for term in retrieval["terms"]]
     assert all(
         "developer marked this file as a focus area" not in item["reasons"] for item in retrieval["related_files"]
@@ -364,7 +365,7 @@ def test_both_routes_off_runs_no_git_history_and_does_not_fail(tmp_path, monkeyp
     root, work_item = _prepared(tmp_path, InvestigationOptions(keywords=["postblend"], git_history=settings))
 
     assert called == []
-    run = json.loads((root / ".ai" / work_item / "run.json").read_text(encoding="utf-8"))
+    run = json.loads((issue_dir(root, work_item) / "run.json").read_text(encoding="utf-8"))
     assert run["status"] == "prepared"
     assert run["steps"]["git_context"] == "skipped"
     assert "_Git context has not been generated yet._" in _history(root, work_item)
@@ -561,7 +562,7 @@ def _prepared(tmp_path: Path, options: InvestigationOptions) -> tuple[Path, str]
 
 
 def _history(root: Path, work_item: str) -> str:
-    context = (root / ".ai" / work_item / "context.md").read_text(encoding="utf-8")
+    context = (issue_dir(root, work_item) / "context.md").read_text(encoding="utf-8")
     return context.split("## Git History", 1)[1]
 
 
@@ -579,7 +580,7 @@ def test_standalone_git_context_prints_and_leaves_the_prepared_run_alone(tmp_pat
         tmp_path,
         InvestigationOptions(keywords=["postblend"], git_history=GitHistoryOptions(max_related_commits=1, history_depth="broader")),
     )
-    directory = root / ".ai" / work_item
+    directory = issue_dir(root, work_item)
     before = {name: (directory / name).read_bytes() for name in ("retrieval.json", "run.json", "context.md")}
     monkeypatch.chdir(root)
     capsys.readouterr()

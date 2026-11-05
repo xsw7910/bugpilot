@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from bugpilot.core.config import issue_dir
 from bugpilot.core.input_adapters import bug_spec_from_description
 from bugpilot.core.issue import load_issue
 from bugpilot.core.models import InvestigationOptions, InvestigationPlan, InvestigationRequest
@@ -16,7 +17,7 @@ MOMENT = datetime(2026, 9, 1, 9, 41, 33, tzinfo=timezone.utc)
 
 
 def _status(repo_root, work_item_id) -> dict:
-    path = repo_root / ".ai" / work_item_id / "run.json"
+    path = issue_dir(repo_root, work_item_id) / "run.json"
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -36,11 +37,11 @@ def test_manual_investigation_runs_without_jira(tmp_path):
 
     assert result.issue_key == "local_20260901094133"
     assert result.jira_result is None  # nothing was fetched
-    assert (tmp_path / ".ai" / result.issue_key / "issue.json").is_file()
+    assert (issue_dir(tmp_path, result.issue_key) / "issue.json").is_file()
 
     generated = set(result.generated_files)
-    assert f".ai/{result.issue_key}/context.md" in generated
-    assert f".ai/{result.issue_key}/task.md" in generated
+    assert f"work/{result.issue_key}/context.md" in generated
+    assert f"work/{result.issue_key}/task.md" in generated
 
 
 def test_manual_investigation_persists_its_issue(tmp_path):
@@ -60,7 +61,7 @@ def test_manual_content_reaches_the_generated_context(tmp_path):
     request = _manual_request()
     run_investigation(tmp_path, request)
 
-    context = (tmp_path / ".ai" / request.work_item_id / "context.md").read_text(encoding="utf-8")
+    context = (issue_dir(tmp_path, request.work_item_id) / "context.md").read_text(encoding="utf-8")
     assert "3D view crashes after changing layer" in context
 
 
@@ -88,7 +89,7 @@ def test_manual_investigation_keeps_a_non_ascii_title(tmp_path):
     stored = load_issue(tmp_path, spec.work_item_id)
     assert stored.title == "三维视图切换图层后崩溃"
     # Readable in an editor, not \uXXXX escaped.
-    raw = (tmp_path / ".ai" / spec.work_item_id / "issue.json").read_text(encoding="utf-8")
+    raw = (issue_dir(tmp_path, spec.work_item_id) / "issue.json").read_text(encoding="utf-8")
     assert "三维视图切换图层后崩溃" in raw
 
 
@@ -150,7 +151,7 @@ def test_disabling_build_context_keeps_the_intermediate_artifacts(tmp_path):
     request = _manual_request(build_context=False)
     run_investigation(tmp_path, request)
 
-    target = tmp_path / ".ai" / request.work_item_id
+    target = issue_dir(tmp_path, request.work_item_id)
     assert not (target / "context.md").exists()
     # Git history and similar fixes stay in memory: with no context to render
     # them into, nothing is written for them either.
@@ -162,7 +163,7 @@ def test_skipped_step_writes_no_artifact(tmp_path):
     request = _manual_request(code_search=False)
     run_investigation(tmp_path, request)
 
-    target = tmp_path / ".ai" / request.work_item_id
+    target = issue_dir(tmp_path, request.work_item_id)
     assert not (target / "retrieval.json").exists()
 
 
@@ -226,7 +227,7 @@ def test_manual_branch_name_uses_the_spec_title_not_the_jira_fallback(tmp_path):
     request = _manual_request()
     run_investigation(tmp_path, request)
 
-    task = (tmp_path / ".ai" / request.work_item_id / "task.md").read_text(encoding="utf-8")
+    task = (issue_dir(tmp_path, request.work_item_id) / "task.md").read_text(encoding="utf-8")
     assert "jira-workflow" not in task
     assert "3d-view-crashes" in task
 
@@ -265,7 +266,7 @@ def test_ignore_paths_keeps_matches_out_of_the_results(tmp_path):
     )
     run_investigation(tmp_path, request)
 
-    retrieval = json.loads((tmp_path / ".ai" / request.work_item_id / "retrieval.json").read_text(encoding="utf-8"))
+    retrieval = json.loads((issue_dir(tmp_path, request.work_item_id) / "retrieval.json").read_text(encoding="utf-8"))
     files = [item["file"] for item in retrieval["related_files"]]
     assert "src/Widget.cpp" in files
     assert "vendor/Widget.cpp" not in files

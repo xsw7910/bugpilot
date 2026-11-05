@@ -344,7 +344,7 @@ function doctors(reports: Readonly<Record<string, string>>) {
     const stdout = new PassThrough();
     Object.assign(child, { stdout, stderr: new PassThrough(), stdin: null, pid: 8, exitCode: null });
     setImmediate(() => {
-      stdout.end(`${JSON.stringify({ schema_version: 1, ok: true, command: "doctor", warnings: [], report: { version: reports[command] } })}\n`);
+      stdout.end(`${JSON.stringify({ schema_version: 1, ok: true, command: "doctor", warnings: [], report: { version: reports[command], capabilities: ["unified-storage"] } })}\n`);
       (child.stderr as PassThrough).end();
       child.emit("close", 0, null);
     });

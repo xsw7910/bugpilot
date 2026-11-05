@@ -52,6 +52,11 @@ ARTIFACT_EXISTS = "ARTIFACT_EXISTS"
 
 EMAIL_SEND_FAILED = "EMAIL_SEND_FAILED"
 INTERNAL_ERROR = "INTERNAL_ERROR"
+# 0.1.7: the BugPilot extension that started this CLI is older than 0.1.7 and
+# looks for work items in the repository, where this CLI no longer keeps them
+# (`extension_compat`). Unknown to those extensions on purpose: they show the
+# message as it is.
+EXTENSION_OUTDATED = "EXTENSION_OUTDATED"
 
 # jira.ERROR_MESSAGES keys -> codes. That vocabulary already exists and is
 # stable, so the mapping is a rename rather than a second classification.
@@ -74,6 +79,30 @@ def code_for_jira_error_type(error_type: str | None) -> str:
     return _JIRA_ERROR_TYPES.get(error_type or "", JIRA_ERROR)
 
 
+class StorageAccessError(OSError):
+    """BugPilot's own data folder could not be read or written just now (0.1.6, plan §14.3, classification U).
+
+    A permission denied, a file in use, a read-only or full disk, an I/O error:
+    the same request may succeed later, and nothing in it is the caller's
+    input. Raised in one sentence that names the place as messages show it and
+    the system error's class, never the system error's own text, which holds
+    an absolute path.
+
+    An ``OSError`` on purpose (owner decision C-1, M-1): every handler that
+    handled the raw ``OSError`` handles this one the same way, so no command's
+    error code changes. Whether storage failures get a code of their own,
+    ``STORAGE_UNAVAILABLE``, is still the owner's open choice (US-D26).
+    """
+
+    @classmethod
+    def during(cls, action: str, shown: str, error: OSError) -> StorageAccessError:
+        """``BugPilot could not <action> <shown> (<ErrorClass>). …``, for ``raise … from None``."""
+        return cls(
+            f"BugPilot could not {action} {shown} ({type(error).__name__}). "
+            "Check that folder's permissions and free space, then try again."
+        )
+
+
 def error_code_for(exc: BaseException) -> str:
     """Classify an exception for the machine-facing envelope.
 
@@ -84,6 +113,10 @@ def error_code_for(exc: BaseException) -> str:
     from .email_notify import EmailSendError
     from .jira import JiraCommentPostError, JiraFetchError
 
+    # The generic code, which the raw OSError it stands for reached: storage
+    # unavailable is not a missing artifact and not bad input (C-1).
+    if isinstance(exc, StorageAccessError):
+        return INTERNAL_ERROR
     if isinstance(exc, JiraFetchError):
         return code_for_jira_error_type(getattr(exc.result, "error_type", None))
     if isinstance(exc, JiraCommentPostError):

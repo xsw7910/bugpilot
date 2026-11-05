@@ -21,8 +21,9 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core.config import issue_dir
 from bugpilot.cli import main
-from bugpilot.core import workflow
+from bugpilot.core import storage, workflow
 from bugpilot.core.input_adapters import bug_spec_from_description
 from bugpilot.core.models import InvestigationRequest
 from bugpilot.core.prompts import INSTRUCTION_LAYERS, generate_task
@@ -33,7 +34,6 @@ from bugpilot.core.repository_profile import (
     PROFILE_FIELDS,
     PROFILE_MODE_LABELS,
     PROFILE_MODES,
-    PROJECT_CONFIG_DIR,
     PROFILE_FILE_NAME,
     RepositoryContext,
     RepositoryFacts,
@@ -42,10 +42,12 @@ from bugpilot.core.repository_profile import (
     detect_repository,
     load_repository_profile,
     profile_from_payload,
+    profile_path,
     repository_context_section,
     resolve_repository_context,
     save_repository_profile,
 )
+from bugpilot.core.storage import StorageError
 
 CONTRACT = json.loads((Path(__file__).parent / "fixtures" / "repository_profile_contract.json").read_text(encoding="utf-8"))
 
@@ -61,6 +63,16 @@ def _write(root: Path, relative: str, text: str) -> None:
     path = root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def _profile_file(root: Path) -> Path:
+    """The repository's own profile file, where 0.1.6 keeps it, its folder made ready by storage (Batch 2B-3a)."""
+    return storage.repository_storage(root).settings_file(PROFILE_FILE_NAME, create=True)
+
+
+def _shown(root: Path) -> str:
+    """The file as messages name it: built here from the repository's ID and the test's BUGPILOT_HOME."""
+    return f"BUGPILOT_HOME/repositories/{storage.repository_identity(root).repository_id}/settings/{PROFILE_FILE_NAME}"
 
 
 def cpp_qt_repo(root: Path) -> Path:
@@ -128,8 +140,18 @@ def test_the_contract_fixture_is_the_model():
     assert DEFAULT_PROFILE_MODE == CONTRACT["default_mode"]
     assert FALLBACK_PROFILE_MODE == CONTRACT["fallback_mode"]
     assert PROFILE_MODE_LABELS == CONTRACT["labels"]
-    assert f"{PROJECT_CONFIG_DIR}/{PROFILE_FILE_NAME}" == CONTRACT["path"]
+    # Relative to the repository's namespace in BugPilot's data folder (0.1.6 Batch 2B-3a, PC-1).
+    assert f"settings/{PROFILE_FILE_NAME}" == CONTRACT["path"]
+    assert PROFILE_FILE_NAME in storage.SETTINGS_NAMES
     assert [{"key": key, "label": label, "max": limit} for key, label, limit in PROFILE_FIELDS] == CONTRACT["fields"]
+
+
+def test_the_contract_path_is_where_the_profile_lives(tmp_path, capsys):
+    """PC-1: the fixture's path is the file storage returns, relative to the namespace, and the one `show` names."""
+    namespace = storage.data_root() / "repositories" / storage.repository_identity(tmp_path).repository_id
+    assert profile_path(tmp_path).relative_to(namespace).as_posix() == CONTRACT["path"]
+    assert main_quiet(tmp_path, ["repository-profile", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["path"].endswith("/" + CONTRACT["path"])
 
 
 # --- Auto-detect on the four repositories ------------------------------------------------
@@ -344,7 +366,7 @@ def test_no_file_is_auto_detect(tmp_path):
     ],
 )
 def test_an_older_or_partial_file_reads_with_defaults(tmp_path, content, mode, custom_languages):
-    _write(tmp_path, ".bugpilot/repository_profile.json", content)
+    _profile_file(tmp_path).write_text(content, encoding="utf-8")
     profile, warnings = load_repository_profile(tmp_path)
 
     assert (profile.mode, profile.custom.languages, warnings) == (mode, custom_languages, [])
@@ -360,7 +382,7 @@ def test_an_older_or_partial_file_reads_with_defaults(tmp_path, content, mode, c
 )
 def test_an_unusable_file_falls_back_to_generic_with_a_warning(tmp_path, monkeypatch, capsys, content, fragment):
     repo = cpp_qt_repo(tmp_path)
-    _write(repo, ".bugpilot/repository_profile.json", content)
+    _profile_file(repo).write_text(content, encoding="utf-8")
 
     profile, warnings = load_repository_profile(repo)
     assert profile.mode == "generic"
@@ -372,7 +394,7 @@ def test_an_unusable_file_falls_back_to_generic_with_a_warning(tmp_path, monkeyp
 
 
 def test_unknown_fields_in_a_hand_edited_file_are_warned_about_not_fatal(tmp_path):
-    _write(tmp_path, ".bugpilot/repository_profile.json", '{"mode": "custom", "custom": {"langauges": "Go", "notes": "x"}}')
+    _profile_file(tmp_path).write_text('{"mode": "custom", "custom": {"langauges": "Go", "notes": "x"}}', encoding="utf-8")
     profile, warnings = load_repository_profile(tmp_path)
 
     assert profile.custom.notes == "x"
@@ -404,30 +426,34 @@ def test_the_cli_refuses_a_bad_profile_without_writing(tmp_path, capsys):
 
     assert failure["error"]["code"] == "INVALID_INPUT"
     assert not (tmp_path / ".bugpilot").exists()
+    assert not profile_path(tmp_path).exists()
 
 
 @pytest.mark.parametrize("kind", ["symlink", "junction"])
 def test_the_profile_is_never_written_through_a_link(tmp_path, kind):
+    """Storage refuses a link on the way, for a read too (0.1.6 Batch 2B-3a, G-6): the command stops."""
     (tmp_path / "elsewhere").mkdir()
     repo = tmp_path / "repo"
     repo.mkdir()
+    settings = _profile_file(repo).parent
+    settings.rmdir()
     if kind == "junction":
         if sys.platform != "win32":
             pytest.skip("directory junctions are a Windows feature")
         import _winapi
 
-        _winapi.CreateJunction(str(tmp_path / "elsewhere"), str(repo / ".bugpilot"))
+        _winapi.CreateJunction(str(tmp_path / "elsewhere"), str(settings))
     else:
         try:
-            os.symlink(tmp_path / "elsewhere", repo / ".bugpilot", target_is_directory=True)
+            os.symlink(tmp_path / "elsewhere", settings, target_is_directory=True)
         except (OSError, NotImplementedError) as exc:
             pytest.skip(f"cannot create a symbolic link here: {exc}")
 
-    with pytest.raises(RepositoryProfileError, match="symbolic link or junction"):
+    with pytest.raises(StorageError, match="settings is a symbolic link or junction"):
         save_repository_profile(repo, RepositoryProfile(mode="generic"))
     assert not any((tmp_path / "elsewhere").iterdir())
-    profile, warnings = load_repository_profile(repo)
-    assert profile.mode == "generic" and "symbolic link or junction" in warnings[0]
+    with pytest.raises(StorageError, match="settings is a symbolic link or junction"):
+        load_repository_profile(repo)
 
 
 def test_show_json_reports_profile_detection_and_effect(tmp_path, capsys):
@@ -438,7 +464,7 @@ def test_show_json_reports_profile_detection_and_effect(tmp_path, capsys):
 
     assert payload["profile"] == {"mode": "auto", "custom": {key: "" for key, _l, _m in PROFILE_FIELDS}}
     assert payload["saved"] is False
-    assert payload["path"] == ".bugpilot/repository_profile.json"
+    assert payload["path"] == _shown(repo)
     assert payload["detected"]["facts"]["frameworks"] == "Qt"
     assert payload["effective"]["mode"] == "auto"
     assert payload["effective"]["facts"]["languages"] == "C++"
@@ -450,7 +476,8 @@ def test_set_json_writes_the_whole_profile(tmp_path, capsys):
 
     assert main_quiet(tmp_path, ["repository-profile", "set", "--from-file", str(source), "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
-    stored = json.loads((tmp_path / ".bugpilot" / "repository_profile.json").read_text(encoding="utf-8"))
+    stored = json.loads(profile_path(tmp_path).read_text(encoding="utf-8"))
+    assert not (tmp_path / ".bugpilot").exists()  # nothing in the repository
 
     assert payload["saved"] is True
     assert payload["profile"]["mode"] == "custom"
@@ -468,7 +495,7 @@ def test_the_command_line_override_wins_for_one_run_only(tmp_path, monkeypatch, 
 
     assert "Repository profile: Generic." in _section(task)
     # The file was not touched: the next run without the flag is Auto-detect again.
-    assert not (repo / ".bugpilot").exists()
+    assert not (repo / ".bugpilot").exists() and not profile_path(repo).exists()
     task, _payload = _prepare(repo, monkeypatch, capsys)
     assert "Repository profile: Auto-detect." in _section(task)
 
@@ -480,7 +507,7 @@ def test_the_cli_and_the_core_entry_point_write_the_same_context(tmp_path, monke
     cli_task, _payload = _prepare(cli_repo, monkeypatch, capsys)
     spec = bug_spec_from_description("Saving a record crashes", repo_root=core_repo)
     workflow.run_investigation(core_repo, InvestigationRequest(spec=spec))
-    core_task = (core_repo / ".ai" / spec.work_item_id / "task.md").read_text(encoding="utf-8")
+    core_task = (issue_dir(core_repo, spec.work_item_id) / "task.md").read_text(encoding="utf-8")
 
     assert _section(cli_task) == _section(core_task)
 
@@ -492,7 +519,7 @@ def test_the_mcp_prepare_tool_uses_the_saved_profile(tmp_path):
     repo = python_repo(tmp_path)
     save_repository_profile(repo, RepositoryProfile(mode="custom", custom=RepositoryFacts(languages="Elixir")))
     result = mcp_server._run("prepare", repo, InvestigationRequest(spec=bug_spec_from_description("crash", repo_root=repo)))
-    task = (repo / ".ai" / result.issue_key / "task.md").read_text(encoding="utf-8")
+    task = (issue_dir(repo, result.issue_key) / "task.md").read_text(encoding="utf-8")
 
     assert "- Languages: Elixir" in _section(task)
 
@@ -511,7 +538,7 @@ def test_regenerating_the_task_reads_the_profile_again(tmp_path, monkeypatch, ca
 
 
 def test_repository_context_sits_between_the_safety_rules_and_the_branch_rules():
-    task = generate_task("JR-1", "Saving crashes")
+    task = generate_task("JR-1", "Saving crashes", work_folder="/data/work")
     order = [task.index(heading) for heading in (
         "## BugPilot Safety Rules", "## Repository Context", "## Branch Instructions", "## AI Fix Mode",
         "## BugPilot Rule Precedence",
@@ -520,7 +547,7 @@ def test_repository_context_sits_between_the_safety_rules_and_the_branch_rules()
 
 
 def test_the_precedence_section_lists_the_layers_in_order():
-    task = generate_task("JR-1", "Saving crashes")
+    task = generate_task("JR-1", "Saving crashes", work_folder="/data/work")
     section = task[task.index("## BugPilot Rule Precedence"):]
 
     assert INSTRUCTION_LAYERS[0] == "BugPilot safety rules"
@@ -532,7 +559,7 @@ def test_the_precedence_section_lists_the_layers_in_order():
 
 def test_no_task_is_repository_specific_by_default():
     """generate_task without a resolved profile is the Generic one."""
-    task = generate_task("JR-1", "Saving crashes")
+    task = generate_task("JR-1", "Saving crashes", work_folder="/data/work")
 
     assert "Repository profile: Generic." in task
     assert not ASSUMPTIONS.search(task)

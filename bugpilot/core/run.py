@@ -20,7 +20,7 @@ from pathlib import Path
 
 from .artifact_io import atomic_write_text
 from .artifacts import ARTIFACT_SCHEMA_VERSION, RUN_ARTIFACT
-from .config import WORKFLOW_STEPS, issue_dir, writable_issue_dir
+from .config import WORKFLOW_STEPS, issue_dir, readable_data_dir, writable_issue_dir
 from .safe_paths import UnsafePathError, decode_text, read_generated_file
 
 # The one authoritative overall state. The product's own words: `bugpilot list`
@@ -56,8 +56,9 @@ class RunArtifact:
     #: ``WORKFLOW_STEPS`` map, defaulting to ``skipped``, which is the shape
     #: every consumer already reads.
     steps: dict[str, str] = field(default_factory=dict)
-    #: What exists on disk for this work item, `.ai/<id>/`-relative, plus the
-    #: memory entry. A directory snapshot, so it lists ``run.json`` itself.
+    #: What exists on disk for this work item, as ``work/<id>/<name>``, plus the
+    #: memory entry, ``memory/<id>.md``: relative to the repository's folder in
+    #: BugPilot's data folder, so the record holds no absolute path. A directory snapshot, so it lists ``run.json`` itself.
     generated_files: tuple[str, ...] = ()
     #: The Fix Mode metadata the package was prepared under; ``None`` before a
     #: mode is recorded.
@@ -103,7 +104,7 @@ def run_to_dict(run: RunArtifact) -> dict[str, object]:
 
 def run_from_dict(data: object, work_item_id: str) -> RunArtifact:
     """Rebuild a run from ``run.json``. Version 1 only, by design."""
-    where = f".ai/{work_item_id}/{RUN_ARTIFACT}"
+    where = f"work/{work_item_id}/{RUN_ARTIFACT}"
     if not isinstance(data, dict):
         raise RunArtifactError(f"{where} does not contain a JSON object.")
     if data.get("schema_version") != ARTIFACT_SCHEMA_VERSION:
@@ -165,15 +166,16 @@ def load_run(repo_root: Path, work_item_id: str) -> RunArtifact | None:
     the old ``workflow_status.json`` layout. Never read through a link, and
     only as a regular file (O-1): a refusal is a :class:`RunArtifactError` too.
     """
+    base = readable_data_dir(repo_root)  # storage's own errors keep their codes (C-1): resolved before the try
     try:
-        raw = read_generated_file(repo_root, run_path(repo_root, work_item_id))
+        raw = read_generated_file(base, run_path(repo_root, work_item_id))
         if raw is None:
             return None
         data = json.loads(decode_text(raw, "utf-8"))
     except UnsafePathError as exc:
         raise RunArtifactError(str(exc)) from exc
     except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
-        raise RunArtifactError(f".ai/{work_item_id}/{RUN_ARTIFACT} could not be read ({exc}).") from exc
+        raise RunArtifactError(f"work/{work_item_id}/{RUN_ARTIFACT} could not be read ({exc}).") from exc
     return run_from_dict(data, work_item_id)
 
 

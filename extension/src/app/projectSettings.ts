@@ -2,14 +2,14 @@
  * Project settings, as the panel holds them: the repository's legacy
  * Verification switches and its branch naming template.
  *
- * Since 0.1.3 the Verification Policy is text, `.bugpilot/verification.md`
+ * Since 0.1.3 the Verification Policy is text, `settings/verification.md`
  * (`verificationPolicy.ts`), and no control edits the switches (§42.5): the
  * panel only carries the file's values through, so BugPilot 0.1.2 and earlier
  * keep reading what they wrote. The branch template is edited here as before.
  *
  * Both are repository configuration, like the Repository Profile:
  * `bugpilot project-settings` reads and writes
- * `<repo>/.bugpilot/project_settings.json`, every run — CLI, MCP or this panel —
+ * the repository's `project_settings.json` setting, every run — CLI, MCP or this panel —
  * reads that file, and the panel never sends them on a run's command line.
  *
  * The panel keeps a copy in the form, so the settings page's Apply, Cancel and

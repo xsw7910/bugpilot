@@ -165,7 +165,7 @@ export function artifactStatus(entry: Pick<ArtifactEntry, "written">): string {
 }
 
 export interface ArtifactInput {
-  /** File names directly inside `.ai/<work_item>/`. */
+  /** File names directly inside `work/<work_item>/`. */
   readonly names: readonly string[];
 }
 
@@ -280,7 +280,7 @@ export interface HistoryItem {
  * summary it came after.
  *
  * `retrying` and `retried` are separate because the next move is different, and
- * that difference was invisible until this ran against the author's real `.ai/`:
+ * that difference was invisible until this ran against the author's real work items:
  * two work items reported "a retry is open" while both already had
  * `agent_retry_prompt.md`, so nothing was waiting on anybody — the package was
  * built and needed handing over.
@@ -306,7 +306,7 @@ const STATUS_FILE = RUN_ARTIFACT;
 
 /** What the host read out of one work item's directory. */
 export interface WorkItemProbe {
-  /** File names directly inside `.ai/<work_item>/`. */
+  /** File names directly inside `work/<work_item>/`. */
   readonly files: readonly string[];
   /** `run.json`, already parsed; undefined when absent or corrupt. */
   readonly status?: unknown;
@@ -457,7 +457,7 @@ export type HistoryList =
 /**
  * Turn `bugpilot list --json` into the History group.
  *
- * There is no error state on purpose: §5.4 requires a corrupt `.ai/` to degrade
+ * There is no error state on purpose: §5.4 requires a corrupt work folder to degrade
  * to an empty list rather than an error, and the CLI already degrades the same
  * way — an unreadable entry is reported with null fields, not as a failure.
  * Anything unrecognized in the payload is dropped for the same reason.
@@ -474,7 +474,7 @@ export function historyFromPayload(
       const workItemId = typeof entry?.["work_item_id"] === "string" ? entry["work_item_id"] : "";
       // Only a name that is a work item id becomes a row: a row can be reopened,
       // and reopening leads to a handoff's command line. Checked before the
-      // probe too, which reads files under `.ai/<id>/` (§37.70).
+      // probe too, which reads files under `work/<id>/` (§37.70).
       if (!isWorkItemId(workItemId)) return [];
       const probed = probe(workItemId);
       const outcome = probed ? historyOutcome(probed) : undefined;

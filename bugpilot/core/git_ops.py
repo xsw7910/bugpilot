@@ -7,7 +7,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from .executables import child_environment, find_executable
+from .executables import child_environment, find_executable, find_program, not_found_sentence
 from .identity import is_local_work_item_id
 
 
@@ -16,15 +16,24 @@ def command_available(command: str) -> bool:
     return find_executable(command) is not None
 
 
+def program_available(name: str) -> bool:
+    """Whether ``name`` resolves to a native program on PATH: how ``git`` and ``rg`` are looked for (S-8)."""
+    return find_program(name) is not None
+
+
 #: What :func:`run_command` returns for a command that outlived its ``timeout``.
 TIMEOUT_EXIT_CODE = 124
 
 
 def run_command(args: list[str], cwd: Path, timeout: float | None = None) -> tuple[int, str]:
-    """Run a program by its absolute PATH location, never one found in ``cwd``."""
-    program = find_executable(args[0]) if args else None
+    """Run a program by its absolute PATH location, never one found in ``cwd``, and never a batch file.
+
+    ``git`` is handed text from an issue (``--grep`` patterns, file names), and a
+    batch file would put it through ``cmd.exe`` (S-8): :func:`find_program`.
+    """
+    program = find_program(args[0]) if args else None
     if program is None:
-        return 127, f"{args[0] if args else 'program'} command not found"
+        return 127, not_found_sentence(args[0]) if args else "program command not found"
     try:
         completed = subprocess.run(
             [program, *args[1:]],
@@ -60,44 +69,6 @@ def working_tree_status(repo_root: Path) -> str | None:
     if code != 0:
         return None
     return output or "clean"
-
-
-#: The directories bugpilot writes into a repository, as ``.gitignore`` names them.
-ARTIFACT_DIRECTORIES = (".ai", ".ai_memory")
-
-
-def artifact_directories_ignored(repo_root: Path) -> dict[str, bool] | None:
-    """Whether git ignores each directory bugpilot writes into this repository.
-
-    ``{".ai": bool, ".ai_memory": bool}``. ``docs/safety.md`` forbids an agent
-    from committing ``.ai/`` or ``.ai_memory/`` — those hold fetched Jira
-    content and per-run logs — but nothing stopped a *developer* from doing it,
-    and after one run their `git status` is full of files they did not create.
-    This only reports; bugpilot never edits someone's `.gitignore` on its own.
-    (The extension offers a button that does, which the developer presses.)
-
-    Git's own answer, so a rule written as ``.ai``, ``/.ai/`` or in
-    ``.git/info/exclude`` counts exactly as it does for git. `doctor` reports
-    it per directory, which is what lets that button add only the missing rule,
-    and as one ``ai_artifacts_ignored`` flag for the warning.
-
-    ``None`` when the question cannot be answered (no git, or not a checkout).
-    """
-    if not (command_available("git") and inside_git_repo(repo_root)):
-        return None
-    # Two things this got wrong before, both found by asking real repositories:
-    #
-    #  - one path per call. `git check-ignore -q` refuses several with
-    #    "fatal: --quiet is only valid with a single pathname" and exit 128,
-    #    which a naive `code == 0` reads as "not ignored" everywhere.
-    #  - ask about a path *inside* the directory. A `.ai/` pattern only matches
-    #    a path git knows is a directory, so asking about `.ai` answered "not
-    #    ignored" until the directory existed — a false alarm at exactly the
-    #    moment the advice is worth giving, before the first run.
-    return {
-        directory: run_command(["git", "check-ignore", "-q", f"{directory}/probe"], repo_root)[0] == 0
-        for directory in ARTIFACT_DIRECTORIES
-    }
 
 
 def branch_name(issue_key: str, description: str | None = None, template: str | None = None) -> str:

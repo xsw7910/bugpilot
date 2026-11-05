@@ -136,7 +136,7 @@ Agent instruction: If search confidence is Low, do not assume the matched files 
 
 ### Relevant Files
 
-See `.ai/local_20260101090000/retrieval.json` for the ranked files, their matched lines and the search terms.
+See `retrieval.json`, beside this file, for the ranked files, their matched lines and the search terms.
 
 - `src/export/format_selector.py` confidence=medium score=42 matches=2 keywords=format, export
 

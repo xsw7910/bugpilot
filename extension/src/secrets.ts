@@ -2,7 +2,7 @@
  * The Jira token: stored by VS Code, handed to the CLI through the environment.
  *
  * This is the requirement-R6 half of the extension. Today the CLI keeps the
- * token in plaintext in `~/.bugpilot/config.toml`; VS Code's SecretStorage is
+ * token in plaintext in `~/.bugpilot/config/config.toml`; VS Code's SecretStorage is
  * an improvement, and `config.py` already prefers environment variables over
  * that file, so injecting it needs no change on the Python side.
  *

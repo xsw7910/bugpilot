@@ -30,11 +30,13 @@ start over on its own.
 
 from __future__ import annotations
 
+import functools
 import os
 import sys
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable, TypeVar
 
 try:
     from mcp.server.mcpserver import MCPServer
@@ -63,11 +65,11 @@ MCP_MISSING_MESSAGE = (
 )
 
 from bugpilot import __version__
-from bugpilot.core import errors, handoff, workflow
+from bugpilot.core import errors, handoff, storage, workflow
 from bugpilot.core.artifacts import CONTEXT_ARTIFACT, FIX_REPORT_ARTIFACT, TASK_ARTIFACT
 from bugpilot.core.branch_policy import check_branch_policy
 from bugpilot.core.run import RunArtifactError, load_run, run_to_dict
-from bugpilot.core.config import issue_dir
+from bugpilot.core.config import issue_dir, prompt_path, readable_data_dir
 from bugpilot.core.evidence import evidence_block, fence_left_open, one_line
 from bugpilot.core.fix_mode_state import fix_mode_metadata, fix_mode_registry
 from bugpilot.core.fix_mode_store import catalog_for
@@ -88,6 +90,11 @@ from bugpilot.core.safe_paths import (
 )
 
 REPO_ROOT_ENV = "BUGPILOT_MCP_REPO_ROOT"
+
+#: Set on every tool function :func:`_request_scoped` wraps, so a test can show that none was missed.
+REQUEST_SCOPED = "__bugpilot_request_scoped__"
+
+_T = TypeVar("_T")
 
 INSTRUCTIONS = """\
 BugPilot turns a bug report into focused code context before you search the repository.
@@ -120,6 +127,27 @@ class _Bound:
 
     repo_root: Path
     lock: threading.Lock = field(default_factory=threading.Lock)
+
+
+def _request_scoped(tool: Callable[..., _T]) -> Callable[..., _T]:
+    """One storage request scope per tool call (0.1.6, plan §14.3, Batch 2B-2; the 2B-5 gate's items 1-3).
+
+    The SDK runs a synchronous tool in a worker thread (``anyio.to_thread.run_sync``).
+    The scope is opened there, as the body's first act, and closed when the body
+    returns or raises. A scope belongs to the thread that opened it, so two
+    overlapping calls never share one, and none outlives its call: the next call
+    looks at the disk again. Never opened in ``build_server``, ``main`` or a
+    lifespan, whose context every request would copy. The signature and the
+    docstring stay the tool's own: the SDK builds the tool's schema from them.
+    """
+
+    @functools.wraps(tool)
+    def scoped(*args: object, **kwargs: object) -> _T:
+        with storage.request_scope():
+            return tool(*args, **kwargs)
+
+    setattr(scoped, REQUEST_SCOPED, True)
+    return scoped
 
 
 def resolve_repo_root(explicit: str | None = None) -> Path:
@@ -159,7 +187,7 @@ def _existing(repo_root: Path, work_item_id: str) -> str:
     item = _checked(work_item_id)
     try:
         # Its folder judged as it stands, never followed (O-1): a link there is refused, not taken as prepared.
-        prepared = generated_folder_exists(repo_root, issue_dir(repo_root, item))
+        prepared = generated_folder_exists(readable_data_dir(repo_root), issue_dir(repo_root, item))
     except UnsafePathError as exc:
         raise ToolError(str(exc)) from exc
     if not prepared:
@@ -208,8 +236,9 @@ def _read_artifact(root: Path, work_item_id: str, name: str) -> str | None:
     read outside it, and only as a bounded regular file. A refusal is a tool
     error, never ``None``.
     """
+    base = readable_data_dir(root)  # storage's own errors keep their codes (C-1): never a file that is not there
     try:
-        data = read_generated_file(root, issue_dir(root, work_item_id) / name)
+        data = read_generated_file(base, issue_dir(root, work_item_id) / name)
     except UnsafePathError as exc:
         raise _refused(exc) from exc
     except OSError:
@@ -220,7 +249,7 @@ def _read_artifact(root: Path, work_item_id: str, name: str) -> str | None:
 def _present(root: Path, path: Path) -> bool:
     """Whether a work item's file is there, judged without following a link (O-1); a link is a tool error."""
     try:
-        return generated_file_exists(root, path)
+        return generated_file_exists(readable_data_dir(root), path)
     except UnsafePathError as exc:
         raise _refused(exc) from exc
 
@@ -271,8 +300,8 @@ def _package(root: Path, work_item_id: str, result: workflow.WorkflowResult) -> 
         "source": issue.source if issue else None,
         # On one line (0.1.5, N5): the issue keeps its title; only what is shown changes.
         "title": one_line(issue.title) if issue else None,
-        "issue_dir": f".ai/{work_item_id}",
-        "agent_task": f".ai/{work_item_id}/{TASK_ARTIFACT}" if _present(root, task_path) else None,
+        "issue_dir": str(task_path.parent),
+        "agent_task": str(task_path) if _present(root, task_path) else None,
         "generated_files": result.generated_files,
         # What the package was actually prepared with, in the same shape
         # run.json and the CLI's --json use. Additive: a client that
@@ -282,12 +311,12 @@ def _package(root: Path, work_item_id: str, result: workflow.WorkflowResult) -> 
         # between runs. Swallowing them here would hide the one event that
         # changes how the task was written.
         "warnings": list(result.warnings),
-        "next_step": _next_step(work_item_id, result.fix_mode),
+        "next_step": _next_step(prompt_path(task_path.parent), result.fix_mode),
         "context_excerpt": _context_excerpt(root, work_item_id),
     }
 
 
-def _next_step(work_item_id: str, mode: FixMode | None) -> str:
+def _next_step(folder: str, mode: FixMode | None) -> str:
     """The one sentence a client acts on before it has read anything.
 
     It has to agree with the task file it points at. The task file is written
@@ -295,8 +324,10 @@ def _next_step(work_item_id: str, mode: FixMode | None) -> str:
     the same object — never the mode's id, so a custom investigate-kind mode
     gets the investigation sentence too. Without a mode on the result (a legacy
     path that carries none) the sentence says only to follow the task file.
+    ``folder`` is the work item's folder, absolute (``config.prompt_path``): the
+    client works in the repository, and the folder is in BugPilot's data folder.
     """
-    reads = f"Read .ai/{work_item_id}/{TASK_ARTIFACT} and .ai/{work_item_id}/{CONTEXT_ARTIFACT}, "
+    reads = f"Read {folder}/{TASK_ARTIFACT} and {folder}/{CONTEXT_ARTIFACT}, "
     if mode is None:
         return reads + "then complete the workflow they describe. Stop before committing."
     if mode.is_investigation:
@@ -343,6 +374,18 @@ def _resolve_fix_mode(repo_root: Path, mode_id: str) -> FixMode:
         return fix_mode_registry(repo_root).resolve(candidate)
     except FixModeError as exc:
         raise ToolError(str(exc)) from exc
+    except _STORAGE_FAILURES as exc:
+        raise ToolError(_storage_failure("read the Fix Modes", exc)) from exc
+
+
+#: What the Fix Mode tools report as one sentence with its code (M-P, Batch 2B-3a): storage's refusals and
+#: its unavailability, and nothing else, so a programming error still reaches the SDK as a crash.
+_STORAGE_FAILURES = (storage.StorageError, errors.StorageAccessError)
+
+
+def _storage_failure(action: str, exc: Exception) -> str:
+    """``Could not <action> [CODE]: <sentence>``, as the prepare tools say it; the sentence names no absolute path."""
+    return f"Could not {action} [{errors.error_code_for(exc)}]: {exc}"
 
 
 def _options(
@@ -371,6 +414,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
     )
 
     @server.tool()
+    @_request_scoped
     def prepare_jira_bug(
         issue_key: str,
         hint: str | None = None,
@@ -386,8 +430,8 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         prefix, a dash and digits, such as JR-12345 — and asks to
         fix, investigate, analyse or look at that bug. Call it before searching
         the repository yourself: it writes the issue description, reproduction
-        steps, ranked candidate files and relevant git history into
-        .ai/<issue_key>/, which is what you should read instead.
+        steps, ranked candidate files and relevant git history into the
+        work item's folder it returns, which is what you should read instead.
 
         For a bug that only exists as a description with no issue key, use
         prepare_bug_description instead.
@@ -420,6 +464,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         return _package(bound.repo_root, key, result)
 
     @server.tool()
+    @_request_scoped
     def prepare_bug_description(
         description: str,
         title: str | None = None,
@@ -475,6 +520,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         return _package(bound.repo_root, spec.work_item_id, result)
 
     @server.tool()
+    @_request_scoped
     def refine_investigation(
         work_item_id: str,
         hint: str | None = None,
@@ -513,6 +559,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         return _package(bound.repo_root, item, result)
 
     @server.tool()
+    @_request_scoped
     def check_results(work_item_id: str) -> dict[str, object]:
         """Say whether the fix attempt has written its report yet.
 
@@ -524,7 +571,8 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         """
         item = _existing(bound.repo_root, work_item_id)
         try:
-            missing = workflow.check_result_files(bound.repo_root, item)
+            folder = issue_dir(bound.repo_root, item)
+            missing = [str(folder / name) for name in workflow.missing_result_names(bound.repo_root, item)]
         except Exception as exc:
             raise ToolError(f"Could not check {item}: {exc}") from exc
         return {
@@ -534,6 +582,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         }
 
     @server.tool()
+    @_request_scoped
     def summarize_results(work_item_id: str) -> dict[str, object]:
         """The fix report's status and the validation checklist, rendered in memory.
 
@@ -550,16 +599,17 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
                 overview = workflow.summarize_results_step(bound.repo_root, item)
         except Exception as exc:
             raise ToolError(f"Could not summarize {item} [{errors.error_code_for(exc)}]: {exc}") from exc
-        report = f".ai/{item}/{FIX_REPORT_ARTIFACT}"
-        present = _present(bound.repo_root, issue_dir(bound.repo_root, item) / FIX_REPORT_ARTIFACT)
+        report = issue_dir(bound.repo_root, item) / FIX_REPORT_ARTIFACT
+        present = _present(bound.repo_root, report)
         return {
             "work_item_id": item,
-            "fix_report": report if present else None,
+            "fix_report": str(report) if present else None,
             "overview": overview,
             "report_excerpt": _report_excerpt(bound.repo_root, item),
         }
 
     @server.tool()
+    @_request_scoped
     def search_memory(query: str) -> dict[str, object]:
         """Search past bug investigations for similar problems.
 
@@ -601,6 +651,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         }
 
     @server.tool()
+    @_request_scoped
     def get_status(work_item_id: str) -> dict[str, object]:
         """Report which preparation steps ran for a work item, and what exists.
 
@@ -637,6 +688,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         }
 
     @server.tool()
+    @_request_scoped
     def list_fix_modes() -> dict[str, object]:
         """List the AI Fix Modes available for this repository.
 
@@ -654,7 +706,10 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         Creating, editing and deleting modes is deliberately not available here;
         that stays with the developer, in the CLI and the editor.
         """
-        catalog = catalog_for(bound.repo_root)
+        try:
+            catalog = catalog_for(bound.repo_root)
+        except _STORAGE_FAILURES as exc:
+            raise ToolError(_storage_failure("list the Fix Modes", exc)) from exc
         return {
             "default_mode_id": catalog.effective_registry().default.id,
             "modes": [
@@ -671,6 +726,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         }
 
     @server.tool()
+    @_request_scoped
     def show_fix_mode(mode_id: str) -> dict[str, object]:
         """Show one AI Fix Mode in full: its metadata and its instructions.
 

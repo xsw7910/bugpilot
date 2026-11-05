@@ -2,8 +2,18 @@
 
 Two scopes, and the difference between them is who the mode belongs to:
 
-    ~/.bugpilot/fix_modes/<id>.json          one developer's own workflows
-    <repo>/.bugpilot/fix_modes/<id>.json     a team's, committed with the code
+    ~/.bugpilot/config/fix_modes/<id>.json                                one developer's own workflows
+    ~/.bugpilot/repositories/<repository id>/settings/fix_modes/<id>.json this developer's for one repository
+
+The user folder is in ``config/`` of BugPilot's data folder (``BUGPILOT_HOME``
+when set; 0.1.6, plan §14.3, Batch 2B-2), reached only through storage's checked
+accessor: a data folder in a Git working tree, or a link on the way, is refused
+(owner decision C-2). The 0.1.5 folder at the top of the data folder is never read.
+
+The project folder is in the repository's namespace (Batch 2B-3a), reached only
+through :mod:`repository_settings`, with the same refusals (G-6). It is not
+shared through the repository (US-D9); the 0.1.5 ``<repo>/.bugpilot/fix_modes/``
+is never read, copied or deleted.
 
 Built-ins stay packaged and read-only. A custom file may not claim one of their
 ids, and may not claim to *be* one: `source` is never stored in the file, it is
@@ -21,18 +31,20 @@ Two views of the same modes, deliberately kept apart:
     would make the shadowed one unreachable.
 
 Nothing here is cached. A store is built per command, so a file edited by hand
-between two runs is seen by the second one — these files are meant to be edited
-and committed like any other repository config.
+between two runs is seen by the second one — these files are meant to be edited.
 """
 
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Literal
+from typing import Callable, Iterable, Literal
 
+from . import repository_settings, storage
 from .artifact_io import atomic_write_text
+from .errors import StorageAccessError
 from .fix_modes import (
     BUILTIN_FIX_MODES,
     FixMode,
@@ -42,12 +54,13 @@ from .fix_modes import (
     builtin_fix_mode_registry,
     is_valid_fix_mode_id,
 )
-from .safe_paths import is_link_or_junction
-from .user_config import user_config_dir
+from .safe_paths import decode_text, is_link_or_junction
 
 CUSTOM_SCHEMA_VERSION = 1
-FIX_MODE_DIR_NAME = ".bugpilot"
 FIX_MODE_SUBDIR = "fix_modes"
+#: The one issue for a link among a storage-owned scope's files, whatever kind it is and wherever it points
+#: (Option C, M2). Pending the owner's approval as a designed difference (plan section 14.3).
+_LINK_ISSUE = "{name} is a symbolic link or junction. Custom Fix Modes must be real files inside their scope directory."
 
 CustomScope = Literal["user", "project"]
 CUSTOM_SCOPES: tuple[str, ...] = ("user", "project")
@@ -73,6 +86,18 @@ _ALLOWED_KEYS: frozenset[str] = frozenset(
 )
 
 
+class _ListedAndGone(FixModeError):
+    """A listed file that was gone by its read: the issue "is not a file." as always, but absence, not a failure."""
+
+
+class FixModeUnloadableError(FixModeError):
+    """An id whose project definition is on disk but could not be loaded (F3-A): refused, never resolved elsewhere.
+
+    A :class:`FixModeError`, so every entry point reports it as it reports any rejected mode; not a
+    :class:`FixModeNotFoundError`, whose persisted-selection wording would hide the reason.
+    """
+
+
 @dataclass(frozen=True)
 class FixModeIssue:
     """A custom file that could not be loaded, and why.
@@ -80,11 +105,18 @@ class FixModeIssue:
     Carried rather than raised: one unreadable file must not take the other
     modes down with it, and must not be silently skipped either. The developer
     needs the path and the reason, in the listing where they would look.
+
+    ``file_name`` is the file that is there but could not be loaded, so that its
+    id is refused rather than resolved to another scope's definition (F3-A). It
+    is empty for an issue about a whole scope, and for a file listed but gone by
+    the time it was read, which is absence, not a broken definition. Listings
+    show only the scope, the path and the message.
     """
 
     scope: str
     path: str
     message: str
+    file_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -129,7 +161,25 @@ class FixModeCatalog:
         return tuple(effective.values())
 
     def effective_registry(self) -> FixModeRegistry:
-        return FixModeRegistry(self.effective_modes())
+        return _CatalogRegistry(self)
+
+    def blocked_by(self, mode_id: str) -> FixModeIssue | None:
+        """The issue that keeps ``mode_id`` from resolving: its project definition is on disk but failed (F3-A).
+
+        Project beats user, so a project file that could not be loaded is the definition the id names. Resolving
+        the id to the developer's own instead would run another workflow with nothing on screen to say so.
+        Nothing blocks when the project's definition loaded, when there is none at all (the user's applies, as
+        always), or for a built-in id, which no custom file may claim. The file's name is compared with the id as
+        the system compares names: without case on Windows.
+        """
+        if mode_id in BUILTIN_FIX_MODE_IDS or any(mode.id == mode_id for mode in self.project):
+            return None
+        wanted = os.path.normcase(mode_id)
+        for issue in self.issues:
+            if issue.scope == "project" and issue.file_name:
+                if os.path.normcase(os.path.splitext(issue.file_name)[0]) == wanted:
+                    return issue
+        return None
 
     def is_effective(self, mode: FixMode) -> bool:
         """Whether this physical definition is the one its id resolves to."""
@@ -137,6 +187,30 @@ class FixModeCatalog:
             if candidate.id == mode.id:
                 return candidate is mode or candidate == mode
         return False
+
+
+class _CatalogRegistry(FixModeRegistry):
+    """One catalog's effective registry: an id whose project definition failed to load resolves to nothing else.
+
+    The listing (``effective_modes``) is unchanged, so such an id can still be offered; it is refused when it is
+    resolved (F3-A, owner decision; keeping the two consistent is A2, deferred).
+    """
+
+    def __init__(self, catalog: FixModeCatalog) -> None:
+        super().__init__(catalog.effective_modes())
+        self._catalog = catalog
+
+    def resolve(self, mode_id: str | None = None) -> FixMode:
+        if isinstance(mode_id, str):
+            failed = self._catalog.blocked_by(mode_id)
+            if failed is not None:
+                reason = failed.message if failed.message.endswith(".") else f"{failed.message}."
+                raise FixModeUnloadableError(
+                    f"Fix Mode {mode_id!r} cannot be used: its project definition, {failed.path}, could not be "
+                    f"loaded. {reason} BugPilot will not use another scope's definition of {mode_id!r} instead. "
+                    "Repair or remove that file, or choose another Fix Mode."
+                )
+        return super().resolve(mode_id)
 
 
 def custom_mode_payload(mode: FixMode) -> dict[str, object]:
@@ -267,23 +341,30 @@ class FixModeStore:
 
     def __init__(self, repo_root: Path | None = None, home_dir: Path | None = None) -> None:
         self._repo_root = Path(repo_root) if repo_root is not None else None
-        # The same directory the rest of BugPilot calls home, so a test that
-        # redirects BUGPILOT_CONFIG_DIR redirects custom modes with it.
-        self._home_dir = Path(home_dir) if home_dir is not None else user_config_dir()
+        # The user scope is `config/fix_modes` in BugPilot's data folder, from storage's checked accessor
+        # (0.1.6 Batch 2B-2). An explicit `home_dir` is a folder of the caller's own, holding `fix_modes/`,
+        # for tests of this store on its own; no product caller passes one.
+        self._home_dir = Path(home_dir) if home_dir is not None else None
 
     # --- locations ---------------------------------------------------------
 
-    def scope_dir(self, scope: str) -> Path:
-        """Where a scope's modes live. Not created by reading."""
+    def scope_dir(self, scope: str, *, create: bool = False) -> Path:
+        """Where a scope's modes live. Not created by reading; ``create=True`` makes the user's folder ready."""
         _require_scope(scope)
         if scope == "user":
-            return self._home_dir / FIX_MODE_SUBDIR
+            if self._home_dir is not None:
+                return self._home_dir / FIX_MODE_SUBDIR
+            return storage.global_storage().user_fix_modes_dir(create=create)
         if self._repo_root is None:
             raise FixModeError(
                 "Project Fix Modes need a repository. Run this from inside the "
                 "repository you are working on, or use --scope user."
             )
-        return self._repo_root / FIX_MODE_DIR_NAME / FIX_MODE_SUBDIR
+        return repository_settings.fix_modes_dir(self._repo_root, create=create)
+
+    def _shown(self, scope: str, path: Path) -> str:
+        """A path in a scope's folder as messages name it: display form where storage owns the folder (US-D22)."""
+        return storage.display_path(path) if self._through_storage(scope) else str(path)
 
     def mode_path(self, scope: str, mode_id: str) -> Path:
         """The one file a mode may occupy, checked to be inside its directory.
@@ -302,7 +383,7 @@ class FixModeStore:
         directory = self.scope_dir(scope)
         # Before anything is built from it: one guard here covers read, create,
         # duplicate, update and delete, which all address a file through this.
-        unsafe = _unsafe_directory_reason(directory, scope)
+        unsafe = _unsafe_directory_reason(directory, scope, lambda path: self._shown(scope, path))
         if unsafe:
             raise FixModeError(unsafe)
         candidate = directory / f"{mode_id}.json"
@@ -310,7 +391,7 @@ class FixModeStore:
         resolved = _resolved(candidate)
         if resolved.parent != base:
             raise FixModeError(
-                f"Refusing to work on {candidate}: it resolves outside the "
+                f"Refusing to work on {self._shown(scope, candidate)}: it resolves outside the "
                 f"{scope} Fix Mode directory."
             )
         return candidate
@@ -336,15 +417,94 @@ class FixModeStore:
         return self.load_catalog().effective_registry()
 
     def _load_scope(self, scope: str, issues: list[FixModeIssue]) -> tuple[FixMode, ...]:
+        if not self._through_storage(scope):
+            return self._load_folder(scope, issues)
         try:
-            directory = self.scope_dir(scope)
+            directory = self._checked_dir(scope)
         except FixModeError:
             return ()
-        unsafe = _unsafe_directory_reason(directory, scope)
+        modes: list[FixMode] = []
+        # Listed and read by storage without following a link (Option C, M2): a link or a folder on the way,
+        # or one that cannot be read, fails the command; each file's own state is an issue. Sorted by storage,
+        # as the glob's paths were, so two machines listing the same folder agree.
+        for name in self._held_names(scope, directory):
+            try:
+                modes.append(self._load_held(scope, name, directory))
+            except FixModeError as exc:
+                # In display form where storage owns the folder (row 22, US-D22): never the user's folder name. A file
+                # gone since it was listed keeps its issue but is absence, so it blocks no id (F3-A).
+                failed = "" if isinstance(exc, _ListedAndGone) else name
+                shown = self._shown(scope, directory / name)
+                issues.append(FixModeIssue(scope=scope, path=shown, message=str(exc), file_name=failed))
+        return tuple(modes)
+
+    def _checked_dir(self, scope: str) -> Path:
+        """:meth:`scope_dir` for a read: a folder on the way that cannot be read is one sentence, in both scopes."""
+        if scope == "user":
+            return repository_settings.guarded(
+                "read",
+                lambda: storage.display_path(storage.global_storage().diagnostics()["config_dir"]),
+                lambda: self.scope_dir(scope),
+            )
+        return self.scope_dir(scope)
+
+    def _held_names(self, scope: str, directory: Path) -> list[str]:
+        if scope == "user":
+            return repository_settings.guarded(
+                "read", lambda: self._shown(scope, directory), storage.global_storage().user_fix_mode_names
+            )
+        return repository_settings.fix_mode_names(self._repo_root)
+
+    def _load_held(
+        self, scope: str, name: str, directory: Path, *, not_found: FixModeError | None = None
+    ) -> FixMode:
+        """One file of a storage-owned scope, read without following a link; its own state a ``FixModeError``.
+
+        ``not_found`` is raised when nothing is there; by default that is the issue a listed file that went
+        away before it was read always gave ("is not a file").
+        """
+        try:
+            if scope == "user":
+                found = repository_settings.guarded(
+                    "read",
+                    lambda: self._shown(scope, directory),
+                    lambda: storage.global_storage().read_user_fix_mode(name, limit=None),
+                )
+            else:
+                found = repository_settings.read_fix_mode(self._repo_root, name, limit=None)
+        except repository_settings.FileReadError as exc:
+            # The system error's class, never its text, which holds the absolute path (US-D22).
+            raise FixModeError(f"{name} could not be read: {exc.strerror or type(exc).__name__}.") from exc
+        if found.state == "absent" and not_found is not None:
+            raise not_found
+        if found.state == "absent":
+            raise _ListedAndGone(f"{name} is not a file.")
+        if found.state == "not_a_file":
+            raise FixModeError(f"{name} is not a file.")
+        if found.state == "link":
+            # A link is a definition that lives somewhere else, under rules this store does not set. It is
+            # never followed, not even to say what it points at: every kind of link is said the same way.
+            raise FixModeError(_LINK_ISSUE.format(name=name))
+        try:
+            raw = json.loads(decode_text(found.data, "utf-8"))  # line endings as `read_text` gave them
+        except json.JSONDecodeError as exc:
+            raise FixModeError(f"{name} is not valid JSON: {exc}.") from exc
+        return fix_mode_from_payload(
+            raw,
+            scope=scope,  # type: ignore[arg-type]
+            mode_id=Path(name).stem,
+            require_version=True,
+            where=name,
+        )
+
+    def _load_folder(self, scope: str, issues: list[FixModeIssue]) -> tuple[FixMode, ...]:
+        """A folder of the caller's own (``home_dir``, tests of this store alone), read by path as in 0.1.5."""
+        directory = self.scope_dir(scope)
+        unsafe = _unsafe_directory_reason(directory, scope, lambda path: self._shown(scope, path))
         if unsafe:
             # Reported rather than raised: one unusable scope must not cost the
             # developer the built-ins and the other scope's modes.
-            issues.append(FixModeIssue(scope=scope, path=str(directory), message=unsafe))
+            issues.append(FixModeIssue(scope=scope, path=self._shown(scope, directory), message=unsafe))
             return ()
         if not directory.is_dir():
             return ()
@@ -354,7 +514,9 @@ class FixModeStore:
             try:
                 modes.append(self._load_file(path, scope))
             except FixModeError as exc:
-                issues.append(FixModeIssue(scope=scope, path=str(path), message=str(exc)))
+                issues.append(
+                    FixModeIssue(scope=scope, path=self._shown(scope, path), message=str(exc), file_name=path.name)
+                )
         return tuple(modes)
 
     def _load_file(self, path: Path, scope: str) -> FixMode:
@@ -372,7 +534,8 @@ class FixModeStore:
         except json.JSONDecodeError as exc:
             raise FixModeError(f"{path.name} is not valid JSON: {exc}.") from exc
         except OSError as exc:
-            raise FixModeError(f"{path.name} could not be read: {exc}.") from exc
+            # The system error's class, never its text, which holds the absolute path (US-D22).
+            raise FixModeError(f"{path.name} could not be read: {exc.strerror or type(exc).__name__}.") from exc
         return fix_mode_from_payload(
             raw,
             scope=scope,  # type: ignore[arg-type]
@@ -384,10 +547,11 @@ class FixModeStore:
     def read(self, scope: str, mode_id: str) -> FixMode:
         """One scope's definition of an id, for management rather than execution."""
         path = self.mode_path(scope, mode_id)
+        missing = FixModeNotFoundError(f"No {scope} Fix Mode {mode_id!r}. Run: bugpilot fix-mode list --all-scopes")
+        if self._through_storage(scope):
+            return self._load_held(scope, path.name, path.parent, not_found=missing)
         if not path.exists():
-            raise FixModeNotFoundError(
-                f"No {scope} Fix Mode {mode_id!r}. Run: bugpilot fix-mode list --all-scopes"
-            )
+            raise missing
         return self._load_file(path, scope)
 
     # --- writing -----------------------------------------------------------
@@ -416,7 +580,7 @@ class FixModeStore:
         )
         # Version is managed here, not by whoever wrote the payload.
         mode = _with(mode, version=1)
-        self._write(path, mode)
+        self._write(scope, path, mode)
         return mode
 
     def duplicate(
@@ -436,7 +600,9 @@ class FixModeStore:
         """
         _require_scope(scope)
         _require_not_reserved(new_id)
-        source = (registry or self.effective_registry()).resolve(source_id)
+        # Copying runs nothing and reads no mode by its id: the source resolves as it always did, without F3-A's
+        # refusal, as DD-28's record of `duplicate` requires (`test_dd28_leaves_duplicate_as_it_was`).
+        source = FixModeRegistry.resolve(registry or self.effective_registry(), source_id)
         copy = FixMode(
             id=new_id,
             name=name if name and name.strip() else f"{source.name} (copy)",
@@ -459,7 +625,7 @@ class FixModeStore:
             raise FixModeError(
                 f"A {scope} Fix Mode {new_id!r} already exists. Choose another id."
             )
-        self._write(path, copy)
+        self._write(scope, path, copy)
         return copy
 
     def update(self, scope: str, mode_id: str, payload: object, expected_version: object) -> FixMode:
@@ -500,7 +666,7 @@ class FixModeStore:
             based_on=current.based_on,
             based_on_version=current.based_on_version,
         )
-        self._write(self.mode_path(scope, mode_id), updated)
+        self._write(scope, self.mode_path(scope, mode_id), updated)
         return updated
 
     def delete(self, scope: str, mode_id: str, expected_version: object) -> FixMode:
@@ -520,17 +686,40 @@ class FixModeStore:
             raise FixModeError(
                 f"{path.name} is a symbolic link and will not be deleted through BugPilot."
             )
-        path.unlink()
+        if not self._through_storage(scope):
+            path.unlink()
+            return current
+        try:
+            (self.scope_dir(scope, create=True) / path.name).unlink()
+        except StorageAccessError:
+            raise  # already one sentence: the folder could not be made ready
+        except OSError as error:
+            raise StorageAccessError.during("delete", storage.display_path(path), error) from None
         return current
 
-    def _write(self, path: Path, mode: FixMode) -> None:
+    def _write(self, scope: str, path: Path, mode: FixMode) -> None:
         if path.is_symlink():
             raise FixModeError(
                 f"{path.name} is a symbolic link. BugPilot will not write through it."
             )
-        path.parent.mkdir(parents=True, exist_ok=True)
         text = json.dumps(custom_mode_payload(mode), indent=2, sort_keys=True) + "\n"
-        atomic_write_text(path, text)
+        if not self._through_storage(scope):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(path, text)
+            return
+        try:
+            # The folder made ready by storage (0700, link-checked); the file written inside it.
+            atomic_write_text(self.scope_dir(scope, create=True) / path.name, text)
+        except StorageAccessError:
+            raise  # already one sentence: the folder could not be made ready
+        except OSError as error:
+            # Storage unavailable (C-1, F2-S): one sentence in the display form, never the system error's text.
+            raise StorageAccessError.during("write", storage.display_path(path), error) from None
+
+    def _through_storage(self, scope: str) -> bool:
+        """Whether this scope's folder is BugPilot's own, in its data folder: the project's always (Batch 2B-3a),
+        the user's unless a test gave a ``home_dir``."""
+        return scope == "project" or self._home_dir is None
 
 
 def _with(mode: FixMode, **changes: object) -> FixMode:
@@ -556,17 +745,19 @@ def _redirects_elsewhere(path: Path) -> bool:
     return is_link_or_junction(path)
 
 
-def _unsafe_directory_reason(directory: Path, scope: str) -> str | None:
+def _unsafe_directory_reason(directory: Path, scope: str, shown: Callable[[Path], str] = str) -> str | None:
     """Why this scope's directory may not be used, if it may not be.
 
-    The store is `<config dir>/fix_modes` and `<repo>/.bugpilot/fix_modes`, so
-    both the directory and the config directory holding it have to be real: a
-    link at either level redirects the whole store.
+    The store is `<config dir>/fix_modes` and `<namespace>/settings/fix_modes`,
+    so both the directory and the folder holding it have to be real: a link at
+    either level redirects the whole store. Storage refuses such a link first
+    for the folders it owns; this guard is the store's own, kept as defence in
+    depth. ``shown`` names the folder in the message (display form, US-D22).
     """
     for candidate in (directory, directory.parent):
         if _redirects_elsewhere(candidate):
             return (
-                f"{candidate} is a symbolic link or junction. {scope.capitalize()} Fix "
+                f"{shown(candidate)} is a symbolic link or junction. {scope.capitalize()} Fix "
                 "Mode directories must be real directories, so that modes cannot be "
                 "read from or written to somewhere else."
             )

@@ -20,7 +20,8 @@ from pathlib import Path
 import pytest
 
 from bugpilot.cli import main
-from bugpilot.core.config import writable_issue_dir, writable_memory_file
+from bugpilot.core import storage
+from bugpilot.core.config import data_dir, issue_dir, memory_dir, writable_issue_dir, writable_memory_file
 from bugpilot.core.safe_paths import UnsafePathError, writable_dir
 
 WORK_ITEM = "JR-12345"
@@ -48,6 +49,7 @@ LINKERS = [pytest.param(_symlink, id="symlink"), pytest.param(_junction, id="jun
 def repo(tmp_path, monkeypatch):
     root = tmp_path / "repo"
     root.mkdir()
+    storage.repository_storage(root).ensure()  # its folder in the data folder, as a first run makes it (0.1.7)
     monkeypatch.chdir(root)
     return root
 
@@ -70,12 +72,12 @@ def _prepare(*extra: str) -> int:
 
 @pytest.mark.parametrize("make_link", LINKERS)
 def test_a_run_refuses_to_write_through_a_linked_ai_folder(repo, outside, capsys, make_link):
-    make_link(repo / ".ai", outside)
+    make_link((data_dir(repo) / "work"), outside)
 
     assert _prepare() == 1
     err = capsys.readouterr().err
 
-    assert "BugPilot cannot write .ai/JR-12345: .ai is a symbolic link or junction" in err
+    assert "BugPilot cannot write work/JR-12345: work is a symbolic link or junction" in err
     assert "Nothing was written." in err
     assert "Traceback" not in err
     assert _untouched(outside)
@@ -83,35 +85,36 @@ def test_a_run_refuses_to_write_through_a_linked_ai_folder(repo, outside, capsys
 
 @pytest.mark.parametrize("make_link", LINKERS)
 def test_a_run_refuses_to_write_through_a_linked_work_item_folder(repo, outside, capsys, make_link):
-    (repo / ".ai").mkdir()
-    make_link(repo / ".ai" / WORK_ITEM, outside)
+    ((data_dir(repo) / "work")).mkdir()
+    make_link(issue_dir(repo, WORK_ITEM), outside)
 
     assert _prepare() == 1
-    assert "BugPilot cannot write .ai/JR-12345: .ai/JR-12345 is a symbolic link or junction" in capsys.readouterr().err
+    assert "BugPilot cannot write work/JR-12345: work/JR-12345 is a symbolic link or junction" in capsys.readouterr().err
     assert _untouched(outside)
 
 
 @pytest.mark.parametrize("make_link", LINKERS)
 def test_a_linked_memory_folder_refuses_the_run_before_anything_is_written(repo, outside, capsys, make_link):
-    make_link(repo / ".ai_memory", outside)
+    make_link(memory_dir(repo), outside)
 
     assert _prepare() == 1
-    assert ".ai_memory is a symbolic link or junction" in capsys.readouterr().err
+    assert "memory is a symbolic link or junction" in capsys.readouterr().err
     assert _untouched(outside)
-    assert not (repo / ".ai").exists(), "a partial package was written before the refusal"
+    assert not ((data_dir(repo) / "work")).exists(), "a partial package was written before the refusal"
 
 
 @pytest.mark.parametrize("make_link", LINKERS)
 def test_a_linked_memory_bugs_folder_is_refused_too(repo, outside, capsys, make_link):
-    (repo / ".ai_memory").mkdir()
-    make_link(repo / ".ai_memory" / "bugs", outside)
+    """0.1.7 has no `bugs` level: the link one level down from `memory` is at the memory entry itself."""
+    (memory_dir(repo)).mkdir()
+    make_link(memory_dir(repo) / f"{WORK_ITEM}.md", outside)
 
     assert _prepare() == 1
     assert _untouched(outside)
 
 
 def test_the_json_lines_stream_ends_with_a_terminal_failure(repo, outside, capsys):
-    _junction(repo / ".ai", outside) if sys.platform == "win32" else _symlink(repo / ".ai", outside)
+    _junction((data_dir(repo) / "work"), outside) if sys.platform == "win32" else _symlink((data_dir(repo) / "work"), outside)
 
     assert _prepare("--json-lines") == 1
     events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
@@ -122,7 +125,7 @@ def test_the_json_lines_stream_ends_with_a_terminal_failure(repo, outside, capsy
 
 def test_a_linked_file_inside_the_work_item_is_never_written_through(repo, outside, capsys):
     assert _prepare() == 0
-    task = repo / ".ai" / WORK_ITEM / "task.md"
+    task = issue_dir(repo, WORK_ITEM) / "task.md"
     task.unlink()
     _symlink(task, outside / "canary.txt")
 
@@ -133,7 +136,7 @@ def test_a_linked_file_inside_the_work_item_is_never_written_through(repo, outsi
 
 def test_the_retry_prompt_is_never_written_through_a_linked_file(repo, outside, capsys):
     assert _prepare() == 0
-    prompt = repo / ".ai" / WORK_ITEM / "agent_retry_prompt.md"
+    prompt = issue_dir(repo, WORK_ITEM) / "agent_retry_prompt.md"
     _symlink(prompt, outside / "canary.txt")
 
     assert main(["retry-prompt", WORK_ITEM]) == 1
@@ -144,7 +147,7 @@ def test_the_retry_prompt_is_never_written_through_a_linked_file(repo, outside, 
 @pytest.mark.parametrize("make_link", LINKERS)
 def test_an_attachments_folder_that_is_a_link_is_not_copied_into(repo, outside, tmp_path, make_link):
     assert _prepare() == 0
-    make_link(repo / ".ai" / WORK_ITEM / "attachments", outside)
+    make_link(issue_dir(repo, WORK_ITEM) / "attachments", outside)
     log = tmp_path / "crash.log"
     log.write_text("Traceback", encoding="utf-8")
 
@@ -155,8 +158,8 @@ def test_an_attachments_folder_that_is_a_link_is_not_copied_into(repo, outside, 
 
 @pytest.mark.parametrize("make_link", LINKERS)
 def test_recording_a_review_refuses_a_linked_work_item(repo, outside, tmp_path, capsys, make_link):
-    (repo / ".ai").mkdir()
-    make_link(repo / ".ai" / WORK_ITEM, outside)
+    ((data_dir(repo) / "work")).mkdir()
+    make_link(issue_dir(repo, WORK_ITEM), outside)
     review = tmp_path / "review.json"
     review.write_text(json.dumps({"summary": "Looks fine."}), encoding="utf-8")
 
@@ -169,9 +172,9 @@ def test_recording_a_review_refuses_a_linked_work_item(repo, outside, tmp_path, 
 def test_standalone_steps_refuse_too(repo, outside, capsys, make_link):
     """`context`, `retry-prompt`, `memory add`: every writer, not only `bug`."""
     assert _prepare() == 0
-    (repo / ".ai" / WORK_ITEM).rename(outside / WORK_ITEM)
-    (repo / ".ai").rmdir()
-    make_link(repo / ".ai", outside)
+    (issue_dir(repo, WORK_ITEM)).rename(outside / WORK_ITEM)
+    ((data_dir(repo) / "work")).rmdir()
+    make_link((data_dir(repo) / "work"), outside)
     before = sorted(path.name for path in (outside / WORK_ITEM).iterdir())
 
     for argv in (["context", WORK_ITEM], ["retry-prompt", WORK_ITEM], ["memory", "add", WORK_ITEM], ["agent-task", WORK_ITEM]):
@@ -192,8 +195,8 @@ def test_a_work_item_id_that_would_leave_ai_is_refused(repo, capsys):
 
 def test_missing_folders_are_created_and_ordinary_ones_used(repo):
     assert _prepare() == 0
-    assert (repo / ".ai" / WORK_ITEM / "task.md").is_file()
-    assert (repo / ".ai_memory" / "bugs" / f"{WORK_ITEM}.md").is_file()
+    assert (issue_dir(repo, WORK_ITEM) / "task.md").is_file()
+    assert (memory_dir(repo) / f"{WORK_ITEM}.md").is_file()
     assert _prepare() == 0, "a second run into the real folders it made"
 
 
@@ -206,18 +209,112 @@ def test_a_repository_reached_through_a_link_still_works(tmp_path, monkeypatch, 
     monkeypatch.chdir(tmp_path / "linked-repo")
 
     assert _prepare() == 0
-    assert (real / ".ai" / WORK_ITEM / "task.md").is_file()
+    assert (issue_dir(real, WORK_ITEM) / "task.md").is_file()
 
 
 def test_the_helpers_directly(repo, outside):
     created = writable_dir(repo, (".ai", WORK_ITEM))
     assert created.is_dir()
     assert writable_dir(repo, (".ai", "JR-99999"), create=False) == repo / ".ai" / "JR-99999"
-    assert not (repo / ".ai" / "JR-99999").exists()
-    assert writable_issue_dir(repo, WORK_ITEM) == created
+    assert not (issue_dir(repo, "JR-99999")).exists()
+    assert writable_issue_dir(repo, WORK_ITEM) == issue_dir(repo, WORK_ITEM) and issue_dir(repo, WORK_ITEM).is_dir()
     assert writable_memory_file(repo, WORK_ITEM).name == f"{WORK_ITEM}.md"
     with pytest.raises(UnsafePathError):
         writable_issue_dir(repo, "../x-1")
     (repo / "not-a-dir").write_text("x", encoding="utf-8")
     with pytest.raises(UnsafePathError, match="is not a directory"):
         writable_dir(repo, ("not-a-dir", "y"))
+
+
+# --- the attachments folder is storage's, and refusals name the data folder (ST-1, ST-2) ------------------
+
+
+def _attached(tmp_path: Path, name: str = "crash.log") -> Path:
+    log = tmp_path / "inputs" / name
+    log.parent.mkdir(exist_ok=True)
+    log.write_text("Traceback", encoding="utf-8")
+    return log
+
+
+def test_a_runs_attachments_folder_is_made_by_storage(repo, tmp_path, monkeypatch):
+    """ST-1: storage's own creator, `RepositoryStorage.attachments_dir(create=True)` (0700, each component checked)."""
+    made = []
+    real = storage.RepositoryStorage.attachments_dir
+
+    def spy(self, work_item_id, *, create):
+        made.append((work_item_id, create))
+        return real(self, work_item_id, create=create)
+
+    monkeypatch.setattr(storage.RepositoryStorage, "attachments_dir", spy)
+    first, second = _attached(tmp_path, "one.log"), _attached(tmp_path, "two.log")
+
+    assert main(["bug", WORK_ITEM, "--allow-mock", "--prepare-only", "--attach", str(first), "--attach", str(second)]) == 0
+
+    folder = issue_dir(repo, WORK_ITEM) / "attachments"
+    assert sorted(path.name for path in folder.iterdir()) == ["one.log", "two.log"]
+    assert made == [(WORK_ITEM, True)], "made ready once, by storage"
+    if os.name == "posix":
+        assert folder.stat().st_mode & 0o077 == 0, "private, like every folder storage creates"
+
+
+def test_no_attachments_folder_is_made_when_nothing_could_be_copied(repo, tmp_path):
+    assert main(["bug", WORK_ITEM, "--allow-mock", "--prepare-only", "--attach", str(tmp_path / "gone.log")]) == 0
+    assert not (issue_dir(repo, WORK_ITEM) / "attachments").exists()
+
+
+def test_copy_attachments_on_its_own_makes_a_private_checked_folder(tmp_path, outside):
+    from bugpilot.core.attachments import copy_attachments
+
+    target = tmp_path / "item"
+    target.mkdir()
+    result = copy_attachments(target, [str(_attached(tmp_path))])
+    assert result.copied == ["crash.log"]
+    if os.name == "posix":
+        assert (target / "attachments").stat().st_mode & 0o077 == 0
+
+    linked = tmp_path / "linked-item"
+    linked.mkdir()
+    _symlink(linked / "attachments", outside)
+    with pytest.raises(UnsafePathError, match="inside BugPilot's data folder"):
+        copy_attachments(linked, [str(_attached(tmp_path))])
+    assert _untouched(outside)
+
+
+def test_a_linked_file_in_a_work_item_is_refused_in_the_data_folders_words(repo, outside, capsys):
+    """ST-2: the file is in BugPilot's data folder, so the refusal says so, never "this repository"."""
+    assert _prepare() == 0
+    task = issue_dir(repo, WORK_ITEM) / "task.md"
+    task.unlink()
+    _symlink(task, outside / "canary.txt")
+
+    assert _prepare() == 1
+    err = capsys.readouterr().err
+    assert "task.md is a symbolic link or junction" in err
+    assert "only into real directories inside BugPilot's data folder" in err
+    assert "this repository" not in err
+    assert _untouched(outside)
+
+
+def test_a_linked_attachment_file_is_refused_in_the_data_folders_words(repo, tmp_path, outside, capsys):
+    log = _attached(tmp_path)
+    assert main(["bug", WORK_ITEM, "--allow-mock", "--prepare-only", "--attach", str(log)]) == 0
+    copied = issue_dir(repo, WORK_ITEM) / "attachments" / "crash.log"
+    copied.unlink()
+    _symlink(copied, outside / "canary.txt")
+
+    assert main(["bug", WORK_ITEM, "--allow-mock", "--prepare-only", "--attach", str(log)]) == 1
+    err = capsys.readouterr().err
+    assert "crash.log is a symbolic link or junction" in err and "inside BugPilot's data folder" in err
+    assert (outside / "canary.txt").read_text(encoding="utf-8") == "not BugPilot's"
+
+
+def test_atomic_writes_name_the_data_folder_when_they_refuse(tmp_path, outside):
+    from bugpilot.core.artifact_io import atomic_write_text
+
+    target = tmp_path / "report.md"
+    _symlink(target, outside / "canary.txt")
+    with pytest.raises(UnsafePathError) as refused:
+        atomic_write_text(target, "text")
+    assert "inside BugPilot's data folder" in str(refused.value)
+    assert "this repository" not in str(refused.value)
+    assert (outside / "canary.txt").read_text(encoding="utf-8") == "not BugPilot's"

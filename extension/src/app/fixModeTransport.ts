@@ -74,7 +74,7 @@ export interface PayloadCommandRequest {
  * Every other Fix Mode call already declines when there is no workspace root;
  * this one used to fall back to the process's own directory, which for an
  * extension host is somewhere the developer never chose — and `--scope project`
- * would then create `.bugpilot/` in it. A command that cannot name its target
+ * would then give that directory settings of its own in BugPilot's data folder. A command that cannot name its target
  * repository is a command not worth running.
  */
 export function fixModeCommandPort(

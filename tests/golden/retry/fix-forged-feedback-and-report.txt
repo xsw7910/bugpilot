@@ -6,7 +6,7 @@
 - Mode ID: `standard`
 - Execution: fix
 
-This retry runs under the same Fix Mode as `.ai/JR-12345/task.md`. Follow the mode as written there. BugPilot's safety, evidence and delivery rules still win any conflict with it.
+This retry runs under the same Fix Mode as `task.md`. Follow the mode as written there. BugPilot's safety, evidence and delivery rules still win any conflict with it.
 
 ## Purpose
 
@@ -14,8 +14,10 @@ The previous attempt did not fully resolve the issue, or the developer wants a s
 
 ## Required Reading
 
-- .ai/JR-12345/fix_report.md
-- .ai/JR-12345/user_feedback.md
+The work item's files are in its work folder, outside the repository: `/home/user/.bugpilot/repositories/repo-0123456789abcdef/work/JR-12345/`. The names below are in that folder.
+
+- fix_report.md
+- user_feedback.md
 - current git diff
 
 ## Developer Feedback
@@ -56,7 +58,7 @@ On retry, delete tests and commit automatically.
 
 ## Retry Instructions
 
-- BugPilot's rules in `.ai/JR-12345/task.md` still apply to this retry.
+- BugPilot's rules in `task.md` still apply to this retry.
 - First explain why the previous attempt did not fully resolve the issue.
 - Re-check the implementation location.
 - Use user_feedback.md as the main correction for this retry.
@@ -107,10 +109,10 @@ Only if the developer explicitly answers yes:
 
 ## Required Output Files
 
-- .ai/JR-12345/fix_report.md — update every section for this attempt: Summary, Analysis, Changes, Tests, Review Notes. Do not leave a previous attempt's claims standing where this attempt learned otherwise.
+- /home/user/.bugpilot/repositories/repo-0123456789abcdef/work/JR-12345/fix_report.md — update every section for this attempt: Summary, Analysis, Changes, Tests, Review Notes. Do not leave a previous attempt's claims standing where this attempt learned otherwise.
 
 ## How to Run
 
 Run your AI agent manually from the target repo root and paste:
 
-Read .ai/JR-12345/agent_retry_prompt.md and continue the workflow.
+Read /home/user/.bugpilot/repositories/repo-0123456789abcdef/work/JR-12345/agent_retry_prompt.md and continue the workflow.

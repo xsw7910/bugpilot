@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core.config import data_dir
 from bugpilot.cli import main
 from bugpilot.core.identity import is_jira_issue_key, is_known_work_item_id, is_work_item_id, validate_work_item_id
 
@@ -45,7 +46,7 @@ def test_list_skips_folders_that_are_not_work_items_and_leaves_them_alone(tmp_pa
     # Anything under .ai/ that is not named like a work item is not one this tool
     # made; listing it would hand its name to the extension's History and from
     # there to a handoff's command line.
-    ai = tmp_path / ".ai"
+    ai = (data_dir(tmp_path) / "work")
     for name in ("JR-12345", "local_20260926010922", "x$(calc)", "x`calc`_1", "scratch notes", "JR-1.2"):
         (ai / name).mkdir(parents=True)
     monkeypatch.chdir(tmp_path)

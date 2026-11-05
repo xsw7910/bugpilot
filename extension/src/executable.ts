@@ -11,6 +11,7 @@
  * and only succeeds if the binary implements the phase 2 envelope.
  */
 
+import { UNIFIED_STORAGE_CAPABILITY } from "./app/dataFolder.ts";
 import { diagnose } from "./errors.ts";
 import { ProtocolError } from "./protocol.ts";
 import type { Envelope } from "./protocol.ts";
@@ -216,6 +217,18 @@ async function probe(executable: string, missing: string, options: DiscoverOptio
     typeof envelope["report"] === "object" && envelope["report"] !== null
       ? (envelope["report"] as Record<string, unknown>)
       : {};
+  // 0.1.7: this extension reads a repository's work items and settings from BugPilot's data folder, where
+  // `doctor` says they are. A CLI that does not list the capability still writes them into the repository, so
+  // nothing it prepares would be found here: too old, whatever else it can do.
+  const capabilities = report["capabilities"];
+  if (!Array.isArray(capabilities) || !capabilities.includes(UNIFIED_STORAGE_CAPABILITY)) {
+    return {
+      kind: "incompatible",
+      executable,
+      detail:
+        "it keeps work items in the repository's .ai/ folder, and this extension reads them from BugPilot's data folder, as bugpilot 0.1.7 and later keep them.",
+    };
+  }
   const version = report["version"];
   return {
     kind: "ready",
@@ -285,8 +298,11 @@ export function describeVerdict(verdict: Verdict): { summary: string; action: st
       // The binary is fine; the environment is not. Reuse the shared code table
       // rather than inventing a second explanation for the same code.
       const diagnosis = diagnose(verdict.code, verdict.message);
+      // `doctor` takes no arguments, so its INVALID_INPUT is a refusal of the environment — a data folder inside a
+      // repository or a Git working tree, say (0.1.7) — and the CLI's own sentence says what to change.
+      const said = verdict.code === "INVALID_INPUT" && verdict.message.trim() !== "" ? verdict.message.trim() : diagnosis.summary;
       return {
-        summary: `bugpilot runs, but its environment check failed: ${diagnosis.summary}`,
+        summary: `bugpilot runs, but its environment check failed: ${said}`,
         action: diagnosis.action ?? "",
       };
     }

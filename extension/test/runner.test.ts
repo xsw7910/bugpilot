@@ -122,6 +122,17 @@ test("runs in the given repository and layers the caller environment", async () 
   assert.notEqual(env[path], "");
 });
 
+test("every process says this extension reads the data folder (0.1.7), and no caller's environment drops it", async () => {
+  // Without it, a bugpilot 0.1.7 started from a VS Code extension refuses doctor --json and a run, taking the
+  // extension for one older than 0.1.7 (bugpilot/core/extension_compat.py).
+  const harness = fakeSpawn();
+  const promise = harness.runner().run(["doctor", "--json"], { cwd: "/repo", env: { BUGPILOT_CLIENT_STORAGE: "repository" } });
+  harness.child().close(0);
+  await promise;
+  const env = harness.calls[0]!.options.env as Record<string, string>;
+  assert.equal(env["BUGPILOT_CLIENT_STORAGE"], "unified");
+});
+
 test("a spawn error rejects rather than resolving with an empty result", async () => {
   const harness = fakeSpawn();
   const promise = harness.runner().run(["doctor"], { cwd: "/repo" });

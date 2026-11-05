@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core.config import issue_dir
 from bugpilot.core import git_history, retrieval as retrieval_module, workflow
 from bugpilot.core.git_history import (
     BULK_COMMIT_FILES,
@@ -462,7 +463,7 @@ def test_acceptance_history_surfaces_the_file_code_search_could_not(tmp_path, mo
     root = _acceptance_repo(tmp_path)
     spec = bug_spec_from_description("Postblend selection loses the last angle.", title="Angle lost")
     workflow.run_investigation(root, InvestigationRequest(spec=spec, options=InvestigationOptions(keywords=["postblend"])))
-    target = root / ".ai" / spec.work_item_id
+    target = issue_dir(root, spec.work_item_id)
     data = json.loads((target / "retrieval.json").read_text(encoding="utf-8"))
 
     related = [item["file"] for item in data["related_files"]]

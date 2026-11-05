@@ -14,8 +14,8 @@ read.**
  2. Copying is byte-for-byte and makes no encoding assumption. A PNG is a PNG;
     a log written by a Windows tool in cp1252 stays exactly as it was.
 
-The files land in ``.ai/<work_item>/attachments/``, inside the directory the
-agent is already pointed at, so nothing has to be given a path outside it.
+The files land in ``attachments/`` in the work item's folder in BugPilot's data
+folder, inside the folder the agent is already pointed at.
 """
 
 from __future__ import annotations
@@ -24,21 +24,23 @@ import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Callable, Mapping, Sequence
 
 from .safe_paths import (
+    DATA_FOLDER_BOUNDARY,
     UnsafePathError,
     generated_file_exists,
     generated_file_names,
     generated_folder_exists,
     refuse_link,
+    writable_dir,
 )
 
 ATTACHMENTS_DIR = "attachments"
 
 # Per file. A crash dump or a video of the repro is not an attachment, it is a
-# download — and copying one into `.ai/` bloats the repository the artifacts
-# directory lives in.
+# download — and copying one into the work item's folder bloats BugPilot's data
+# folder.
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 
 # Past this it is a directory, not a set of attachments, and an agent handed
@@ -80,7 +82,11 @@ def normalize_attachment_note(text: str | None) -> str:
 
 
 def copy_attachments(
-    target: Path, paths: Sequence[str], descriptions: Sequence[str] | None = None
+    target: Path,
+    paths: Sequence[str],
+    descriptions: Sequence[str] | None = None,
+    *,
+    folder: Callable[[], Path] | None = None,
 ) -> AttachmentResult:
     """Copy each path into ``target/attachments/``.
 
@@ -88,6 +94,12 @@ def copy_attachments(
     Nth file; a blank one, or none, means no description. A description follows
     its file to the name it was copied under, and is dropped with a file that
     did not make it.
+
+    ``folder`` makes ``attachments/`` ready and returns it: in a run, storage's
+    own creator (``0700``, every component checked before and after, compared
+    with the canonical path; plan §8.3). Without it the folder is made the same
+    way under ``target``. It is made once, before the first file that is
+    copied, so a run whose files are all skipped leaves no empty folder.
 
     Never raises for a bad input: a missing or oversized file costs itself and
     nothing else, because losing a whole investigation over one unreadable
@@ -97,7 +109,8 @@ def copy_attachments(
     if not paths:
         return result
 
-    directory = target / ATTACHMENTS_DIR
+    ready = folder or (lambda: writable_dir(target, (ATTACHMENTS_DIR,), mode=0o700, boundary=DATA_FOLDER_BOUNDARY))
+    directory: Path | None = None
     used: set[str] = set()
     described = list(descriptions or [])
 
@@ -123,15 +136,14 @@ def copy_attachments(
 
         name = _unique_name(source.name, used)
         try:
-            # Never into, or through, a link: the folder and
+            # Never into, or through, a link: the folder (made ready and checked once) and
             # the file are checked before the copy, which would follow either.
-            refuse_link(directory)
-            directory.mkdir(parents=True, exist_ok=True)
-            refuse_link(directory)
+            if directory is None:
+                directory = ready()
             # copyfile, not copy2: the metadata of the developer's original is
             # theirs, and a copied mtime makes the artifact look older than the
             # run that produced it.
-            shutil.copyfile(source, refuse_link(directory / name))
+            shutil.copyfile(source, refuse_link(directory / name, boundary=DATA_FOLDER_BOUNDARY))
         except OSError as exc:
             result.skipped.append((raw, f"could not be copied: {exc.strerror or exc}"))
             continue
@@ -272,7 +284,7 @@ def attachment_names(target: Path) -> list[str]:
 
 
 def _repository_of(target: Path) -> Path:
-    """The repository a work item's folder belongs to: ``target`` is two levels below it."""
+    """The repository's folder in BugPilot's data folder, which ``target`` (``work/<id>``) is two levels below."""
     return target.parent.parent
 
 

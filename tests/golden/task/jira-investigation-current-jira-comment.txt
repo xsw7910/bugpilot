@@ -3,7 +3,7 @@
 ## Execution Location
 
 - Run your AI agent from the target repository root, not from the bugpilot tool source directory.
-- `.ai/JR-12345/` paths are relative to the target repository root.
+- This work item's files are outside the repository, in `/home/user/.bugpilot/repositories/repo-0123456789abcdef/work/JR-12345/`. File names in this task are in that folder.
 
 ## BugPilot Safety Rules
 
@@ -77,8 +77,8 @@ Conventions and minimum expectations for how you make and report changes in this
 
 ## Required Input Files
 
-- Read `.ai/JR-12345/context.md`: the Issue Details (reproduction steps, actual/expected results, environment, errors, missing information), similar fixes and git history.
-- Read and inspect `.ai/JR-12345/retrieval.json` if present: the ranked related files with their matched lines, the search terms, and the search confidence.
+- Read `context.md`: the Issue Details (reproduction steps, actual/expected results, environment, errors, missing information), similar fixes and git history.
+- Read and inspect `retrieval.json` if present: the ranked related files with their matched lines, the search terms, and the search confidence.
 
 ## AI Fix Mode
 
@@ -146,7 +146,7 @@ In every Fix Mode, these govern what counts as evidence — not how deeply you i
 
 ## Required Output Files
 
-Write one report: `.ai/JR-12345/fix_report.md`, with exactly these sections. In this investigation-only mode they record investigation state, not a completed fix.
+Write one report: `/home/user/.bugpilot/repositories/repo-0123456789abcdef/work/JR-12345/fix_report.md`, with exactly these sections. In this investigation-only mode they record investigation state, not a completed fix.
 
 - `## Summary`: state that this was an investigation and that no source changes were applied.
 - `## Analysis`: root-cause hypotheses, the evidence for and against each, and what information is missing.
@@ -181,7 +181,7 @@ After writing the required investigation files, and BEFORE asking about implemen
 This Fix Mode is investigation-only. There is no fix to deliver in this pass.
 
 When the investigation is complete:
-- Write `.ai/JR-12345/fix_report.md`, every section investigation-phrased.
+- Write `fix_report.md` in the work folder, every section investigation-phrased.
 - Tell the developer: "Investigation complete. No source changes have been applied."
 - Show the leading root-cause hypothesis, the evidence for it, the competing hypotheses, the proposed fix plan, and the proposed verification.
 - Name any evidence that is still missing.

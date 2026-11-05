@@ -96,7 +96,7 @@ export const JIRA_SETUP_TEXT = {
   intro: "Connect BugPilot to your Jira site using your Atlassian account email and API token.",
   siteLabel: "Jira site",
   sitePlaceholder: "https://your-company.atlassian.net",
-  siteDescription: "Your Jira's https:// address. Saved in ~/.bugpilot/config.toml, where the bugpilot CLI reads it too.",
+  siteDescription: "Your Jira's https:// address. Saved in ~/.bugpilot/config/config.toml, where the bugpilot CLI reads it too.",
   siteFromEnvironment: "Set by JIRA_BASE_URL in your environment, which BugPilot uses. Change it there.",
   emailLabel: "Jira email",
   emailPlaceholder: "Atlassian account email",

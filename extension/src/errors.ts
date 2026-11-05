@@ -108,6 +108,12 @@ const TABLE: Record<string, Entry> = {
     summary: "bugpilot hit an unexpected error.",
     action: "Check the BugPilot output channel (BugPilot: Show Log) for the trace.",
   },
+  // Said to an extension older than 0.1.7, which shows the CLI's own sentence instead. This one says it is
+  // started with BUGPILOT_CLIENT_STORAGE=unified (runner.ts), so this arrives only from another program.
+  EXTENSION_OUTDATED: {
+    summary: "bugpilot was started as if by a BugPilot extension older than 0.1.7.",
+    action: "Update the BugPilot extension and the bugpilot CLI together, to the same version.",
+  },
 };
 
 /**

@@ -182,7 +182,7 @@ export interface FormState {
   /** Max Similar Fixes; empty means the CLI's default, five. */
   readonly similarMaxFixes: string;
   /**
-   * Delete `.ai/<work_item>/` before running.
+   * Delete `work/<work_item>/` before running.
    *
    * Off here and off in the CLI too (`--fresh` is
    * explicit everywhere). Phase 3 learned this the hard way: a
@@ -202,7 +202,7 @@ export interface FormState {
    * The Repository Profile: how task.md describes this
    * repository — Auto-detect, Generic, or the Custom details below.
    *
-   * A copy of `<repo>/.bugpilot/repository_profile.json`, which is the setting:
+   * A copy of the repository's `repository_profile.json` setting, which is the setting:
    * the host loads it from there when the environment resolves and writes it
    * back on Apply, and every run reads the file, so no flag carries it. Kept
    * by Reset Session, as the repository's rather than the session's.
@@ -218,7 +218,7 @@ export interface FormState {
   /**
    * The repository's Verification Policy: what level of
    * validation task.md asks for — not how, which is the Fix Mode's. A copy of
-   * `<repo>/.bugpilot/project_settings.json`, loaded and saved like the
+   * the repository's `project_settings.json` setting, loaded and saved like the
    * Repository Profile, so no flag carries it. Kept by Reset Session.
    */
   readonly verifyRelevantTests: boolean;
@@ -440,7 +440,7 @@ export interface BuildOptions {
 export const JIRA_ISSUE_KEY_RE = /^[A-Z][A-Z0-9]+-\d+$/;
 
 /**
- * A work item id — a `.ai/<work_item>/` directory name — matching
+ * A work item id — a `work/<work_item>/` directory name — matching
  * `WORK_ITEM_ID_RE` in `bugpilot/core/identity.py`.
  *
  * Letters, digits, `_` and `-`, a letter first and `-<digits>` or `_<digits>`
@@ -472,7 +472,7 @@ export const FIX_MODE_ID_RE = /^[a-z][a-z0-9-]{0,63}$/;
  * Which work item a form is about, named the way a run would name it.
  *
  * One identity rule, shared: the same `trim().toUpperCase()` a Jira run applies
- * before it touches `.ai/<work item>/`, so nothing downstream has to invent a
+ * before it touches `work/<work item>/`, so nothing downstream has to invent a
  * second notion of "the same bug".
  *
  * Three answers, and the difference between them matters:
@@ -685,7 +685,7 @@ export function buildPrepareArgs(form: FormState, options: BuildOptions): BuildR
   args.push(...planFlags(form.plan));
 
   // The Repository Profile contributes nothing either: every run reads it from
-  // `.bugpilot/repository_profile.json`, which the host writes on Apply, so a
+  // `settings/repository_profile.json`, which the host writes on Apply, so a
   // flag here would be a second copy of one setting.
 
   // `fixWithAI`, `agent` and `agentCommand` deliberately contribute nothing.
@@ -835,7 +835,7 @@ export function preparationFingerprint(form: FormState, options: { readonly veri
     repository: repositoryProfileFingerprint(form),
     // And the project settings: the Verification Policy is a section of
     // task.md, and the branch naming template names its branch. Once
-    // `.bugpilot/verification.md` is the policy (§42.2) the switches decide
+    // `settings/verification.md` is the policy (§42.2) the switches decide
     // nothing, so only the branch naming counts; the file's own changes reach
     // the stale check through the CLI's hash of the effective policy.
     project: options.verificationFile ? { branch_naming: project.branch_naming } : project,

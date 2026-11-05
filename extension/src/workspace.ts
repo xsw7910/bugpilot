@@ -1,9 +1,9 @@
 /**
  * Deciding which repository bugpilot should operate on.
  *
- * This matters more than it looks. bugpilot writes `.ai/<work_item>/` into the
- * directory it is run from, so picking the wrong root scatters artifacts into
- * the wrong checkout. The same reasoning drove the MCP server to bind its root
+ * This matters more than it looks. bugpilot files `work/<work_item>/` under the
+ * repository it is run from (its folder in BugPilot's data folder), so picking the
+ * wrong root files artifacts under the wrong checkout. The same reasoning drove the MCP server to bind its root
  * at startup instead of taking it as a tool argument (§5.2).
  *
  * `vscode` is not imported: the two things needed from it — the open folders and

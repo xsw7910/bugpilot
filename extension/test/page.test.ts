@@ -6571,6 +6571,7 @@ function loop(options: { holdRun?: boolean; deleteArtifacts?: ControllerPorts["d
       },
       // Every launched agent still running: the page's loop never sees one exit.
       terminalActivity: (matches) => ([...terminalNames].some((candidate) => matches(candidate)) ? "running" : "closed"),
+      terminalToken: (matches) => ([...terminalNames].some((candidate) => matches(candidate)) ? 1 : undefined),
       sendToTerminal: () => false,
       offer: async () => false,
       openFolder: async (directory) => { folders.push(directory.replaceAll("\\", "/")); },
@@ -6578,7 +6579,13 @@ function loop(options: { holdRun?: boolean; deleteArtifacts?: ControllerPorts["d
       runCommand: async () => {},
     },
     log: { info: () => {}, error: () => {} },
-    environment: async () => ({ kind: "ready", root: "/work/app", executable: "bugpilot", report: { python_ok: true } }),
+    environment: async () => ({
+      kind: "ready",
+      root: "/work/app",
+      executable: "bugpilot",
+      // Where a 0.1.7 CLI keeps the repository's work items: its folder in BugPilot's data folder.
+      report: { python_ok: true, storage: { repository_dir: "/home/dev/.bugpilot/repositories/app-0123456789abcdef", state: "usable" } },
+    }),
     credentials: async () => ({ configured: true, environment: {} }),
     jiraCredentials: { status: async () => ({ configured: true, email: "me@example.com" }), save: async () => {} },
     descriptionFilePath: () => "/tmp/bugpilot-description.md",
@@ -6587,6 +6594,8 @@ function loop(options: { holdRun?: boolean; deleteArtifacts?: ControllerPorts["d
     newSessionId: () => `00000000-0000-4000-8000-${String(++sessionIds).padStart(12, "0")}`,
     // A Claude CLI whose --help lists --session-id and --resume, as 2.1.214's does.
     cliSupportsFlags: async () => true,
+    // The CLI finds BugPilot's data folder private, so the work folder may be given (S-2).
+    workFolderPrivacy: async () => ({ private: true }),
     improveHint: async (request) => {
       hintPrompts.push(request.prompt);
       return { ok: true, text: "Look in the widget controller." };
@@ -6663,13 +6672,13 @@ test("Start New Attempt, pressed on the page, writes the feedback and hands over
   await l.drain();
 
   assert.ok(l.routed.includes("startAttempt"), "Start Attempt never reached the controller");
-  assert.deepEqual(l.written.map((file) => file.path), ["/work/app/.ai/JR-12345/user_feedback.md"]);
+  assert.deepEqual(l.written.map((file) => file.path), ["/home/dev/.bugpilot/repositories/app-0123456789abcdef/work/JR-12345/user_feedback.md"]);
   assert.match(l.written[0]!.contents, /The previous fix changed the wrong class\./);
   // The CLI's own retry loop builds the package from it…
   assert.deepEqual(l.jsonArgs.at(-1), ["bug", "JR-12345", "--retry", "--prepare-only", "--json"]);
-  // …and that package is what the new session is told to read.
+  // …and that package is what the new session is told to read, given its work folder (0.1.7).
   assert.deepEqual(l.terminals, [
-    `claude --session-id 00000000-0000-4000-8000-000000000001 ${JSON.stringify("Read .ai/JR-12345/agent_retry_prompt.md and continue the workflow.")}`,
+    `claude --add-dir=${JSON.stringify("/home/dev/.bugpilot/repositories/app-0123456789abcdef/work/JR-12345")} --session-id 00000000-0000-4000-8000-000000000001 ${JSON.stringify("Read /home/dev/.bugpilot/repositories/app-0123456789abcdef/work/JR-12345/agent_retry_prompt.md and continue the workflow.")}`,
   ]);
   assert.equal(l.page.byId("attempt-editor").hidden, true, "the form stayed open after the host started the attempt");
   assert.equal(l.page.byId("run-label").textContent, "Open AI Session");
@@ -6729,14 +6738,15 @@ test("every row action and Improve, pressed on the page, reach the controller th
   );
   // Empty feedback wrote nothing.
   assert.deepEqual(l.written, []);
-  assert.deepEqual(l.folders, ["/work/app/.ai/JR-12345"]);
+  assert.deepEqual(l.folders, ["/home/dev/.bugpilot/repositories/app-0123456789abcdef/work/JR-12345"]);
   // …and did what that action does.
-  assert.deepEqual(l.opened, ["/work/app/.ai/JR-12345/context.md", "/work/app/.ai/JR-12345/fix_report.md"]);
+  assert.deepEqual(l.opened, ["/home/dev/.bugpilot/repositories/app-0123456789abcdef/work/JR-12345/context.md", "/home/dev/.bugpilot/repositories/app-0123456789abcdef/work/JR-12345/fix_report.md"]);
   assert.deepEqual(l.clipboard, ["# Bug Context\n", LOOP_REVIEW_PROMPT]);
   assert.equal(l.jsonArgs.filter((args) => args[0] === "review-package").length, 3);
+  // Review with AI writes nothing and is given no folder; Fix with AI is given its work folder (0.1.7).
   assert.deepEqual(l.terminals, [
     `claude ${JSON.stringify("# Final Review Request Review the BugPilot result for work item JR-12345.")}`,
-    `claude --session-id 00000000-0000-4000-8000-000000000001 ${JSON.stringify("Read .ai/JR-12345/task.md and complete the workflow.")}`,
+    `claude --add-dir=${JSON.stringify("/home/dev/.bugpilot/repositories/app-0123456789abcdef/work/JR-12345")} --session-id 00000000-0000-4000-8000-000000000001 ${JSON.stringify("Read /home/dev/.bugpilot/repositories/app-0123456789abcdef/work/JR-12345/task.md and complete the workflow.")}`,
   ]);
   assert.equal(l.hintPrompts.length, 1, "Improve never reached the hint improver");
 });
@@ -9297,7 +9307,7 @@ test("reset page 11: a page loaded after a reset takes the session as it finds i
 test("reset page 12: Reset Session, pressed on the page, reaches the controller and the page shows a fresh session", async () => {
   const deletes: string[] = [];
   const l = loop({
-    deleteArtifacts: async (_root, id) => {
+    deleteArtifacts: async (_root, _repositoryDir, id) => {
       deletes.push(id);
       return { kind: "deleted" };
     },
@@ -9335,7 +9345,7 @@ for (const choice of ["keep", "delete"] as const) {
     // it — empty, its box re-measured, nothing left of the last reading.
     const deletes: string[] = [];
     const l = loop({
-      deleteArtifacts: async (_root, id) => {
+      deleteArtifacts: async (_root, _repositoryDir, id) => {
         deletes.push(id);
         return { kind: "deleted" };
       },

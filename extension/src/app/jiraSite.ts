@@ -2,7 +2,7 @@
  * The Jira site, for Jira Setup.
  *
  * The site is not a secret, so it is not kept with the email and token in
- * SecretStorage: it lives where the CLI reads it, `~/.bugpilot/config.toml`,
+ * SecretStorage: it lives where the CLI reads it, `~/.bugpilot/config/config.toml`,
  * written through `bugpilot jira-site set`. One site for the CLI and the panel,
  * never two that can disagree. `JIRA_BASE_URL` in the environment wins over the
  * file — for the CLI and for every run this panel starts — so when it is set

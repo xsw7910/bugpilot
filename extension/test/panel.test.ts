@@ -189,7 +189,7 @@ test("the page cannot turn off issue details", () => {
 });
 
 test("an artifact name that tries to leave the work item directory is refused", () => {
-  // Names are plain files inside `.ai/<work_item>/`; a separator or `..` here
+  // Names are plain files inside `work/<work_item>/`; a separator or `..` here
   // is a traversal attempt, and the host would otherwise open it.
   for (const name of ["../../etc/passwd", "sub/dir.md", "..\\..\\secrets", ".."]) {
     assert.equal(parsePanelMessage({ type: "openArtifact", name }), undefined, name);
@@ -821,7 +821,7 @@ const SETTINGS_HELP: Readonly<Record<string, string>> = {
   fresh: "Removes the work item's existing generated artifacts before running. Off by default to avoid accidental data loss.",
   // The Repository Profile and its Custom details.
   repositoryProfile:
-    "Describe the repository context BugPilot gives to the AI agent. Auto-detect uses high-confidence project files. Generic makes no language or framework assumptions. Custom uses the repository details you provide. Saved for the repository in .bugpilot/repository_profile.json.",
+    "Describe the repository context BugPilot gives to the AI agent. Auto-detect uses high-confidence project files. Generic makes no language or framework assumptions. Custom uses the repository details you provide. Saved for this repository in BugPilot's data folder.",
   repositoryLanguages: "The repository's main programming languages.",
   repositoryFrameworks: "Frameworks the code is built on.",
   repositoryApplicationType: "What the software is.",
@@ -831,12 +831,12 @@ const SETTINGS_HELP: Readonly<Record<string, string>> = {
   // The instruction rows' Edit: where each file is, whom
   // it applies to, and that BugPilot's safety rules win a conflict with it.
   "project-instructions-edit":
-    "Instructions for the AI agent shared with this repository: .bugpilot/instructions.md, which can be committed. Use this for project conventions, preferred commands, or important constraints. They refine how it works; BugPilot's safety rules come first in the task and win any conflict. Changing them requires rebuilding context.",
+    "Instructions for the AI agent for this repository, kept for it in BugPilot's data folder. Use this for project conventions, preferred commands, or important constraints. They refine how it works; BugPilot's safety rules come first in the task and win any conflict. Changing them requires rebuilding context.",
   "user-instructions-edit":
-    "Your own instructions for the AI agent, in every repository: ~/.bugpilot/instructions.md. They refine how it works; BugPilot's safety rules come first in the task and win any conflict. Changing them requires rebuilding context.",
+    "Your own instructions for the AI agent, in every repository: ~/.bugpilot/config/instructions.md. They refine how it works; BugPilot's safety rules come first in the task and win any conflict. Changing them requires rebuilding context.",
   // Branch naming. (The Verification Policy's switches left in 0.1.3, §42.5.)
   branchNaming:
-    "The name a new branch gets, when the branch policy calls for one. It never creates or switches a branch itself, and a work item keeps the branch it already has. Saved for the repository in .bugpilot/project_settings.json.",
+    "The name a new branch gets, when the branch policy calls for one. It never creates or switches a branch itself, and a work item keeps the branch it already has. Saved for this repository in BugPilot's data folder.",
   branchTemplate:
     "Must include {issue}: the Jira key, or bug- and a hash of the title for a bug you describe. {slug} is the title. Letters, digits, '.', '_', '-' and '/' only.",
   // What each policy means, since the select shows only their names (§37.127).

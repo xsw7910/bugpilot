@@ -8,6 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import path from "node:path";
 
 import { DEFAULT_FORM, preparationFingerprint } from "../src/app/form.ts";
 import type { FormState } from "../src/app/form.ts";
@@ -252,13 +253,20 @@ test("user_feedback.md is the developer's words under the template's heading, an
 });
 
 test("the retry handoff is the CLI's own sentence, pointing at the retry package", () => {
-  assert.equal(retryHandoffText("JR-12345"), "Read .ai/JR-12345/agent_retry_prompt.md and continue the workflow.");
+  // The work item's folder in BugPilot's data folder, named absolutely with forward slashes (0.1.7).
+  const folder = path.join("/home/dev/.bugpilot/repositories/app-0123456789abcdef", "work", "JR-12345");
+  assert.equal(
+    retryHandoffText(folder),
+    "Read /home/dev/.bugpilot/repositories/app-0123456789abcdef/work/JR-12345/agent_retry_prompt.md and continue the workflow.",
+  );
   // `retry_handoff_prompt` in bugpilot/core/handoff.py is where the CLI's retry
   // loop gets it; the two must not drift apart.
   const python = readFileSync(new URL("../../bugpilot/core/handoff.py", import.meta.url), "utf8");
   assert.match(python, /def retry_handoff_prompt\(prompt_file: str\) -> str:[\s\S]*?return f"Read \{prompt_file\} and continue the workflow\."/);
   const cli = readFileSync(new URL("../../bugpilot/cli.py", import.meta.url), "utf8");
-  assert.match(cli, /prompt = f"\.ai\/\{args\.issue_key\}\/agent_retry_prompt\.md"/);
+  // The CLI names the same file the same way: `prompt_path` of the work item's agent_retry_prompt.md.
+  assert.match(cli, /prompt_file = prompt_path\(folder \/ "agent_retry_prompt\.md"\)/);
+  assert.match(cli, /retry_handoff_prompt\(prompt_file\)/);
 });
 
 const REVIEW =

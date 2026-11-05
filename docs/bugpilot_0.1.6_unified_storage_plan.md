@@ -8,7 +8,7 @@ records are superseded or rewritten.
 
 | | |
 | --- | --- |
-| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED US-D32 and US-D33 for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions at the Batch 1 decision gate (2026-10-16): three with conditions and one in part (§16.1). On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract for the captured review. That approves the design, not its implementation or activation (§16.5.11). The same day the owner approved US-D14 with conditions: the protected staging rule stays unchanged (rules v2), and an informational note about legacy folders is added (§16.4.1). That is also a design approval only. It also approved US-D13 with conditions: the hybrid `task.md` and retry-prompt path contract (§9.8.1), again a design approval only. And it approved US-D30 with conditions: a fixed, reviewed prompt-budget allowance for that wording, with per-golden bounds (§9.8.2), also a design approval only. It also approved US-D10 with conditions: Option D, the agent handoff (§9.5.1). Here the owner accepted the missing real-agent probe evidence for the design approval only; no agent combination is declared supported. It also approved US-D12 with conditions: the prompt gate is kept and tightened, with exact prompt preservation and TypeScript–Python parity (§9.9.1), again a design approval only. And it approved US-D17 with conditions: the CLI as the only path resolver, with validated path consumption and a read-only extension (§8.9.1), also a design approval only. **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0 as a whole is not complete while 0B has not run. **Batch 1 is COMPLETED and CI-verified, integrated into `main` but NOT activated.** Its architecture and security review found it FAIL; the owner-authorized narrow remediation fixed it, and the owner ratified its decisions and the Q1–Q7 policies (§14.2). It was committed as `5222da7` on `verify/0.1.6-batch1` (2026-10-16, owner-approved). CI run 39003264436 on that commit passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13. The commit was then fast-forwarded into `main`, and the push to `main` ran CI again on the same commit (run 39004684594): **9/9 success** (§14.2 "Batch 1 — acceptance and CI evidence", §18, §19). No product caller uses `storage`; activation stays blocked by §14.3's preconditions, of which only the CI one is met. **Batch 2A** (the storage security foundation: G-1/G-2, G-3, cache freshness, checked global accessors) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `e78a678`, CI run 39057483843 on `verify/0.1.6-batch2a` and run 39062906366 on `main`, both 9/9 (§14.3, "Batch 2A — acceptance and CI evidence"). No product caller uses `storage` yet. **Batch 2B-1** (inactive consumer-switch preparation: C-1, C-2's storage-side invariants, checked deletion, checks that never raise, the test-only write witness) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `7b8914d`, and `40865cf`, which fixed the two test defects that failed its first CI run (run 39085417171, 3/9). CI run 39096347226 on `verify/0.1.6-batch2b1` and run 39097757625 on `main` were both 9/9 (§14.3, "Batch 2B-1 — acceptance and CI evidence"). No product caller uses `storage` yet, and the MCP per-tool-call request scope is NOT INTEGRATED. Its follow-up fix for concurrent data-root creation (`147e1bd`), made after main CI run 39194849242 failed 8/9, is CI-verified (branch run 39285763641 and main run 39305575297, each 9/9) and integrated into `main` (§14.3, "Batch 2B-1 follow-up"). **Batch 0B** has run P10, on 2026-10-18, in two parts: a narrowed run (direct shells and the Python launcher) and a VS Code `sendText` completion. It is **PASS for the tested Windows configuration**, with limitations (§14.1.B, "Batch 0B — probe P10, narrowed" and "Batch 0B — probe P10, VS Code sendText completion"). P7's first attempt was UNKNOWN, blocked before its tests by an in-progress VS Code update. Its retry after the update passed P7-A to P7-H on Windows, with `revealFileInOS` UNKNOWN. P2, the captured review, ran once and is FAIL against the owner's acceptance criteria. Its external reads under `dontAsk` worked; the model declined to echo the marker and requested Bash, which was refused (§14.1.B, "Batch 0B — probe P2, captured review"). Every other probe is NOT EXECUTED. Batch 2B-2 to 2B-6 and Batches 3–5 have **NOT STARTED**. On 2026-10-19 the owner recorded the Batch 2B-2 decision gate (D-1 to D-9): US-D2 approved with conditions, US-D29 and US-D22 approved in part, and Batch 2B-2 specified for implementation, which is not yet authorized (§14.3, "Batch 2B-2 — decision gate"). The owner then answered Q-1 to Q-6, and the contract was resolved, with choices C-1 to C-5 still open (§14.3, "Batch 2B-2 — final contract resolution"). The owner approved C-1 to C-5 the same day. Batch 2B-1 stays COMPLETED, NOT ACTIVATED, and Batch 2B-2's implementation has NOT STARTED. |
+| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED US-D32 and US-D33 for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions at the Batch 1 decision gate (2026-10-16): three with conditions and one in part (§16.1). On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract for the captured review. That approves the design, not its implementation or activation (§16.5.11). The same day the owner approved US-D14 with conditions: the protected staging rule stays unchanged (rules v2), and an informational note about legacy folders is added (§16.4.1). That is also a design approval only. It also approved US-D13 with conditions: the hybrid `task.md` and retry-prompt path contract (§9.8.1), again a design approval only. And it approved US-D30 with conditions: a fixed, reviewed prompt-budget allowance for that wording, with per-golden bounds (§9.8.2), also a design approval only. It also approved US-D10 with conditions: Option D, the agent handoff (§9.5.1). Here the owner accepted the missing real-agent probe evidence for the design approval only; no agent combination is declared supported. It also approved US-D12 with conditions: the prompt gate is kept and tightened, with exact prompt preservation and TypeScript–Python parity (§9.9.1), again a design approval only. And it approved US-D17 with conditions: the CLI as the only path resolver, with validated path consumption and a read-only extension (§8.9.1), also a design approval only. **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0 as a whole is not complete while 0B has not run. **Batch 1 is COMPLETED and CI-verified, integrated into `main` but NOT activated.** Its architecture and security review found it FAIL; the owner-authorized narrow remediation fixed it, and the owner ratified its decisions and the Q1–Q7 policies (§14.2). It was committed as `5222da7` on `verify/0.1.6-batch1` (2026-10-16, owner-approved). CI run 39003264436 on that commit passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13. The commit was then fast-forwarded into `main`, and the push to `main` ran CI again on the same commit (run 39004684594): **9/9 success** (§14.2 "Batch 1 — acceptance and CI evidence", §18, §19). No product caller uses `storage`; activation stays blocked by §14.3's preconditions, of which only the CI one is met. **Batch 2A** (the storage security foundation: G-1/G-2, G-3, cache freshness, checked global accessors) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `e78a678`, CI run 39057483843 on `verify/0.1.6-batch2a` and run 39062906366 on `main`, both 9/9 (§14.3, "Batch 2A — acceptance and CI evidence"). No product caller uses `storage` yet. **Batch 2B-1** (inactive consumer-switch preparation: C-1, C-2's storage-side invariants, checked deletion, checks that never raise, the test-only write witness) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `7b8914d`, and `40865cf`, which fixed the two test defects that failed its first CI run (run 39085417171, 3/9). CI run 39096347226 on `verify/0.1.6-batch2b1` and run 39097757625 on `main` were both 9/9 (§14.3, "Batch 2B-1 — acceptance and CI evidence"). No product caller uses `storage` yet, and the MCP per-tool-call request scope is NOT INTEGRATED. Its follow-up fix for concurrent data-root creation (`147e1bd`), made after main CI run 39194849242 failed 8/9, is CI-verified (branch run 39285763641 and main run 39305575297, each 9/9) and integrated into `main` (§14.3, "Batch 2B-1 follow-up"). **Batch 0B** has run P10, on 2026-10-18, in two parts: a narrowed run (direct shells and the Python launcher) and a VS Code `sendText` completion. It is **PASS for the tested Windows configuration**, with limitations (§14.1.B, "Batch 0B — probe P10, narrowed" and "Batch 0B — probe P10, VS Code sendText completion"). P7's first attempt was UNKNOWN, blocked before its tests by an in-progress VS Code update. Its retry after the update passed P7-A to P7-H on Windows, with `revealFileInOS` UNKNOWN. P2, the captured review, ran once and is FAIL against the owner's acceptance criteria. Its external reads under `dontAsk` worked; the model declined to echo the marker and requested Bash, which was refused (§14.1.B, "Batch 0B — probe P2, captured review"). Every other probe is NOT EXECUTED. Batch 2B-2 to 2B-6 and Batches 3–5 have **NOT STARTED**. On 2026-10-19 the owner recorded the Batch 2B-2 decision gate (D-1 to D-9): US-D2 approved with conditions, US-D29 and US-D22 approved in part, and Batch 2B-2 specified for implementation, which is not yet authorized (§14.3, "Batch 2B-2 — decision gate"). The owner then answered Q-1 to Q-6, and the contract was resolved, with choices C-1 to C-5 still open (§14.3, "Batch 2B-2 — final contract resolution"). The owner approved C-1 to C-5 the same day. Batch 2B-1 stays COMPLETED, NOT ACTIVATED, and Batch 2B-2's implementation has NOT STARTED. *(Later: Batch 2B-2 was implemented and verified locally on Windows, uncommitted, on `verify/0.1.6-storage`; not activated (§14.3, "Batch 2B-2 — implementation and local verification"). DD-1 to DD-3 approved on 2026-10-20, and the batch committed on the branch: not pushed, not CI-verified.)* *(Later on 2026-10-20: Batch 2B-2 — **IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**, by run 39486855193, 9/9, on `0b7dd6c`, after run 39463867534 failed on a test-fixture defect. Not integrated into `main` (§14.3, "Batch 2B-2 — cross-platform CI verification").)* *(Later on 2026-10-20: Batch 2B-3's decision gate recorded: a proposed split into 2B-3a and 2B-3b, and the owner decisions it needs. Nothing approved; Batch 2B-3 **NOT STARTED** (§14.3, "Batch 2B-3 — decision gate and slice design").)* *(Later on 2026-10-20: the owner's decisions G-1 to G-14 recorded. US-D9 approved, US-D4 with conditions, US-D8 in part. Batch 2B-3a is NOT READY until T-15 and F2-S are decided; 2B-3a and 2B-3b NOT STARTED (§14.3, "Batch 2B-3 — owner decisions and final contract gate").)* *(Later on 2026-10-20: B-1 to B-4 decided. US-D8 approved in full; F2-S approved and verified. Batch 2B-3a's decisions are complete; its implementation awaits the owner's authorization; 2B-3a and 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract").)* *(On 2026-10-21: `5b66ffe` pushed (documentation); Batch 2B-3a implemented and verified locally on Windows, uncommitted, not CI-verified, NOT ACTIVATED; DD-4 to DD-12 observed and awaiting the owner (§14.3, "Batch 2B-3a — implementation and local verification").)* *(Later on 2026-10-21: DD-4 to DD-12 approved after exact-value verification. Batch 2B-3a IMPLEMENTED LOCALLY; VERIFICATION COMPLETE ON WINDOWS; NOT COMMITTED; NOT ACTIVATED. Linux and macOS not verified; 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — implementation and local verification", "Owner approval of DD-4 to DD-12 and final local verification").)* *(Then, with the owner's authorization: Batch 2B-3a committed on `verify/0.1.6-storage`, parent `5b66ffe`; not pushed; not CI-verified; NOT ACTIVATED.)* *(Later on 2026-10-21: `743f542` pushed; Batch 2B-3a — **IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**, by run 39675645316, 9/9 on its second attempt, after the first attempt's macOS safety runner was not acquired. Not integrated into `main` (§14.3, "Batch 2B-3a — cross-platform CI verification").)* *(Later on 2026-10-21: Batch 2B-3b's decision gate recorded, with the owner's decisions E-1 to E-10; its implementation is NOT AUTHORIZED; 2B-3b NOT STARTED (§14.3, "Batch 2B-3b — decision gate and implementation contract").)* *(Later on 2026-10-21: the gate committed and pushed as `9311892`; Batch 2B-3b Phase A implemented and verified locally on Windows, uncommitted; Phases B1 and B2 NOT STARTED; NOT ACTIVATED (§14.3, "Batch 2B-3b — Phase A: baseline neutrality").)* *(Later on 2026-10-21: Phase A committed and pushed as `d834082`. The B1-S review found a suspected link race in the settings readers, not demonstrated. **B1-S3 OPTION A CANDIDATE IMPLEMENTED LOCALLY; ADVERSARIAL SECURITY VALIDATION PENDING; NOT COMMITTED; NOT VERIFIED.** B1-M NOT STARTED (§14.3, "Batch 2B-3b — B1-S security review and the Option A candidate").)* *(Later on 2026-10-21: the owner chose Option C, and its first milestone, M1 (the storage safe-read foundation), was implemented: **OPTION C M1 IMPLEMENTED LOCALLY; CONSUMER MIGRATION PENDING; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C M1: the storage safe-read foundation").)* *(On 2026-10-22: M1's compatibility gate, the owner's decisions, and M2, the consumer migration: **OPTION C M2 IMPLEMENTED LOCALLY; FOCUSED VERIFICATION STOPPED ON ONE EXISTING TEST AWAITING THE OWNER; FULL SUITE NOT RUN; DD-27 PROPOSED, NOT APPROVED; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C M2: consumer migration").)* *(Later on 2026-10-22: the Row 1 test repaired, DD-27 approved and recorded: **OPTION C M2 IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; DD-27 APPROVED; A SINGLE-MODE READ FINDING AWAITS THE OWNER; ADVERSARIAL VALIDATION PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C M2: Row 1 repair, DD-27 approval and verification").)* *(Later on 2026-10-22: DD-28 approved and both DD-27 and DD-28 evidenced against their literal text: **OPTION C M2 VERIFIED LOCALLY ON WINDOWS; DD-27 AND DD-28 APPROVED AND EVIDENCED; TOCTOU RISK UNRESOLVED; ADVERSARIAL VALIDATION (M3) PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C M2: DD-28 approval and exact-message evidence").)* *(Later on 2026-10-22: the POSIX Case B fix (a folder that cannot be searched is fatal) and the Python 3.10 CI coverage: **OPTION C M2 WITH THE CASE B FIX VERIFIED LOCALLY ON WINDOWS; THE POSIX PERMISSION TESTS NOT YET RUN (POSIX ONLY); PYTHON 3.10 CI COVERAGE ADDED, NOT YET RUN; TOCTOU RISK UNRESOLVED; M3 PENDING; NOT COMMITTED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C M2: POSIX Case B fix and CI coverage").)* *(Later on 2026-10-22 and 2026-10-23: committed as `e789ce2` and pushed; CI run 39892585420 failed 7/9 on two Windows exclusive-file tests; the diagnostics `c795db4` and run 39989051086 traced them to `FILE_FLAG_BACKUP_SEMANTICS` on a file's data open; the correction `14528ff` opens file data without it and leaves folders unchanged; CI run 40039289638 **SUCCESS 9/9**: **OPTION C M1/M2 — CROSS-PLATFORM FUNCTIONAL AND COMPATIBILITY CI VERIFICATION PASSED; ADVERSARIAL SECURITY VALIDATION (M3) OPEN; BATCH 2B-3b NOT COMPLETE; NOT ACTIVATED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C: Windows exclusive-file read correction (2026-10-23)", "Batch 2B-3b — Option C: cross-platform CI verification (2026-10-23)").)* *(Later on 2026-10-23: the M3-R1 static review found no demonstrated vulnerability; its F1 (the Windows final-path check, a conditional backstop) and F2 (a held folder's own query failure taken for the file's) are hardened by M3-R2A, uncommitted: **M3-R2A IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; LINUX AND MACOS CI PENDING; F1'S ANCESTOR-RACE PROOF PENDING; R3 NOT COMPLETE; M3 OPEN** (§14.3, "Batch 2B-3b — Option C: M3-R2A Windows held-folder hardening (2026-10-23)").)* *(On 2026-10-24: M3-R2A committed as `aadeefa` and pushed; CI run 40060798081 **SUCCESS 9/9**: **M3-R2A — CROSS-PLATFORM FUNCTIONAL AND REGRESSION CI VERIFICATION PASSED; F1'S ANCESTOR-RACE PROOF PENDING; R3 NOT COMPLETE; ADVERSARIAL SECURITY VALIDATION (M3) OPEN; BATCH 2B-3b NOT COMPLETE; NOT ACTIVATED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C: M3-R2A cross-platform CI verification (2026-10-24)").)* *(Later on 2026-10-24: F3 decided, F3-A APPROVED (a project Fix Mode definition on disk that cannot be loaded is refused, never resolved to the user's); **M3-R2B IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; CROSS-PLATFORM CI PENDING; R3 NOT COMPLETE; M3 OPEN** (§14.3, "Batch 2B-3b — M3-R2B: F3 Fix Mode fail-closed selection (2026-10-24)").)* *(Later on 2026-10-24: F3-A committed as `3863488` and pushed; CI run 40107435984 **SUCCESS 9/9**: **M3-R2B (F3-A) — CROSS-PLATFORM FUNCTIONAL AND COMPATIBILITY CI VERIFICATION PASSED; F1'S ANCESTOR-RACE PROOF PENDING; R3 NOT COMPLETE; ADVERSARIAL SECURITY VALIDATION (M3) OPEN; BATCH 2B-3b NOT COMPLETE; NOT ACTIVATED** (§14.3, "Batch 2B-3b — M3-R2B: F3-A cross-platform CI verification (2026-10-24)").)* *(Later on 2026-10-24: F4 decided, Option A APPROVED (the identity record read and judged on every check, superseding only D2A-1's record-verdict reuse); **M3-R2C IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; CROSS-PLATFORM CI PENDING; R3 NOT COMPLETE; M3 OPEN** (§14.3, "Batch 2B-3b — M3-R2C: F4 repository identity revalidation (2026-10-24)").)* *(On 2026-10-25: F4 committed as `9e5483c` and pushed; CI run 40219531790 **SUCCESS 9/9**: **M3-R2C (F4, OPTION A) — CROSS-PLATFORM FUNCTIONAL AND COMPATIBILITY CI VERIFICATION PASSED; F1'S ANCESTOR-RACE PROOF PENDING; R3 NOT COMPLETE; ADVERSARIAL SECURITY VALIDATION (M3) OPEN; BATCH 2B-3b NOT COMPLETE; NOT ACTIVATED** (§14.3, "Batch 2B-3b — M3-R2C: F4 cross-platform CI verification (2026-10-25)").)* *(On 2026-10-25: **O-1, A MEDIUM SECURITY FINDING (OWNER-APPROVED)** in the 0.1.5 layout's readers of work-item files and bug memory, which follow repository links; remediation Option B selected (one safe-read chokepoint); a 0.1.5.x maintenance patch approved for preparation; an additional security gate for M3, 2B-4, 2B-5 and activation; **NOT IMPLEMENTED** (§14.3, "Batch 2B-3b — M3-R2E: O-1 repository-link reads, decision and remediation plan (2026-10-25)").)* *(Later on 2026-10-25: **THE O-1 FIX IS IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS, NOT COMMITTED**: one safe reader for the work-item and bug memory files, used by MCP, the CLI and the pipeline; cross-platform CI, independent security validation and the 0.1.5.x release decision pending; US-D40 PROPOSED (§14.3, "Batch 2B-3b — M3-R2E: O-1 implementation and local verification (2026-10-25)").)* *(On 2026-10-26: **THE O-1 PYTHON FIX IS EXTENDED TO THE ATTACHMENTS LISTING AND THE MEMORY-EXISTENCE CHECK, VERIFIED LOCALLY ON WINDOWS, NOT COMMITTED**; the owner approved `retrieval.py`, the run's order, P-6, P-4 and US-D40 (implementation and validation pending); four release gates recorded, the extension's readers and `bugpilot list` among them; O-1 is not resolved (§14.3, "Batch 2B-3b — M3-R2E: O-1 Python coverage completion and owner approvals (2026-10-26)").)* *(Later on 2026-10-26: the Python fix committed locally as `f977127`, **NOT PUSHED**; the owner chose a private CI mirror (provisional), one security release with the extension and `bugpilot list` corrections, a security-only port to `main`, and 0.1.6 tentatively for it; **THE EXTENSION AND `bugpilot list` CORRECTIONS ARE IMPLEMENTED LOCALLY, NOT COMMITTED**; O-1 is not resolved (§14.3, "Batch 2B-3b — M3-R2E: O-1 release blockers, the extension and `bugpilot list` (2026-10-26)").)* *(Later on 2026-10-26: the extension and `bugpilot list` corrections committed locally as `836f204`, **NOT PUSHED**; a parentless snapshot of its tree, `b477fed`, ran the existing CI in the owner's private mirror: **PRIVATE CROSS-PLATFORM CI VERIFICATION PASSED, 9/9**, after the owner re-ran the two macOS jobs that GitHub had no runners for; no Windows-only skip reason on Linux or macOS, and the extension's FIFO test ran on Ubuntu; M3, the port to `main` and REL-1 to REL-4 pending; O-1 is not resolved (§14.3, "Batch 2B-3b — M3-R2E: O-1 private cross-platform CI (2026-10-26)").)* *(Later on 2026-10-26: **THE O-1 SECURITY BACKPORT TO `main`'S CODE IS COMMITTED LOCALLY** as `7844c8b` on an isolated branch from `ea9659c`, verified on Windows, **NOT PUSHED**; `main` unchanged; its own private CI run, M3 and REL-1 to REL-4 pending; O-1 is not resolved (§14.3, "Batch 2B-3b — M3-R2E: O-1 security backport to `main` (2026-10-26)").)* *(Later on 2026-10-26: the backport's private CI run 40421551787 on snapshot `1fa80a1` succeeded, 9/9, at its first attempt, as the owner reports; its logs and artifacts were not reviewed here. **RELEASE: NO-GO FOR PUBLICATION TODAY**: M3, two CI evidence gaps and REL-1 to REL-4 open; O-1 is not resolved (§14.3, "Batch 2B-3b — M3-R2E: O-1 backport private CI and 0.1.6 release readiness (2026-10-26)").)* *(Later on 2026-10-26: the backport's CI evidence completed by the owner (the extension: 2,365 tests, 2 skipped); **THE 0.1.6 RELEASE CANDIDATE PREPARED AND VERIFIED LOCALLY, NOT COMMITTED: ITS LICENCE CHANGE AWAITS THE OWNER'S APPROVAL**; M3 open; release NO-GO (§14.3, "Batch 2B-3b — M3-R2E: 0.1.6 release candidate prepared (2026-10-26)").)* *(Later on 2026-10-26: the owner approved the licence-version change; **THE 0.1.6 RELEASE CANDIDATE IS COMMITTED LOCALLY** as `bed66e0` (tree `b3bf793`), verified on Windows; its private CI snapshot `9aa6798` is built for `validation-o1-rc`, the upload and CI awaiting the owner; M3, REL-3 and REL-4 open; not published (§14.3, "Batch 2B-3b — M3-R2E: 0.1.6 release candidate committed (2026-10-26)").)* *(Later on 2026-10-26: the RC's private CI run 40442766609 succeeded, 9/9, as the owner reports (its logs and artifacts not reviewed here); functional acceptance on Windows passed (the CLI, a real MCP session, a real Extension Host); the M3 review package, the risk register and the release checklist are written; **RELEASE NO-GO**; not published (§14.3, "Batch 2B-3b — M3-R2E: 0.1.6 final acceptance and release approval package (2026-10-26)").)* *(Later on 2026-10-26: EG-1 resolved by the owner's review of the run and its four artifacts; the M3 reviewer handoff is prepared, the independent review not started; **M3 OPEN; RELEASE NO-GO**; not published (§14.3, "Batch 2B-3b — M3-R2E: M3 reviewer handoff and final release gates (2026-10-26)").)* *(2026-10-27: CHG-1 decided by the owner and made as `7feeaf7`, tree `b651cbc`, a changelog-only commit on `bed66e0`, verified locally; the M3 handoff updated, the independent review not started; **M3 OPEN; RELEASE NO-GO**; not published (§14.3, "Batch 2B-3b — M3-R2E: CHG-1 final changelog commit and the updated M3 handoff (2026-10-27)").)* *(Later on 2026-10-27: release preparation done locally: the final wheel, sdist and VSIX built from `7feeaf7` and clean-installed, the release workflow and live configuration audited, the runbook and notices prepared; M3 not started; **RELEASE NO-GO**; nothing pushed or published (§14.3, "Batch 2B-3b — M3-R2E: 0.1.6 coordinated release preparation (2026-10-27)").)* *(Later on 2026-10-27: the owner accepted the documented residual risks RL-1 and RL-2 for 0.1.6; M3, which the owner's release gates require, has not started; **RELEASE NO-GO**; not published (§14.3, "Batch 2B-3b — M3-R2E: 0.1.6 owner risk acceptance and final release gate (2026-10-27)").)* *(Later on 2026-10-27: **M3: WAIVED BY OWNER FOR 0.1.6 — NOT VERIFIED**; RL-1 to RL-4 accepted; the preflight passes; the release awaits the owner's session, after confirming that no outside requirement mandates an independent review and approving the notices; not published (§14.3, "Batch 2B-3b — M3-R2E: 0.1.6 owner M3 waiver and release readiness (2026-10-27)").)* *(On 2026-10-27 and 2026-10-28, by the owner's direction: **0.1.7 — SIMPLIFIED UNIFIED STORAGE**, a file location change. Work items, bug memory and the Verification Policy and AI Behavior files moved to the repository's folder in BugPilot's data folder, reusing the verified storage work; implemented and verified locally on Windows on `verify/0.1.7-storage`; the implementation uncommitted pending the owner's review; CI not run; the baseline differences U7-1 to U7-142 and the retargeted pairs DD-5 → U7-10 and DD-9 → U7-12 await approval; not released (§14.3, "0.1.7 — Simplified Unified Storage: the file location change (2026-10-27 to 2026-10-28)").)* *(On 2026-10-28 and 2026-10-29: reviewed, then finished by the owner's direction: Claude Code is given the work item's folder with `--add-dir`, a 0.1.6 extension with a 0.1.7 CLI is told to update both (`EXTENSION_OUTDATED`), and the policy watcher sees the first policy file. **FINAL FIXES VERIFIED LOCALLY ON WINDOWS; UNCOMMITTED; U7-1 TO U7-142 PENDING THE OWNER'S APPROVAL; CI NOT RUN; NOT READY TO CREATE THE RELEASE CANDIDATE** (§14.3, "Review of 0.1.7: final verification and approval package (2026-10-28)", "0.1.7: final fixes and release-candidate readiness (2026-10-29)").)* *(Later on 2026-10-29: the owner approved U7-1 to U7-142 as a set, kept `EXTENSION_OUTDATED`, accepted N-1 to N-4, and required no independent review before this phase; the 0.1.7 work is committed on `verify/0.1.7-storage` for cross-platform CI; **NOT RELEASED; NOT A RELEASE CANDIDATE** (§14.3, "0.1.7: owner approval and integration (2026-10-29)").)* *(Later on 2026-10-29: committed as `59db0b4` (parent `8d69f6f`) and pushed to origin's `verify/0.1.7-storage`; CI run 40936578232 **8 OF 9**: the macOS full Python suite failed one test, a hash-seed-dependent defect of the baseline normalizer, not of the product; its fix is local and uncommitted; **NOT READY FOR RELEASE-CANDIDATE REVIEW** (§14.3, "0.1.7: the commit, the push and cross-platform CI run 40936578232 (2026-10-29)").)* *(Later on 2026-10-29: the macOS failure investigated with the owner's list of its 10 entries: **ROOT CAUSE FOUND AND REPRODUCED: A HASH-SEED-DEPENDENT DEFECT OF THE BASELINE NORMALIZER ON MACOS'S `/private/var`, NOT A PRODUCT REGRESSION; FIX AND REGRESSION TEST LOCAL AND UNCOMMITTED; NO APPROVED VALUE CHANGED; NOT READY FOR RELEASE-CANDIDATE REVIEW** (§14.3, "0.1.7: the macOS baseline failure — root cause, fix and verification (2026-10-29)").)* *(Later on 2026-10-29: the owner approved the fix and one follow-up commit of it, with this record, on `verify/0.1.7-storage`; pushed for a manually dispatched CI run, which is pending; **NOT READY FOR RELEASE-CANDIDATE REVIEW** (§14.3, "0.1.7: the macOS baseline failure — root cause, fix and verification (2026-10-29)").)* *(Later on 2026-10-29: committed as `d05c025` (parent `59db0b4`) and pushed; CI run 40969753479 **9 OF 9**, the macOS full Python suite included; **READY FOR 0.1.7 RELEASE-CANDIDATE REVIEW**; not released, not a release candidate, nothing merged, tagged or published (§14.3, "0.1.7: the macOS fix's commit and cross-platform CI run 40969753479 (2026-10-29)").)* *(Later on 2026-10-29: the release-candidate review of `d05c025`: **RC BLOCKED** by documentation defects in the shipped READMEs, with the owner's acceptance runs outstanding; no Critical, High or Medium security or code finding; **PUBLIC DISTRIBUTION UNRESOLVED** (§14.3, "0.1.7: release-candidate review of `d05c025` (2026-10-29)"; `docs/bugpilot_0.1.7_rc_review.md`).)* *(Later on 2026-10-29: the owner's RC remediation batch (D-1 to D-6, S-1, S-2, U-1, ST-1, ST-2) **FIXED LOCALLY AND VERIFIED ON WINDOWS; UNCOMMITTED; CROSS-PLATFORM CI AND THE FOLLOW-UP REVIEW PENDING; RC BLOCKED** (§14.3, "0.1.7: RC remediation batch — D-1 to D-6, S-1, S-2, U-1, ST-1, ST-2 (2026-10-29)").)* *(Later on 2026-10-29: the owner conditionally approved the remediation commit; the checks **STOPPED BEFORE THE COMMIT** on a new finding, S-8 (`git`/`rg` started as batch files run through `cmd.exe`, High by impact, conditional); a new owner decision is needed (§14.3, "0.1.7: conditional commit approval — stopped on S-8 (2026-10-29)").)* *(Later on 2026-10-29: the owner decided to fix S-8 in the commit; **S-8 FIXED; EVERY CONDITION MET; THE REMEDIATION COMMITTED WITH THIS RECORD AND PUSHED TO `verify/0.1.7-storage`; CROSS-PLATFORM CI AND THE FOLLOW-UP REVIEW PENDING; RC BLOCKED** (§14.3, "0.1.7: S-8 fixed; the RC remediation commit (2026-10-29)").)* *(On 2026-10-31: CI run 41068475707 **9 OF 9** on `35040af`. The final RC follow-up review found F-1: the extension's S-2 privacy check stops short of the work item's own folder, narrower than the approved S-2 condition and three shipped documents. **RC BLOCKED; A MINIMAL REMEDIATION AWAITS THE OWNER'S APPROVAL; MANUAL ACCEPTANCE INCOMPLETE; PUBLIC DISTRIBUTION UNRESOLVED** (§14.3, "0.1.7: final RC follow-up review of `35040af` (2026-10-31)").)* *(On 2026-11-01: the owner approved Option A′ with F-2 and F-3. Implemented, verified on Windows, and committed with this record on the owner's approval. **RC BLOCKED UNTIL CI PASSES 9 OF 9 ON IT AND A SHORT FINAL RC REVIEW IS DONE; MANUAL ACCEPTANCE INCOMPLETE; PUBLIC DISTRIBUTION UNRESOLVED** (§14.3, "0.1.7: F-1, F-2 and F-3 remediated with Option A′ (2026-11-01)").)* *(Later on 2026-11-01: CI run 41351728876 **9 OF 9** on `9fe8a8a`; the final RC acceptance found no blocker. **RC REVIEW INCOMPLETE: THREE REQUIRED SCENARIOS NEED THE OWNER'S DESKTOP (A TERMINAL RUNNING THE AGENT, THE CLIPBOARD); PUBLIC DISTRIBUTION UNRESOLVED** (§14.3, "0.1.7: final RC acceptance of `9fe8a8a` (2026-11-01)").)* *(Later on 2026-11-01: the owner reported A-1 to A-5 and A-7's steps 1–3 PASS on the owner's desktop and approved `9fe8a8a` as BugPilot 0.1.7's technical release candidate. **RC TECHNICALLY READY; A-6 AND A-7 STEP 4 NOT TESTED; THE CANDIDATE IS FROZEN; PUBLIC DISTRIBUTION UNRESOLVED**; nothing merged, tagged, released or published (§14.3, "0.1.7: technical RC approval of `9fe8a8a` (2026-11-01)").)* |
 | **Created** | 2026-10-15, by a read-only audit of the working tree at `ee3fb00` (`main`, released 0.1.5) |
 | **Revisions** | **r1** (2026-10-15): created from the read-only audit. **r2** (2026-10-15): architecture review. It changed: <ul><li>the decision recommendations (§16.1);</li><li>the test-isolation redesign (§11.1);</li><li>Batch 0 split into 0A and 0B (§14.1);</li><li>the repository scope and its diagnostic (§7.1);</li><li>the exact JSON contract (§8.10);</li><li>the safer-launch evaluation (§9.9) and the handoff acceptance (§9.10);</li><li>the integration gates (§15.4) and the US-D14 options (§16.4).</li></ul> |
 | **Target version** | 0.1.6 (the version in the tree stays 0.1.5 until Batch 5's bump) |
@@ -100,7 +100,7 @@ The repository-local paths are not configuration that a few modules read:
 
 **Readiness.** The plan is ready for owner decisions.
 
-- **Decisions (§16.1).** The owner approved US-D32 and US-D33 for Batch 0A (2026-10-15), and at the Batch 1 decision gate (2026-10-16) US-D1, D3, D6, D7 and D24; US-D5, D23 and D34 with conditions; and US-D26 in part. On 2026-10-18 the owner approved, with conditions, US-D28 as an amended design contract (§16.5.11), US-D14 as Refined Option A′ (§16.4.1), US-D13 as the hybrid task-document contract (§9.8.1), US-D30 as Option D, a fixed prompt-budget allowance (§9.8.2), US-D10 as Option D, the agent handoff, with the probe gap accepted for design only (§9.5.1), US-D12 as Option C, the prompt gate kept and tightened (§9.9.1), and US-D17 as Option B, the CLI as the only path resolver (§8.9.1). On 2026-10-19, at the Batch 2B-2 decision gate, the owner approved US-D2 with conditions, and US-D29 and US-D22 in part (§14.3, "Batch 2B-2 — decision gate"). 14 still await the owner: 7 OPEN and 7 PROPOSED. 4 items are DEFERRED.
+- **Decisions (§16.1).** The owner approved US-D32 and US-D33 for Batch 0A (2026-10-15), and at the Batch 1 decision gate (2026-10-16) US-D1, D3, D6, D7 and D24; US-D5, D23 and D34 with conditions; and US-D26 in part. On 2026-10-18 the owner approved, with conditions, US-D28 as an amended design contract (§16.5.11), US-D14 as Refined Option A′ (§16.4.1), US-D13 as the hybrid task-document contract (§9.8.1), US-D30 as Option D, a fixed prompt-budget allowance (§9.8.2), US-D10 as Option D, the agent handoff, with the probe gap accepted for design only (§9.5.1), US-D12 as Option C, the prompt gate kept and tightened (§9.9.1), and US-D17 as Option B, the CLI as the only path resolver (§8.9.1). On 2026-10-19, at the Batch 2B-2 decision gate, the owner approved US-D2 with conditions, and US-D29 and US-D22 in part (§14.3, "Batch 2B-2 — decision gate"). On 2026-10-20, at the Batch 2B-3 decision gate, the owner approved US-D9, US-D4 with conditions and US-D8 in part, and widened US-D22's approved part to Batch 2B-3's user-facing messages (§14.3, "Batch 2B-3 — owner decisions and final contract gate"); later that day B-1 completed US-D8 (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract"). 11 still await the owner: 5 OPEN and 6 PROPOSED. 4 items are DEFERRED.
 - **The 2026-10-15 architecture review recommends:**
 
   | Recommendation | Count | Decisions |
@@ -144,7 +144,7 @@ These are the owner's fixed requirements. Every one is **APPROVED**.
 | **R5** | **The repository stays clean.** BugPilot creates no persistent BugPilot-owned directory under the repository. The developer's own files, build outputs and an agent's intended source edits are outside this requirement. | §10.2 (T-S20), §11.3 |
 | **R6** | **Product capabilities are preserved.** These must all keep working: <ul><li>Jira and hand-written intake</li><li>Build Context, Fix with AI, AI Session launch and reopen, retry</li><li>Artifacts, History, review and verification</li><li>Fix Modes, Project and User Instructions, Verification Policy, AI Behavior, Protected Rules, Repository Profile</li><li>Git History Retrieval, Similar Fix Memory</li><li>MCP tools, Managed Runtime, CLI and extension integration</li></ul>Storage paths may break; no unrelated feature is removed. | §4, §9.10, §14 |
 | **R7** | **Security guarantees are preserved.** <ul><li>prompt-boundary containment and the Protected Evidence Rules;</li><li>credentials born `600`;</li><li>final-component link refusal;</li><li>atomic writes and temp-file safety;</li><li>no credential disclosure;</li><li>read-only previews;</li><li>safe MCP and CLI output;</li><li>hostile path components;</li><li>per-OS behaviour.</li></ul>No invariant weakens. | §10 |
-| **R8** | **No automatic agent permission expansion.** Agent filesystem permissions are never widened silently, and the repository stays the agent's working directory. | §9 |
+| **R8** | **No automatic agent permission expansion.** Agent filesystem permissions are never widened silently, and the repository stays the agent's working directory. *(0.1.7, the owner's decision of 2026-10-29: when BugPilot starts Claude Code it gives it the work item's own folder with `--add-dir`, documented; never the data folder, nothing else widened, the repository still the working directory; §14.3, "0.1.7: final fixes and release-candidate readiness (2026-10-29)".)* | §9 |
 
 ---
 
@@ -405,13 +405,13 @@ Abbreviations: R = read, W = write, D = delete, O = opened in an editor, L = nam
 
 | Id | (1) Current location | (2) Responsible module / function | (3) R/W/D | (4) Consumers | (5) Secrets | (6) User / model data | (7) Security expectation today | (8) Ownership and lifecycle |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **F01** | `<repo>/.ai/<id>/` (the folder) | `config.issue_dir` / `writable_issue_dir`, `safe_paths.writable_dir` / `owned_path`, `workflow._prepare_issue_dir`; extension `sessionReset.ts`, `ports.ts`, `controller.ts #itemFile` | R W D | every step; `list`, `status`, previews; MCP; extension (History, Results, Reset Session, watchers) | no | yes, both | id validated (`identity.WORK_ITEM_ID_RE`); every component checked for links (`.ai`, `<id>`); refused rather than followed; the repo root may be a link | created by the first step; kept by default; removed by `clean`, `--fresh` and Reset Session |
+| **F01** | `<repo>/.ai/<id>/` (the folder) | `config.issue_dir` / `writable_issue_dir`, `safe_paths.writable_dir` / `owned_path`, `workflow._prepare_issue_dir`; extension `sessionReset.ts`, `ports.ts`, `controller.ts #itemFile` | R W D | every step; `list`, `status`, previews; MCP; extension (History, Results, Reset Session, watchers) | no | yes, both | id validated (`identity.WORK_ITEM_ID_RE`); every component checked for links (`.ai`, `<id>`); refused rather than followed; the repo root may be a link | created by the first step; kept by default; removed by `clean`, `--fresh` and Reset Session *(Corrected on 2026-10-25 (O-1): the link checks in this row hold for writes, deletes and the previews (F13). The readers of the files in `.ai/<id>/` (MCP, the CLI, the fix report, run, issue and retrieval records, the review and verification reports, the Jira draft) open them by path and follow a link at the file; MCP's `check_results`, `get_status` and `_existing` follow one at `.ai` or `.ai/<id>` too. §14.3, "Batch 2B-3b — M3-R2E: O-1 repository-link reads, decision and remediation plan (2026-10-25)".)* *(2026-10-25, later: fixed locally, not committed. Those readers now go through `safe_paths.read_generated_file` and refuse a link on the way or at the file; see §14.3, "Batch 2B-3b — M3-R2E: O-1 implementation and local verification (2026-10-25)".)* |
 | **F02** | `<id>/issue.json`, `retrieval.json` (with Git History's `git_history` section), `context.md`, `task.md`, `run.json` | `issue.save_issue`, `retrieval.save_retrieval`, `workflow` context and prompt steps, `run.py` | R W | the pipeline, `task-preview`, `context-preview`, MCP, extension (direct reads), the agent (task, context, retrieval) | no | Jira and hand-written evidence; BugPilot's prompts | atomic writer (`artifact_io.atomic_write_text`): temp in the same folder, `_check_temp`, rename; new files `600`; a link at the file refused | rewritten per run; `run.json` holds runtime state only |
 | **F03** | `<id>/fix_report.md`, `review_report.md`, `verification_report.md` | the agent; `manual_result_step`; `review_report.record_review_report`; `verification_report.record` | R W | check/summarize/memory update/Jira draft/email; MCP; extension; retry prompt; captured review | no | model output; developer-recorded results | atomic writer for BugPilot's writes; the agent writes with its own tools | the agent's report is replaced per attempt; review and verification records refuse overwrite without `--replace` |
 | **F04** | `<id>/user_feedback.md`, `agent_retry_prompt.md` | `retry_prompt_step`; `_build_retry_prompt`; **extension `writeWorkItemFile`** (writes feedback directly, non-atomically) | R W O | the retry agent; the developer (edits feedback) | no | developer text; BugPilot prompt | Python: atomic, link-checked. TS: lstat checks, plain `writeFile` (SF-2) | per retry |
 | **F05** | `<id>/jira_field_report.md`, `jira_comment_draft.md`, `jira_comment_post_result.json`, `jira_comment_on.flag`, `email_draft.md`, `notification.eml` | `jira_validate_step`, `jira_comment_draft_step`, `jira_comment_step`, `notify_step`, the `--jira-comment` marker; `scripts/send-via-outlook.ps1` (reads the draft) | R W | the developer; `jira-comment --execute`; Outlook script | no (sanitized) | derived from artifacts | atomic writer | on demand |
-| **F06** | `<id>/attachments/<name>` | `attachments.copy_attachments`, `remove_attachments`, `listed_attachments`, `attachment_names`; ownership in `issue.json` `guidance.attachment_files` | R W D | `task.md` (by path); the agent (opens the files) | possibly (the developer's files) | developer files | `refuse_link`; byte copy; 10 files of at most 10 MB; names written with visible escapes (N3) | replaced with `--replace-attachments`; removed with the folder |
-| **F07** | `<repo>/.ai_memory/bugs/<id>.md` | `memory.add_memory_entry`, `search_memory`; `config.memory_dir` / `writable_memory_file`; `memory_update_step`; `cleanup` (`--include-memory`); MCP `search_memory` | R W D | the Similar Fixes step (scores every entry); MCP; `delivery-check` | no | earlier AI and run output | link-checked at `.ai_memory` and `bugs`; atomic writer | outlives the work item; removed only by `clean --include-memory` |
+| **F06** | `<id>/attachments/<name>` | `attachments.copy_attachments`, `remove_attachments`, `listed_attachments`, `attachment_names`; ownership in `issue.json` `guidance.attachment_files` | R W D | `task.md` (by path); the agent (opens the files) | possibly (the developer's files) | developer files | `refuse_link`; byte copy; 10 files of at most 10 MB; names written with visible escapes (N3) | replaced with `--replace-attachments`; removed with the folder *(Corrected on 2026-10-26 (O-1): `refuse_link` guards the copy only; the listing for `task.md` and `run.json` followed a link at the folder or at an entry. Fixed locally, not committed: a linked folder is refused and a linked entry left out; see §14.3, "Batch 2B-3b — M3-R2E: O-1 Python coverage completion and owner approvals (2026-10-26)".)* |
+| **F07** | `<repo>/.ai_memory/bugs/<id>.md` | `memory.add_memory_entry`, `search_memory`; `config.memory_dir` / `writable_memory_file`; `memory_update_step`; `cleanup` (`--include-memory`); MCP `search_memory` | R W D | the Similar Fixes step (scores every entry); MCP; `delivery-check` | no | earlier AI and run output | link-checked at `.ai_memory` and `bugs`; atomic writer | outlives the work item; removed only by `clean --include-memory` *(Corrected on 2026-10-25 (O-1): the link checks hold for the memory writer and `clean`. `search_memory` lists and reads by path, and follows a link at `.ai_memory`, `bugs` or a memory file. §14.3, "Batch 2B-3b — M3-R2E: O-1 repository-link reads, decision and remediation plan (2026-10-25)".)* *(2026-10-25, later: fixed locally, not committed. `search_memory` refuses a link at the memory folders and skips a linked memory file unread; see §14.3, "Batch 2B-3b — M3-R2E: O-1 implementation and local verification (2026-10-25)".)* |
 | **F08** | `<repo>/.bugpilot/instructions.md` (Project Instructions) | `instructions.project_instructions_path`, `read_instructions`, `save_instructions`; CLI `instructions` | R W D | every `task.md`; `task-preview`; extension (through the CLI) | no | team- or developer-written | `link_problem` refuses a link at the folder or the file; 20,000-character cap; atomic writer | **designed to be committed** (`instructions.py:7-8`) |
 | **F09** | `<repo>/.bugpilot/verification.md` | `verification.verification_path`, `save_verification`, `remove_verification`; CLI `verification` | R W D O | `task.md`; extension (stat, lstat and **editor open** at `controller.ts:4252`, `:4296`; watcher) | no | team-written | as F08, plus a strict front-matter parser and lint | committed by design |
 | **F10** | `<repo>/.bugpilot/ai_behavior.md` | `ai_behavior.ai_behavior_path`, `save_ai_behavior`, `remove_ai_behavior`; CLI `ai-behavior` | R W D O | `task.md`; extension (editor open at `controller.ts:3846`, `:3887`) | no | team-written | as F09 | committed by design |
@@ -803,6 +803,7 @@ Every rule below chooses the split when it cannot be sure.
 | NFC vs NFD spellings of the same folder (macOS) | one ID from `getcwd()`; possibly two from an explicit root | no Unicode normalization on purpose: on Linux two such folders are different folders |
 | Repository moved or renamed | **a new ID**; the old namespace stays where it was, orphaned, not deleted | no relocation in 0.1.6 (US-D8, DEFERRED). §13 tells the user how to find old data. |
 | Repository cloned to a new path | a new ID (correct: a different working tree) | — |
+| A different repository later created at a former repository's exact path *(added 2026-10-20)* | **the same ID**: it inherits that namespace (T-15) | identity is the path's alone, and the record stores the path, so a replaced folder is not detected. **Accepted for 0.1.6** by the owner (B-1, 2026-10-20) as a configuration-contamination risk (§7.6, RK-20). No detection is claimed; an explicit reset is deferred and is not part of 0.1.6 *(2026-10-21, E-6: from 2B-3b this includes the Verification Policy and AI Behavior additions, which can change what is verified and how an agent works; §14.3, "Batch 2B-3b — decision gate and implementation contract", part 8)* |
 | Several VS Code windows or workspaces on one repository | **one ID**: every window resolves the same root | concurrency in §8.7 |
 | A multi-root workspace with two repositories | two IDs; the extension uses the folder the developer chose (unchanged) | — |
 | Git worktrees (`git worktree add ../repo-wt`) | **one ID per worktree** (PROPOSED, US-D7) | Each worktree is a separate working tree, usually on a different branch for a different bug. Sharing `work/` between worktrees would let one worktree's agent read another's work. Keying by `git rev-parse --git-common-dir` would merge them. The extension today does not even recognize a worktree root (`.git` is a file; `host.ts:36-45`), a limitation that stays. |
@@ -878,6 +879,7 @@ Before that run, the "Unverified" rows above had no observation from the other s
 ### 7.6 Limitations, stated
 
 - **A move or rename starts an empty namespace.** Old data stays where it was until the user acts (US-D8).
+- **A different repository at a former repository's exact path inherits its namespace** (T-15; accepted for 0.1.6 by the owner on 2026-10-20, B-1). Identity is the path's alone, and BugPilot cannot detect a replaced folder. So the newcomer's `task.md` can carry instructions, policies and Fix Modes written for the earlier repository, and from 2B-4 its work items and similar-fix memory. This is a known configuration-contamination risk within one account (RK-20), and the release notes say so. An explicit reset or reassociation is deferred to a future design, and is not part of 0.1.6. *(Widened on 2026-10-21, E-6: from 2B-3b the newcomer also inherits the earlier repository's Verification Policy and AI Behavior additions, so an inherited policy can relax or tighten what its tasks ask to be verified, and conventions written for another codebase can reach them. BugPilot's protected rules still come first; nothing detects the replacement; §14.3, "Batch 2B-3b — decision gate and implementation contract", part 8.)*
 - **A subdirectory gets its own namespace,** as it gets its own `.ai/` today (US-D4). `doctor` says so (§7.1).
 - **No automatic re-association.** A subdirectory, moved repository, new clone or worktree is never joined with another namespace in 0.1.6 (§7.1).
 - **Spelling-dependent IDs on macOS:** an explicitly configured root with different case or Unicode normalization than the stored name splits the namespace.
@@ -974,7 +976,7 @@ def display_path(path: Path) -> str
 | **Per-repository settings** | `settings_file(name, create=False)` for reads. Writers call `create=True`, which runs `ensure()` and then creates `settings/` with `0700`. `link_problem` semantics are kept: a link at `settings/` or at the file is refused, for reads too. |
 | **Work-item folders** | `work_item_dir(id, create=)`. The id is validated by `identity.validate_work_item_id` *before* any path is built, and an invalid id raises `StorageError`. `create=False` returns the path without checking existence (the caller reports "not prepared"), but still refuses links on existing components. |
 | **Memory** | `memory_file(id, create=)`. `memory/` is created only by a memory writer. Readers glob `memory/*.md` only when `memory/` is a real folder. |
-| **Cache** | No cache on disk (US-D36). In memory (Batch 2A): repository identities per spelling, each re-checked against its folder's file identity on every use; containment, Git working-tree and verified-record verdicts only within one `request_scope()` (Batch 2B: one CLI command, one MCP tool call), never longer. |
+| **Cache** | No cache on disk (US-D36). In memory (Batch 2A): repository identities per spelling, each re-checked against its folder's file identity on every use; containment, Git working-tree and verified-record verdicts only within one `request_scope()` (Batch 2B: one CLI command, one MCP tool call), never longer. *(2026-10-24: the record-verdict reuse is superseded by the owner's F4 decision, Option A: the record is read and judged on every check; the containment and Git working-tree verdicts stay scope-bound; see "Batch 2B-3b — M3-R2C: F4 repository identity revalidation (2026-10-24)".)* |
 | **Safe creation** | Each missing component below the data root (`config`, `repositories`, `<id>`, `settings`, `work`, `<work item>`, `memory`, `fix_modes`, `attachments`) is created one at a time with `mkdir(mode=0o700)`, which is subject to the umask, so never wider. It is re-checked with `is_link_or_junction` after creation. An existing component must be a real directory, not a link or junction. The result is compared with `realpath(data root) / parts`, as `safe_paths.writable_dir` does today. |
 | **Owned files** | Unchanged: `artifact_io.atomic_write_text` (new files `0600`, rewrites keep their bits, `_check_temp`, cleanup on failure). `private=True` stays for `config.toml` only. |
 | **Id validation** | `WORK_ITEM_ID_RE` (unchanged; shared fixture `tests/fixtures/work_item_ids.json`). The repository ID has its own regex (§7.2) and is never accepted from input: always computed. |
@@ -1000,7 +1002,9 @@ The callers on the repository-local base keep their exact messages until Batch 2
 ### 8.6 Errors and messages
 
 - **One error family.** `StorageError` and `StorageIdentityError` are `UnsafePathError` subclasses, so they reach the CLI as one sentence (`ERROR: …` or `INVALID_INPUT`) with no traceback.
+  - *(Clarified on 2026-10-20, F2-S (B-2): this governs the policy refusals and invalid configuration that reach a public boundary as `StorageError` or `StorageIdentityError`. A `storage.StorageUnavailable` is translated by the repository-settings consumers into `errors.StorageAccessError`, which reports each command's existing code under M-1: `INTERNAL_ERROR` at the last resort, `INVALID_INPUT` inside the `set` handlers. No code was added and the fixture is unchanged. §14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract", part 3.)*
 - **New error code: OPEN.** A new `errors` code, for example `STORAGE_UNAVAILABLE`, could distinguish "cannot create `~/.bugpilot`" (a permission or disk problem) from bad input. It is part of US-D26.
+  - *(2026-10-20: not added for 2B-3 (G-5, B-2); it stays OPEN for later slices.)*
 - **No absolute paths in messages.** Every message names paths in the display form (`display_path`). A system `OSError` can still carry one, the known F12 limit (`docs/safety.md:68`).
 
 ### 8.7 Simultaneous callers
@@ -1358,7 +1362,9 @@ The US-D17 review also noted US-D4 (OPEN, what the repository root is), which de
 - The envelope (`schema_version`, `ok`, `command`, `error.code`, `error.message`) is unchanged.
 - A 0.1.5 client ignores the new keys. The only removed keys are the two `ai_artifacts_ignored*`, and only if US-D16 is approved.
 - `StorageError` and `StorageIdentityError` report `INVALID_INPUT`.
+  - *(Clarified on 2026-10-20, F2-S (B-2): this governs the policy refusals and invalid configuration that reach a public boundary as `StorageError` or `StorageIdentityError`. A `storage.StorageUnavailable` is translated by the repository-settings consumers into `errors.StorageAccessError`, which reports each command's existing code under M-1: `INTERNAL_ERROR` at the last resort, `INVALID_INPUT` inside the `set` handlers. No code was added and the fixture is unchanged. §14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract", part 3.)*
 - Whether to add a separate `STORAGE_UNAVAILABLE` code (the data root cannot be created or written) stays an owner choice within US-D26. Until it is chosen, such failures use the existing generic code.
+  - *(2026-10-20: not added for 2B-3 (G-5, B-2). Under M-1 and F2-S such failures report each command's existing code: `INTERNAL_ERROR` at the last resort, `INVALID_INPUT` inside the `set` handlers. §14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract", part 3.)*
 
 **How each side checks it.**
 
@@ -2332,6 +2338,7 @@ A combination with FAIL, FALLBACK or UNKNOWN on a required aspect is either fixe
 | T-S27 | **BugPilot's data inside a Git working tree** (a `BUGPILOT_HOME` in a checkout while BugPilot runs from a subfolder; a home folder that is a Git repository; global configuration) | the data root, and every folder above it, may hold no `.git` entry, and `GIT_WORK_TREE` may not hold it; refused for reads and writes, failing closed. Unmarked work trees and other version-control systems are a stated gap | prevention + detection | `test_storage_safety.py`, G-1/G-2 cases (Batch 2A) |
 | T-S28 | **A stale verdict in a long-running process** (a retargeted link reusing an old namespace; a `.git` made later) | identities re-checked by file identity on every use; verdicts live one request scope | prevention | the retarget regressions (symbolic link, junction); the scope tests |
 | T-S29 | **Credentials written where other accounts can read them** (an inherited or widened access list, a shared `BUGPILOT_HOME`, Python 3.10/3.11 on Windows) | `config.toml` is written only after the data root, `config/` and the file are proven private (owner and access list on Windows, owner and bits on POSIX); an unverifiable place is refused; no permission is ever changed | prevention | `test_private_folder.py`; the gate cases in `test_storage_safety.py` |
+| T-S30 | **Repository links at work-item and memory files** (O-1, Medium; 2026-10-25): a cloned repository commits a symbolic link at a file in `.ai/<id>/` or `.ai_memory/bugs/`, or at `.ai`, `.ai/<id>`, `.ai_memory` or `bugs` | until fixed: none at the file, and none at the folders for MCP's `check_results`, `get_status`, `search_memory` and `_existing`. Selected (Option B, owner, 2026-10-25): one chokepoint that judges each component and the file without following, opens without following, takes regular files only and bounds the read; on the 0.1.5 line by a maintenance patch, and on this line before 2B-4, 2B-5 and activation. After activation no reader names `.ai/` (T-S22) | prevention (selected; NOT IMPLEMENTED) | R-1 to R-8 (§14.3, "Batch 2B-3b — M3-R2E: O-1 repository-link reads, decision and remediation plan (2026-10-25)") *(2026-10-25, later: implemented locally, not committed; R-1 to R-8 pass on Windows; CI pending; "Batch 2B-3b — M3-R2E: O-1 implementation and local verification (2026-10-25)")* *(2026-10-26: the attachments folder and its entries, and the memory-existence check, covered too; locally, not committed; "Batch 2B-3b — M3-R2E: O-1 Python coverage completion and owner approvals (2026-10-26)")* *(2026-10-26, later: committed locally as `f977127` and `836f204`, which adds the extension and `bugpilot list`; private cross-platform CI 9/9, with no Windows-only skip reason on Linux or macOS; not pushed or released; "Batch 2B-3b — M3-R2E: O-1 private cross-platform CI (2026-10-26)")* *(2026-10-26, later: backported to `main`'s code on an isolated branch, committed locally as `7844c8b`, not pushed; "Batch 2B-3b — M3-R2E: O-1 security backport to `main` (2026-10-26)")* |
 
 ### 10.3 Guarantees and limits, stated
 
@@ -2350,6 +2357,8 @@ A combination with FAIL, FALLBACK or UNKNOWN on a required aspect is either fixe
 - that a same-user process cannot race a write;
 - that a developer will not approve a wider folder than the work folder in the agent's own prompt;
 - that system error messages never contain a path.
+
+*(2026-10-25, O-1: until the O-1 remediation ships, the 0.1.5 layout's readers of `.ai/<id>/` and `.ai_memory/bugs/` follow a symbolic link at a file, and some at a folder, so a cloned repository can make them read a file outside it (T-S30). §14.3, "Batch 2B-3b — M3-R2E: O-1 repository-link reads, decision and remediation plan (2026-10-25)".)*
 
 **Not claimed:** any protection against an attacker who controls the user's account or the data root.
 
@@ -2760,7 +2769,7 @@ Either must avoid becoming a legacy reader (R4).
 
 - The managed runtime installs `bugpilot==<extension version>`, as before, so a matching pair is the default.
 - If the extension meets a CLI without the `unified-storage` capability (a user-configured `bugpilot.executablePath` pointing at an older CLI), it shows the existing "outdated CLI" message and does not run storage-dependent actions.
-- A 0.1.5 extension with a 0.1.6 CLI is unsupported. It would look for `.ai/`, find nothing, and show empty History. That is harmless, and documented.
+- A 0.1.5 extension with a 0.1.6 CLI is unsupported. It would look for `.ai/`, find nothing, and show empty History. That is harmless, and documented. *(2B-3 decision gate, 2026-10-20: not harmless for repository settings. Such an extension's AI Behavior and Verification Edit can overwrite the relocated file through the CLI. Recorded for Batch 3 and Batch 5, §14.3, "Batch 2B-3 — decision gate and slice design".)* *(2026-10-21, E-7: confirmed against the extension's sources; part of Batch 3's review and the release review (Batch 5); §14.3, "Batch 2B-3b — decision gate and implementation contract", part 9.)*
 
 **0.1.5 and 0.1.6 CLIs on one machine** see different data: 0.1.5 the legacy files, 0.1.6 the new layout. Neither touches the other's.
 
@@ -2775,7 +2784,7 @@ Either must avoid becoming a legacy reader (R4).
 | 0A | Automated isolation, inventory and baselines | **COMPLETED**: committed and CI-verified. Review findings H-1, M-1, M-2, N-1, L-1, L-2, L-3 and L-8 remediated | `8b6c567` (2026-10-16) | run 38942462918: **9/9 success** | approved 2026-10-15 with US-D32 and US-D33; as built in §14.1.A; Batch 0 is not complete while 0B has not run |
 | 0B | Live agent capability probes | **IN PROGRESS** (2026-10-18). P10: direct shells and the Python launcher PASS (narrowed run), then VS Code `sendText` PASS (completion run): **PASS for the tested Windows configuration**, with limitations. P7 attempted the same day: UNKNOWN, blocked before its tests by an in-progress VS Code update. P7 retry after the update (VS Code 1.142.0, Windows): P7-A to P7-H PASS, `revealFileInOS` UNKNOWN. P2 (one run, Claude Code 2.1.214): FAIL against the owner's criteria; external reads under `dontAsk` worked, the marker was declined, and a Bash request was refused. P1, P3–P6, P8, P9 and P11 NOT EXECUTED (§14.1.B) | — | — | each further probe awaits a separate approval naming the agents and accounts; no commit except plan records |
 | 1 | Storage foundation | **COMPLETED**: committed, CI-verified and integrated into `main`; **NOT activated** (no caller uses `storage`). Architecture review FAIL, then remediated (H1, M1–M3, L2, L3, L6–L9; H2 investigated); decisions and Q1–Q7 ratified 2026-10-16 (§14.2). Activation blockers in §14.3: only the CI one is met | `5222da7` (2026-10-16), fast-forwarded into `main` | run 39003264436 (verification branch): **9/9 success**; run 39004684594 (push to `main`): **9/9 success** | after 0A, plus its decisions; independent of 0B |
-| 2 | Python CLI, MCP and prompts on the new layout | **2A COMPLETED**: committed `e78a678`, CI-verified (run 39057483843 on the verification branch and run 39062906366 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2A — acceptance and CI evidence"). **2B-1 COMPLETED**: `7b8914d` and the corrective `40865cf`, CI-verified (run 39085417171 failed 3/9; run 39096347226 on the verification branch and run 39097757625 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2B-1 — acceptance and CI evidence"). **2B-1 follow-up** (concurrent data-root creation): `147e1bd`, branch CI 39285763641 and main CI 39305575297, each 9/9; integrated by fast-forward `7a2a1f4..147e1bd`. **2B-2 to 2B-6 NOT STARTED** (the switch of callers); 2B-2's decision gate recorded and the slice specified on 2026-10-19 (§14.3, "Batch 2B-2 — decision gate"), implementation not authorized; Q-1 to Q-6 answered and the contract resolved the same day, with C-1 to C-5 open (§14.3, "Batch 2B-2 — final contract resolution"); C-1 to C-5 approved later that day, and implementation NOT STARTED | — | — | implementation paths only; **no user data is migrated**; blocked until §8.10 is approved (US-D28, US-D14 and US-D10: APPROVED with conditions on 2026-10-18, §16.5.11, §16.4.1 and §9.5.1) |
+| 2 | Python CLI, MCP and prompts on the new layout | **2A COMPLETED**: committed `e78a678`, CI-verified (run 39057483843 on the verification branch and run 39062906366 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2A — acceptance and CI evidence"). **2B-1 COMPLETED**: `7b8914d` and the corrective `40865cf`, CI-verified (run 39085417171 failed 3/9; run 39096347226 on the verification branch and run 39097757625 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2B-1 — acceptance and CI evidence"). **2B-1 follow-up** (concurrent data-root creation): `147e1bd`, branch CI 39285763641 and main CI 39305575297, each 9/9; integrated by fast-forward `7a2a1f4..147e1bd`. **2B-2 to 2B-6 NOT STARTED** (the switch of callers); 2B-2's decision gate recorded and the slice specified on 2026-10-19 (§14.3, "Batch 2B-2 — decision gate"), implementation not authorized; Q-1 to Q-6 answered and the contract resolved the same day, with C-1 to C-5 open (§14.3, "Batch 2B-2 — final contract resolution"); C-1 to C-5 approved later that day, and implementation NOT STARTED *(then implemented and verified locally on Windows, 2026-10-19/20: uncommitted, not pushed, not activated; Linux and macOS not verified; §14.3, "Batch 2B-2 — implementation and local verification"; DD-1 to DD-3 approved on 2026-10-20; committed on `verify/0.1.6-storage`, not pushed, no CI)*. *(Then: run 39463867534 on `7a1c891` FAILED on a test-fixture defect; remediation `0b7dd6c`; run 39486855193 SUCCESS 9/9. **2B-2: IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**; not integrated; §14.3, "Batch 2B-2 — cross-platform CI verification")*. *(2B-3's records committed on `verify/0.1.6-storage` on 2026-10-20, not pushed; §19)* *(2B-3: decision gate recorded on 2026-10-20, with a proposed split into 2B-3a and 2B-3b; **2B-3 NOT STARTED**; §14.3, "Batch 2B-3 — decision gate and slice design")* *(Owner decisions G-1 to G-14 recorded the same day; **2B-3a NOT READY**: T-15 and F2-S are open; §14.3, "Batch 2B-3 — owner decisions and final contract gate")* *(Then B-1 to B-4 decided: 2B-3a's decisions complete; **2B-3a implementation NOT STARTED** and not yet authorized; §14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract")* *(2026-10-21: 2B-3a implemented and verified locally on Windows; uncommitted; not CI-verified; not activated; DD-4 to DD-12 await the owner; §14.3, "Batch 2B-3a — implementation and local verification")* *(2026-10-21, later: DD-4 to DD-12 approved; final local Windows verification passed; still uncommitted, not CI-verified, not activated; "Owner approval of DD-4 to DD-12 and final local verification")* *(2026-10-21, then: committed on `verify/0.1.6-storage`, parent `5b66ffe`; not pushed; not CI-verified; not activated)* *(Then: `743f542` pushed; run 39675645316 SUCCESS 9/9 on attempt 2 (attempt 1: the macOS safety runner not acquired). **2B-3a: IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**; not integrated; §14.3, "Batch 2B-3a — cross-platform CI verification")* *(2B-3b: decision gate recorded on 2026-10-21, E-1 to E-10; implementation not authorized; NOT STARTED; §14.3, "Batch 2B-3b — decision gate and implementation contract")* *(2B-3b Phase A: implemented and verified locally on 2026-10-21, uncommitted; B1 and B2 NOT STARTED; §14.3, "Batch 2B-3b — Phase A: baseline neutrality")* *(Then: Phase A committed and pushed as `d834082`; B1-S3: B1-S3 OPTION A CANDIDATE IMPLEMENTED LOCALLY; ADVERSARIAL SECURITY VALIDATION PENDING; NOT COMMITTED; NOT VERIFIED; the suspected race unresolved; B1-M NOT STARTED; §14.3, "Batch 2B-3b — B1-S security review and the Option A candidate")* *(Then: Option C chosen; M1: OPTION C M1 IMPLEMENTED LOCALLY; CONSUMER MIGRATION PENDING; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED; the race unresolved; §14.3, "Batch 2B-3b — Option C M1: the storage safe-read foundation")* *(2026-10-22: M2: OPTION C M2 IMPLEMENTED LOCALLY; FOCUSED VERIFICATION STOPPED ON ONE EXISTING TEST AWAITING THE OWNER; FULL SUITE NOT RUN; DD-27 PROPOSED, NOT APPROVED; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED; the race unresolved; §14.3, "Batch 2B-3b — Option C M2: consumer migration")* *(Then: Row 1 repaired, DD-27 approved; OPTION C M2 IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; DD-27 APPROVED; A SINGLE-MODE READ FINDING AWAITS THE OWNER; ADVERSARIAL VALIDATION PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED; the race unresolved; §14.3, "Batch 2B-3b — Option C M2: Row 1 repair, DD-27 approval and verification")* *(Then: DD-28 approved; exact-message evidence; OPTION C M2 VERIFIED LOCALLY ON WINDOWS; DD-27 AND DD-28 APPROVED AND EVIDENCED; TOCTOU RISK UNRESOLVED; ADVERSARIAL VALIDATION (M3) PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED; the race unresolved; §14.3, "Batch 2B-3b — Option C M2: DD-28 approval and exact-message evidence")* *(Then: the POSIX Case B fix and CI coverage; OPTION C M2 WITH THE CASE B FIX VERIFIED LOCALLY ON WINDOWS; THE POSIX PERMISSION TESTS NOT YET RUN (POSIX ONLY); PYTHON 3.10 CI COVERAGE ADDED, NOT YET RUN; TOCTOU RISK UNRESOLVED; M3 PENDING; NOT COMMITTED; the race unresolved; §14.3, "Batch 2B-3b — Option C M2: POSIX Case B fix and CI coverage")* *(2026-10-23: committed as `e789ce2`; the Windows correction `14528ff`; CI run 40039289638 SUCCESS 9/9; OPTION C M1/M2 CROSS-PLATFORM CI VERIFICATION PASSED; M3 OPEN; 2B-3b NOT COMPLETE; B1-M and B2 NOT STARTED; the race unresolved; §14.3, "Batch 2B-3b — Option C: cross-platform CI verification (2026-10-23)")* *(2026-10-23: M3-R1 review; M3-R2A hardening of F1 and F2 implemented locally, uncommitted; Linux and macOS CI pending; F1's proof pending; M3 OPEN; 2B-3b NOT COMPLETE; §14.3, "Batch 2B-3b — Option C: M3-R2A Windows held-folder hardening (2026-10-23)")* *(2026-10-24: M3-R2A committed as `aadeefa`; CI run 40060798081 SUCCESS 9/9; M3-R2A CROSS-PLATFORM FUNCTIONAL AND REGRESSION CI VERIFICATION PASSED; F1's proof pending; R3 not complete; M3 OPEN; 2B-3b NOT COMPLETE; B1-M and B2 NOT STARTED; the race unresolved; §14.3, "Batch 2B-3b — Option C: M3-R2A cross-platform CI verification (2026-10-24)")* *(2026-10-24: F3-A approved; M3-R2B implemented locally, uncommitted; CI pending; M3 OPEN; 2B-3b NOT COMPLETE; §14.3, "Batch 2B-3b — M3-R2B: F3 Fix Mode fail-closed selection (2026-10-24)")* *(2026-10-24: F3-A committed as `3863488`; CI run 40107435984 SUCCESS 9/9; F3-A CROSS-PLATFORM CI VERIFICATION PASSED; F1's proof pending; M3 OPEN; 2B-3b NOT COMPLETE; §14.3, "Batch 2B-3b — M3-R2B: F3-A cross-platform CI verification (2026-10-24)")* *(2026-10-24: F4 Option A approved; M3-R2C implemented locally, uncommitted; CI pending; M3 OPEN; 2B-3b NOT COMPLETE; §14.3, "Batch 2B-3b — M3-R2C: F4 repository identity revalidation (2026-10-24)")* *(2026-10-25: F4 committed as `9e5483c`; CI run 40219531790 SUCCESS 9/9; F4 CROSS-PLATFORM CI VERIFICATION PASSED; F1's proof pending; M3 OPEN; 2B-3b NOT COMPLETE; §14.3, "Batch 2B-3b — M3-R2C: F4 cross-platform CI verification (2026-10-25)")* *(2026-10-25: O-1 (Medium, owner-approved) gates 2B-4, 2B-5 and activation; Option B selected, not implemented; §14.3, "Batch 2B-3b — M3-R2E: O-1 repository-link reads, decision and remediation plan (2026-10-25)")* *(2026-10-25, later: the O-1 fix implemented locally, not committed; CI and independent validation pending; §14.3, "Batch 2B-3b — M3-R2E: O-1 implementation and local verification (2026-10-25)")* *(2026-10-26: the O-1 Python fix extended (attachments, memory existence), not committed; release gates recorded; §14.3, "Batch 2B-3b — M3-R2E: O-1 Python coverage completion and owner approvals (2026-10-26)")* *(2026-10-26, later: `f977127` committed locally, not pushed; the extension and `bugpilot list` corrections implemented locally; §14.3, "Batch 2B-3b — M3-R2E: O-1 release blockers, the extension and `bugpilot list` (2026-10-26)")* *(2026-10-26, later: `836f204` committed locally, not pushed; private cross-platform CI 9/9 on its snapshot `b477fed`; §14.3, "Batch 2B-3b — M3-R2E: O-1 private cross-platform CI (2026-10-26)")* *(2026-10-26, later: the O-1 backport to `main`'s code committed locally as `7844c8b`, not pushed; §14.3, "Batch 2B-3b — M3-R2E: O-1 security backport to `main` (2026-10-26)")* *(2026-10-26, later: the backport's private CI 9/9 (run 40421551787, owner-reported); release NO-GO today; §14.3, "Batch 2B-3b — M3-R2E: O-1 backport private CI and 0.1.6 release readiness (2026-10-26)")* *(2026-10-26, later: the 0.1.6 release candidate prepared, not committed (licence approval); §14.3, "Batch 2B-3b — M3-R2E: 0.1.6 release candidate prepared (2026-10-26)")* *(2026-10-26, later: the 0.1.6 release candidate committed locally, `bed66e0`; §14.3, "Batch 2B-3b — M3-R2E: 0.1.6 release candidate committed (2026-10-26)")* *(2026-10-26, later: the RC's private CI (owner-reported) and functional acceptance; release NO-GO; §14.3, "Batch 2B-3b — M3-R2E: 0.1.6 final acceptance and release approval package (2026-10-26)")* *(2026-10-26, later: EG-1 resolved by the owner; the M3 handoff prepared; release NO-GO; §14.3, "Batch 2B-3b — M3-R2E: M3 reviewer handoff and final release gates (2026-10-26)")* *(2026-10-27: CHG-1 made as `7feeaf7`, changelog only; the handoff updated; M3 OPEN; release NO-GO; §14.3, "Batch 2B-3b — M3-R2E: CHG-1 final changelog commit and the updated M3 handoff (2026-10-27)")* *(2026-10-27, later: release preparation done locally, final artifacts built; M3 not started; release NO-GO; §14.3, "Batch 2B-3b — M3-R2E: 0.1.6 coordinated release preparation (2026-10-27)")* *(2026-10-27, later: RL-1 and RL-2 accepted by the owner; M3 not started; release NO-GO; §14.3, "Batch 2B-3b — M3-R2E: 0.1.6 owner risk acceptance and final release gate (2026-10-27)")* *(2026-10-27, later: M3 waived by the owner for 0.1.6, not verified; preflight passes; release awaits the owner's session; §14.3, "Batch 2B-3b — M3-R2E: 0.1.6 owner M3 waiver and release readiness (2026-10-27)")* | — | — | implementation paths only; **no user data is migrated**; blocked until §8.10 is approved (US-D28, US-D14 and US-D10: APPROVED with conditions on 2026-10-18, §16.5.11, §16.4.1 and §9.5.1) |
 | 3 | Extension and Agent Handoff | **NOT STARTED** | — | — | — |
 | 4 | Security and cross-platform validation | **NOT STARTED** | — | — | — |
 | 5 | Final UX, packaging and release readiness | **NOT STARTED** | — | — | — |
@@ -3883,7 +3892,7 @@ Other Windows spellings of the same path give the same ID.
   - Measured on Windows: a small write with `fsync` 9.1 ms, without 1.1 ms. That is about 8 ms more on every first `ensure()`.
   - Real durability would also need a POSIX directory `fsync`, and `F_FULLFSYNC` on macOS.
   - Recommendation: leave it, and revisit in Batch 4 (Q5).
-- **L4: the verification cache's signature has no `ctime`.**
+- **L4: the verification cache's signature has no `ctime`.** *(Closed on 2026-10-24 by F4 Option A: no record verdict is kept, so no signature is needed; see "Batch 2B-3b — M3-R2C: F4 repository identity revalidation (2026-10-24)".)*
   - The in-process cache is keyed by device, file index, size, modification time and root. A same-user process that rewrites the record in place, keeps its size and restores its modification time, would not be noticed within one process lifetime.
   - `ctime` would catch that on POSIX. On Windows `st_ctime` is the creation time, so it adds nothing there.
   - This is §10.3's same-user race; the record protects integrity, not secrecy.
@@ -4162,6 +4171,8 @@ This batch moves implementation paths, **not user data**: nothing is copied, imp
   6. **Batch 0B's live-agent evidence** stays the gate for every function that needs it.
   7. **Source and behavioural tests** fail on any unguarded write under the data root (G-4). *(The static half is committed and CI-verified (Batch 2A). Still open: the end-to-end write witness (Batch 2B).)*
   8. **0.1.5 behaviour is preserved** until the authorized integration batch.
+  *(2026-10-21, Batch 2B-3b decision gate, E-6 and E-7; recorded beside the eight blockers, which are not renumbered: the activation review restates RK-20 as widened to the Verification Policy and AI Behavior, and Batch 3's compatibility verification of those two files is required before integration or activation. §14.3, "Batch 2B-3b — decision gate and implementation contract".)*
+  *(2026-10-25, the O-1 security gate (owner decision): recorded beside the eight blockers, which are not renumbered. While O-1 is open on this line, M3 is not accepted, 2B-4 and 2B-5 do not start, and Unified Storage is not activated; B1-M is not gated. §14.3, "Batch 2B-3b — M3-R2E: O-1 repository-link reads, decision and remediation plan (2026-10-25)".)*
 - Batch 0B is complete for the probes this batch depends on: P1, P2, P3 and P8, each recorded as PASS, FAIL or UNKNOWN (§9.7).
   - *(2026-10-19, D-7: the global-configuration slice, 2B-2, needs no live-agent probe. This waives nothing else: P1, P3 and P8 stay NOT EXECUTED, and P2 stays FAIL. Whether this precondition applies per slice is Q-3.)*
   - *(Q-3, approved with conditions on 2026-10-19: the precondition applies per slice, but missing evidence is never a pass. P1, P2, P3 and P8 stay gates for the slices that depend on them, and for activation.)*
@@ -4297,8 +4308,8 @@ This batch moves implementation paths, **not user data**: nothing is copied, imp
 
 **Cache freshness.**
 - **Identities.** At most 128 spellings, each with its canonical folder's device and file index. Every hit `stat`s the spelling again (following links) and compares. A different folder, a missing one or an index of 0 is resolved afresh, and an unstable one is never cached. A folder replaced at the same path keeps its path-based ID, by design (§7.2).
-- **Verdicts.** Containment, Git working-tree and verified-record verdicts are kept only within `request_scope()`. Outside one, every check looks at the disk. An inner scope joins the outermost; every public storage operation opens one; Batch 2B opens one per CLI command and one per MCP tool call. Batch 1's process-lifetime pair cache and its verified-record dictionary are gone.
-- **The record's signature** adds `st_ctime_ns` on POSIX. On Windows that field is the creation time and would add nothing.
+- **Verdicts.** Containment, Git working-tree and verified-record verdicts are kept only within `request_scope()`. Outside one, every check looks at the disk. An inner scope joins the outermost; every public storage operation opens one; Batch 2B opens one per CLI command and one per MCP tool call. Batch 1's process-lifetime pair cache and its verified-record dictionary are gone. *(2026-10-24: the record-verdict reuse is superseded by the owner's F4 decision, Option A: the record is read and judged on every check; the containment and Git working-tree verdicts stay scope-bound; see "Batch 2B-3b — M3-R2C: F4 repository identity revalidation (2026-10-24)".)*
+- **The record's signature** adds `st_ctime_ns` on POSIX. On Windows that field is the creation time and would add nothing. *(2026-10-24: the signature, `_record_signature`, is removed with the record-verdict reuse; see "Batch 2B-3b — M3-R2C: F4 repository identity revalidation (2026-10-24)".)*
 - **Regressions:**
   - the bypass the preflight reproduced (a retargeted symbolic-link or junction root, writing into a folder that holds the data root) is refused, and nothing is created;
   - a retarget to another repository gets that repository's namespace;
@@ -4323,7 +4334,7 @@ The module states its limits: computed names, and what a caller does with a path
 
 | Id | What | Why |
 | --- | --- | --- |
-| D2A-1 | Verified-record verdicts are scope-bound, not only re-signed | "never trusted because an earlier version was cached" then holds on Windows too, where `st_ctime_ns` adds nothing |
+| D2A-1 | Verified-record verdicts are scope-bound, not only re-signed | "never trusted because an earlier version was cached" then holds on Windows too, where `st_ctime_ns` adds nothing *(2026-10-24: the record-verdict reuse is superseded by the owner's F4 decision, Option A: the record is read and judged on every check; the containment and Git working-tree verdicts stay scope-bound; see "Batch 2B-3b — M3-R2C: F4 repository identity revalidation (2026-10-24)".)* |
 | D2A-2 | The data root is judged on write access only; `config/` and the file on any access | others may list the data root; for the credentials, only swapping its folders matters |
 | D2A-3 | POSIX data root: no sticky-bit exception, and no folder above it checked | the stricter reading of "not writable by untrusted users"; no parent-folder policy was approved |
 | D2A-4 | `write_config_file()` is the one writer of credentials, and checks after the write too | a checked path written with weaker protection would otherwise pass |
@@ -5367,9 +5378,9 @@ Indirect imports through these modules, such as `workflow` → `config` → `use
 
 - **2B-3:** repository settings (US-D9).
 - **2B-4:**
-  - work items, memory, `clean` (through the delete methods) and `list` (`work_items()`);
+  - work items, memory, `clean` (through the delete methods) and `list` (`work_items()`); *(2026-10-25, the O-1 gate: not before the O-1 fix is on this line. The moved readers keep its guarantees, no reader names `.ai/` or `.ai_memory/` (T-S22), and the canary suite covers the MCP and CLI readers. §14.3, "Batch 2B-3b — M3-R2E: O-1 repository-link reads, decision and remediation plan (2026-10-25)".)*
   - the task, retry and review text and the goldens (US-D13, D14, D25, D30, and US-D10's wording).
-- **2B-5:** the MCP values, INSTRUCTIONS and descriptions (US-D27, D31), plus the 2B-5 gate's remaining items.
+- **2B-5:** the MCP values, INSTRUCTIONS and descriptions (US-D27, D31), plus the 2B-5 gate's remaining items. *(2026-10-25, the O-1 gate: MCP's work-item paths move only with the chokepoint's guarantees. §14.3, "Batch 2B-3b — M3-R2E: O-1 repository-link reads, decision and remediation plan (2026-10-25)".)*
 - **2B-6:**
   - `doctor`'s `storage` object and capability, and the contract fields (US-D21, US-D26);
   - `--feedback-file` (US-D18);
@@ -5586,10 +5597,11 @@ There are no wildcards, no patterns and no added normalization. The mechanism's 
 | Slice | Decisions it needs | Live-agent evidence it needs |
 | --- | --- | --- |
 | 2B-2 | US-D2 (with conditions); US-D3 (approved; its warning approved by Q-4); US-D22 (in part); US-D26 (in part), with this contract (M-1, approved as C-1); US-D29 (in part) | none (D-7) |
-| 2B-3 | US-D9 | none known |
+| 2B-3 | US-D9 *(2B-3 decision gate, 2026-10-20: a proposed correction, not approved. 2B-3a also needs US-D4, US-D8, and US-D26's `STORAGE_UNAVAILABLE` or an approved interim rule, because 2B-3a is the first reader of `repository.json`. 2B-3b also needs its golden approvals under US-D30, and US-D22's wording for its messages. §14.3, "Batch 2B-3 — decision gate and slice design")* *(G-14, 2026-10-20: approved. US-D4 is approved with conditions, US-D8 in part and US-D9 in full; US-D26's applicable contract still waits on F2-S; T-15 is open. §14.3, "Batch 2B-3 — owner decisions and final contract gate")* *(B-1 to B-4, 2026-10-20: decided. 2B-3a's decisions are complete; its implementation awaits authorization. §14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract")* | none known |
 | 2B-4 | US-D4, D8, D13, D14, D15, D18, D25, D30, and US-D10's wording; `STORAGE_UNAVAILABLE` (the residue above) | P1 and P3 (US-D10) for the task and handoff text; P2 (US-D28) for the captured review |
 | 2B-5 | US-D27, D31, and the rest of the 2B-5 gate | P8 (US-D27) |
 | 2B-6 | US-D12, D16, D18, D20, D21, and US-D26's remaining rows | none known |
+| 2B-7 *(proposed on 2026-10-20, not approved)*: storage JSON contract completion, after 2B-3b and before Batch 3 | §8.10 rows 18 to 21 together; US-D22 (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract", part 6) | none known |
 | Activation | everything above, all eight of §14.3's blockers, and every live-agent dependency | Batch 0B complete for P1, P2, P3 and P8. P2 is FAIL, and P1, P3 and P8 are NOT EXECUTED: none of them counts as a pass. |
 
 For 2B-2, blockers 1, 2, 3 and 7 are met only on the consumer side 2B-2 reaches. Blocker 5 is met for 2B-2 only, now that C-1 is answered (M-1). US-D26's `STORAGE_UNAVAILABLE` stays OPEN.
@@ -5633,6 +5645,7131 @@ The contract fixture, `tests/test_storage_identity.py` and `storage.py` stay unt
 - **Designed differences:** DD-1 to DD-3 need exact-value verification, and the owner's review, before the implementation commit.
 - **Unchanged:** the version (0.1.5) and every register status. Batch 2B-3 to 2B-6 have NOT STARTED.
 
+#### Batch 2B-2 — implementation and local verification (2026-10-19/20)
+
+**Status.** IMPLEMENTED and verified locally on Windows, on the local branch `verify/0.1.6-storage`, created at `ea9659c` and not pushed.
+
+*(Committed on 2026-10-20, with the owner's authorization, as one commit on `verify/0.1.6-storage` whose parent is `ea9659c`: `feat(storage): move global configuration onto unified storage (Batch 2B-2)`, the commit that carries this record. Not pushed, no CI run, and not cross-platform verified: Linux and macOS have not run any of it. Not activated.)*
+
+*(Later on 2026-10-20: pushed, with a test-fixture remediation (`0b7dd6c`), and CI-verified 9/9 on Linux, macOS and Windows. See "Batch 2B-2 — cross-platform CI verification" below.)*
+
+- **Not done:** nothing is staged or committed, and no CI run was dispatched.
+- **Activation:** Unified Storage is **NOT activated**.
+- **Batch 2B-1:** stays COMPLETED, NOT ACTIVATED.
+- **Waiting on the owner:**
+  - the review of the implementation and of DD-1 to DD-3's observed values, whose `approved` fields stay empty;
+  - the decisions listed under "Open for the owner" below.
+- **Cross-platform:** Linux and macOS are **not verified**. The POSIX-only tests did not run, and no POSIX system was available locally.
+
+**Authorizations** (owner, 2026-10-19 and 2026-10-20):
+
+| Authorization | Scope |
+| --- | --- |
+| Batch 2B-2 implementation | Implementation and local verification on `verify/0.1.6-storage`, under the final contract and C-1 to C-5. |
+| Test-helper allowlist expansion | Exactly three files, approved after a stop:<ul><li>`tests/test_isolation_guard.py`: the `decoy` fixture only;</li><li>`tests/task_golden.py`: `_resolved_inputs()` only;</li><li>`tests/prompt_boundary_sources.py`: `configured()`, `reset()` and the user write in `task()`.</li></ul>Each placed user files through `BUGPILOT_CONFIG_DIR`, which 2B-2 retires. |
+| Option A: G-3 governs credential-file rewrites | Approved after a second stop; see "S2 and G-3" below. |
+
+**Phase A, baseline neutrality** (before any product change):
+- **What ran:** only the generator change (a per-session `BUGPILOT_HOME`, with the `<data>` label) and the designed-difference mechanism, with an empty `differences` list.
+- **Result:** zero differences.
+  - `test_storage_baseline.py`: 26 passed;
+  - `storage_baseline.py --pointers`: listed nothing;
+  - `--check`: "baselines match";
+  - `tests/baselines/0.1.6-batch0/`: untouched.
+
+  This record is kept separately from the observations below.
+
+**What changed in the product** (the nine allowlisted files):
+
+| File | Change |
+| --- | --- |
+| `bugpilot/core/errors.py` | The carrier `StorageAccessError(OSError)`, with `.during(action, shown, error)`, and one `error_code_for` arm giving `INTERNAL_ERROR`. No new code. |
+| `bugpilot/core/user_config.py` | <ul><li>Reads through `config_file(create=False)`: a missing file is "not configured", any other `OSError` the carrier.</li><li>Writes only through `write_config_file()`, after the module's own O4 link check.</li><li>`user_config_dir()` and `user_config_path()` are computed from `global_storage().diagnostics()` and create nothing.</li><li>`shown_config_path()` is the display form.</li><li>`CONFIG_DIR_WARNING` and `config_dir_variable_is_set()` are presence only.</li></ul> |
+| `bugpilot/core/instructions.py` | User scope only:<ul><li>the path comes from `user_instructions_file()`, and a write gets storage's folder and grant;</li><li>a write failure is the carrier;</li><li>a read keeps 0.1.5's non-fatal problem;</li><li>the display path comes from storage.</li></ul>Project scope is unchanged. |
+| `bugpilot/core/fix_mode_store.py` | The user scope comes from `user_fix_modes_dir()`; writes and deletions go inside the folder storage makes ready, and a failure is the carrier. An explicit `home_dir` stays the store's own test seam (`tests/test_fix_mode_store.py`, not on the allowlist, passes one); no product caller passes one. |
+| `bugpilot/core/config.py` | A comment only. |
+| `bugpilot/core/setup.py` | "Configuration saved to:" in the display form. |
+| `bugpilot/core/jira.py` | The not-configured string only: `~/.bugpilot/config/config.toml` (C-3 a). |
+| `bugpilot/cli.py` | <ul><li>One `storage.request_scope()` per command (`_dispatch_in_scope`).</li><li>`--launch-agent` hands back `_AgentLaunch`, which `main` starts after the scope has closed.</li><li>The Q-4 warning, once, in text mode.</li><li>A text-mode arm prints the carrier's sentence with no traceback.</li><li>Help texts and the `jira-site set` confirmation name the new place.</li></ul> |
+| `bugpilot/mcp_server.py` | `_request_scoped` (`functools.wraps`, the `REQUEST_SCOPED` marker) on all nine tools; nothing else. |
+
+**What changed in the tests.**
+
+- **The private helper:** `tests/conftest.py`'s fixture removes `BUGPILOT_CONFIG_DIR` for each test and returns `<BUGPILOT_HOME>/config` without creating it. The new `user_config_folder` fixture makes that folder through `ensure_config_dir()`.
+- **Location and helper updates only:**
+  - `test_instructions`, `test_task_preview`, `test_ai_behavior`, `test_project_settings`, `test_protected_rules`;
+  - `test_context_preview` (one test), `test_cli_json` (one test), `test_core_robustness` (one test);
+  - `test_batch4_file_safety`, `test_file_safety_baseline`.
+- **`test_task_golden`:** the approved test now first proves that its private instruction is read at the new place, so its "does not leak" check is not vacuous.
+- **The three approved helpers:** as authorized above.
+  - The guard was shown to refuse the product's reads at `config/config.toml` and `config/instructions.md`.
+  - Every golden and the prompt-boundary record are byte-identical: 519 passed.
+- **`tests/test_storage_api_boundary.py`:**
+  - the import allowlist of five modules;
+  - `request_scope` only in `cli.py` and `mcp_server.py`;
+  - `errors.py` stays a leaf.
+- **`tests/storage_baseline.py` and `tests/test_storage_baseline.py`:**
+  - the mechanism and its tests;
+  - an approval gate of its own;
+  - a check that each entry's evidence test exists.
+- **New files:**
+  - `tests/baselines/0.1.6-batch2b2/designed_differences.json`;
+  - `tests/test_global_config_storage.py`: 22 tests;
+  - `tests/test_mcp_request_scope.py`: 8 tests.
+- **`tests/storage_inventory.json`:** tightened, with six reductions and no increase.
+
+**S2 and G-3** (owner decision, Option A, 2026-10-20):
+
+- **The conflict.**
+  - 0.1.5 promised (S2) that rewriting `config.toml` makes it `0600` whatever its old bits.
+  - G-3 (Batch 2A, `write_config_file()`) writes credentials only where the data folder, `config/` and an existing file are proven private. On POSIX, any group or other bit makes a file not private.
+  - Once 2B-2 writes only through `write_config_file()`, a loosened file is refused, not repaired.
+- **The decision:** G-3 governs, for Unified Storage.
+  - A private (`0600`) file is rewritten and stays `0600`.
+  - A file another account may reach is refused before any credential-bearing write, with storage's sentence naming the file in display form: a policy refusal, `INVALID_INPUT`.
+  - Its content, bits and folder are left exactly as they were, with no temp file.
+  - Nothing repairs or widens a permission.
+- **Why it is stricter on purpose:**
+  - a token in a file others can read has already been exposed, so a refusal makes the user see that;
+  - and BugPilot never changes a permission (G-3).
+- **The tests changed, and only these:**
+  - `test_batch4_file_safety.py::test_a_rewritten_credentials_file_is_owner_only_whatever_its_old_bits`: all eight bit patterns are kept; `0600` rewrites, and the other seven are refused and left unchanged;
+  - `test_file_safety_baseline.py::test_the_credentials_file_ends_owner_only_new_and_rewritten`: the new file, the rewrite of a private file, and the refused rewrite of a `0644` file are separate expectations.
+- **Compatibility:** a user whose `config.toml` was loosened must `chmod 600` it, or remove it, before `setup` or `jira-site set` save again. Under 0.1.5 the next save replaced it quietly.
+- **The record:** the 0.1.5 S2 evidence stands for 0.1.5 and is not rewritten.
+- **The evidence:** the POSIX behaviour is **inferred** from `private_folder` and `storage`, and **not verified locally**. Linux and macOS CI is required before cross-platform verification is claimed.
+
+**Open for the owner** (POSIX-only assertions; neither is changed, because neither is within the approved edits): *(both approved and changed on 2026-10-20; see "Owner approval of DD-1 to DD-3 and two POSIX test changes" below)*
+
+1. **`test_batch4_file_safety.py::test_a_folder_at_the_credentials_path_is_an_error_and_is_left_as_it_was`.**
+   - **On POSIX:** G-3 judges the folder at the credentials path "not a regular file" and refuses it as a policy refusal (`StorageError`), while the test expects `OSError`.
+   - **On Windows:** the privacy check passes the folder, the write fails, and the carrier, an `OSError`, satisfies the test.
+   - **Proposed:** expect `StorageError` on POSIX and `OSError` on Windows, keeping "left as it was".
+2. **`test_batch4_file_safety.py::test_a_dangling_link_planted_at_the_temp_name_is_never_written_through[credentials]`.**
+   - **On POSIX:** the exclusive create raises `FileExistsError`, which the credentials writer reports through the carrier (C-1's classification), so the test's `(UnsafePathError, FileExistsError)` does not match.
+   - **Proposed:** also accept `errors.StorageAccessError` for the credentials case, keeping every "never written through" assertion.
+
+   This is the same kind of edge as the approved `FileNotFoundError` race: 0.1.5 reported it as `ARTIFACT_EXISTS` by the accident of its class.
+
+**Observations** (not changed, for later slices):
+
+- **`list_fix_modes` and `show_fix_mode`:** they catch only `FixModeError`. A storage refusal there reaches the client as the SDK's generic "Error executing tool …", fail closed and with no path, but also no reason. The prepare tools carry the code and the sentence. This belongs to 2B-5.
+- **`doctor`:** it loads the configuration, so a data folder in a Git working tree stops it with the refusal's sentence. Explaining that in `doctor` is 2B-6's.
+- **An unreadable user Fix Mode file:** it is still reported, as in 0.1.5, with the system error's text, which may hold its path (`fix_mode_store._load_file`). That reading is unchanged (C-1); the message is a candidate for 2B-5.
+- **Cleanup debt:** `tests/task_golden.py` and `tests/prompt_boundary_sources.py` keep an unused `CONFIG_DIR_ENV` import, because the approved edits were limited to the named functions.
+
+**Designed differences, as observed** (Phase E, `storage_baseline.py --pointers` after the product change; exactly three, and nothing else differs):
+
+| Id | Record and pointer | From (frozen) | To (observed) | Evidence (independent test) |
+| --- | --- | --- | --- | --- |
+| DD-1 | `cli_paths.json` `/instructions show --json path fields/user` | `"BUGPILOT_CONFIG_DIR/instructions.md"` | `"BUGPILOT_HOME/config/instructions.md"` | `test_global_config_storage.py::test_dd1_instructions_show_names_the_user_file_in_display_form` |
+| DD-2 | `handoff.json` `/cli_text/bug/0` | ``"WARN: Jira is not configured: no Jira site, email and API token were found in the environment or in ~/.bugpilot/config.toml. Run `bugpilot setup`, or set JIRA_BASE_URL, JIRA_EMAIL and JIRA_TOKEN. Using mock/demo Jira data."`` | the same, with `~/.bugpilot/config/config.toml` | `test_global_config_storage.py::test_dd2_the_not_configured_message_names_the_file_load_user_config_reads` |
+| DD-3 | `pollution.json` `/user_configuration_written` | `["instructions.md"]` | `[]` | `test_global_config_storage.py::test_dd3_the_retired_variables_folder_gets_nothing` |
+
+- **Exactness:** with the three entries applied, the comparison matches byte for byte (`--check`: "baselines match").
+- **Approval:** `test_every_designed_difference_is_approved_by_the_owner` **fails by design**, naming DD-1, DD-2 and DD-3, until the owner approves the values and `approved` is filled in. *(Approved on 2026-10-20; the gate now passes. See below.)*
+- **The frozen records:** byte-identical, with their hashes recorded.
+
+**Local test results** (Windows 11, Python 3.14, an absolute `PYTHONPATH` naming the checkout):
+
+- Focused suites: ran inside the full-suite run, which included every focused file.
+- Full Python suite: 3,755 passed, 57 skipped (POSIX-only and platform skips, not counted as passed), 1 failed: the approval gate, by design, naming DD-1 to DD-3.
+- Extension: `npm run typecheck` passed; `npm test` passed 2,350 with 0 failed and 0 skipped, on Node 24.22 (CI uses Node 22).
+- POSIX-only tests skipped on Windows; they are **not** counted as passed.
+
+**Still required before integration:**
+
+1. the owner's review of the implementation, and approval of DD-1 to DD-3's values;
+2. the two POSIX-only assertion decisions above;
+3. commit authorization;
+4. owner-dispatched CI 9/9 on the branch, Linux and macOS included;
+5. the integration decision (US-D29's open terms).
+
+The gates beyond 2B-2 are unchanged:
+- US-D26's `STORAGE_UNAVAILABLE`, needed before 2B-4;
+- Batch 0B (P1, P3 and P8 NOT EXECUTED; P2 FAIL);
+- all eight activation blockers.
+
+**Version:** 0.1.5, unchanged. **Batch 2B-3 to 2B-6:** NOT STARTED.
+
+**Owner approval of DD-1 to DD-3 and two POSIX test changes** (2026-10-20):
+
+- **DD-1 to DD-3 are approved,** after exact-value verification:
+  - each committed value equals the entry's `from`, and each regenerated value its `to`, re-observed with `storage_baseline.py --pointers`;
+  - DD-2's two messages differ only by `~/.bugpilot/config.toml` becoming `~/.bugpilot/config/config.toml`, once;
+  - each evidence test passes on its own;
+  - the frozen records match their recorded hashes and are unchanged.
+
+  Each entry's `approved` is `2026-10-20`, and nothing else in the record changed. The approval gate passes, and `--check` reports "baselines match" with nothing pending.
+
+  | Id | Record and pointer | From | To | Evidence |
+  | --- | --- | --- | --- | --- |
+  | DD-1 | `cli_paths.json` `/instructions show --json path fields/user` | `"BUGPILOT_CONFIG_DIR/instructions.md"` | `"BUGPILOT_HOME/config/instructions.md"` | `test_dd1_instructions_show_names_the_user_file_in_display_form` |
+  | DD-2 | `handoff.json` `/cli_text/bug/0` | the Jira not-configured warning naming `~/.bugpilot/config.toml` | the same warning naming `~/.bugpilot/config/config.toml`; no other change | `test_dd2_the_not_configured_message_names_the_file_load_user_config_reads` |
+  | DD-3 | `pollution.json` `/user_configuration_written` | `["instructions.md"]` | `[]` | `test_dd3_the_retired_variables_folder_gets_nothing` |
+
+  The full DD-2 strings are in the designed-differences record and in the table above.
+- **Two POSIX-only assertions are changed.** Both are in `tests/test_batch4_file_safety.py`. The owner's brief named `tests/test_file_safety_baseline.py` for the second, but the only test of that name is in `test_batch4_file_safety.py`, where it was changed.
+  1. `test_a_folder_at_the_credentials_path_is_an_error_and_is_left_as_it_was`:
+     - POSIX expects exactly `StorageError`, with G-3's "it is not a regular file";
+     - Windows keeps its established `OSError`;
+     - the folder and its content are left as they were, with no temp file.
+  2. `test_a_dangling_link_planted_at_the_temp_name_is_never_written_through[credentials]`:
+     - POSIX expects exactly `errors.StorageAccessError` (C-1, M-1);
+     - Windows keeps its established `UnsafePathError`;
+     - the credentials case now also checks that the planted link is left as it was on POSIX, and that no partial credentials file or temp file of BugPilot's own remains.
+
+     The `ordinary` case keeps its expectations.
+
+  The POSIX branches are **source-based**, derived from `private_folder._posix_evaluate`, `artifact_io.atomic_write_text` and `user_config._write_config`, and have **not run**. The Windows branches ran and pass.
+- **G-3 still governs over S2** (Option A), as recorded above. The 0.1.5 S2 evidence stands for 0.1.5.
+
+**Final local results** (2026-10-20, Windows 11, Python 3.14, an absolute `PYTHONPATH` naming the checkout):
+
+- **Full Python suite:** 3,756 passed, 57 skipped (platform skips: POSIX and macOS cases, and one deferred subst-drive check; none counted as passed), 0 failed.
+- **Extension:** `npm run typecheck` passed; `npm test` passed 2,350, with 0 failed and 0 skipped.
+- **Integrity:** the frozen Batch 0A records and every golden are byte-identical. The 11 protected files are unchanged. `storage.py`, `_isolation.py`, the contract fixtures, the extension, the workflows and the version (0.1.5) are unchanged.
+
+**Still required:**
+
+1. commit authorization; *(given on 2026-10-20: committed on `verify/0.1.6-storage`, not pushed)*
+2. owner-dispatched CI, 9/9, on the branch. Linux and macOS run the POSIX-only tests there for the first time, including the S2/G-3 expectations and the two changes above; cross-platform verification is not claimed before it; *(done on 2026-10-20: run 39463867534 failed; after the remediation `0b7dd6c`, run 39486855193 passed 9/9; see below)*
+3. the integration decision (US-D29's open terms).
+
+The gates beyond 2B-2 are unchanged:
+- US-D26's `STORAGE_UNAVAILABLE`, before 2B-4;
+- Batch 0B;
+- all eight activation blockers.
+
+Batch 2B-3 to 2B-6 have NOT STARTED.
+
+#### Batch 2B-2 — cross-platform CI verification (2026-10-20)
+
+**Status: Batch 2B-2 — IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED.**
+
+- **Scope of this status:** it is the slice's completion on its verification branch. It is not Unified Storage's completion, and not release readiness.
+- **The branch:** `verify/0.1.6-storage` holds `7a1c891`, the implementation, and `0b7dd6c`, a test-fixture remediation. Both were pushed with the owner's authorization.
+- **`main`:** `main` and `origin/main` remain at `ea9659c`, and nothing is integrated.
+- **This record:** the documentation commit on top of `0b7dd6c`, not pushed.
+
+**The first run failed:** [run 39463867534](https://github.com/xsw7910/bugpilot/actions/runs/39463867534) (`workflow_dispatch`, `verify/0.1.6-storage`, commit `7a1c891`). Conclusion: **FAILURE.**
+
+| Job | Result | Passed | Failed | Skipped | Deselected |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Safety, Ubuntu, Python 3.13 | failure | 1,756 | 2 | 48 | 1 |
+| Safety, Ubuntu, Python 3.10 | failure | 1,756 | 2 | 48 | 1 |
+| Safety, macOS, Python 3.13 | **cancelled**: "The job was not acquired by Runner of type hosted even after multiple attempts" | — | — | — | — |
+| Safety, Windows, Python 3.13 | success | 1,772 | 0 | 59 | 1 |
+| Full Python suite, Ubuntu | failure | 3,731 | 2 | 54 | 1 |
+| Full Python suite, macOS | failure | 3,733 | 2 | 52 | 1 |
+| Full Python suite, Windows | success | 3,753 | 0 | 59 | 1 |
+| Extension unit tests | success | 2,348 | 0 | 2 | — |
+| Extension evidence boundary | success | 27 | 0 | 0 | — |
+
+Four jobs failed, four succeeded, and one was cancelled. The failed jobs shared the same two failures:
+
+- `test_isolation_guard.py::test_writes_under_a_protected_root_are_refused_before_they_happen` raised `StorageError: BugPilot will not write credentials: ~/.bugpilot/config is not private (its group has access to it; every other account has access to it). Nothing was written; …`
+- `test_isolation_guard.py::test_a_python_child_and_its_own_child_fail_closed_against_the_decoy` recorded `save_user_config` as `error StorageError`, where `refused` was expected.
+
+**The cause** was a permission defect in a synthetic test fixture.
+
+- The `decoy` fixture, changed with the owner's approval, created its `config/` and `config/config.toml` with the runner's umask.
+- G-3 therefore refused the decoy's credentials, correctly, before any credential write, so the isolation guard those tests exercise was never reached.
+- Windows passed because its privacy check reads access lists.
+- No product-code defect and no unauthorized write were observed: G-3 failed closed.
+
+The run stays recorded as a failure.
+
+**The remediation:** commit `0b7dd6cc820384b4035711ff9abbb07434fd8479`, "test(storage): make isolation decoy config private on POSIX", parent `7a1c891`.
+
+- **What it changes:** `tests/test_isolation_guard.py` only, the `decoy` fixture. On POSIX, the decoy's `config/` is set to `0700` and its `config.toml` to `0600`, and both modes are checked, before the snapshot and before any product operation.
+- **What it leaves alone:** no product code, baseline, golden, contract fixture or plan changed.
+- **Integration with the branch:** pushed by fast-forward, `7a1c891..0b7dd6c`, with the owner's authorization.
+
+**The second run passed:** [run 39486855193](https://github.com/xsw7910/bugpilot/actions/runs/39486855193) (`workflow_dispatch`, `verify/0.1.6-storage`). It tested exactly `0b7dd6c`, as every job's own metadata shows. Conclusion: **SUCCESS, 9/9.**
+
+| Job | Passed | Failed | Skipped | Deselected |
+| --- | ---: | ---: | ---: | ---: |
+| Safety, Ubuntu, Python 3.13 | 1,758 | 0 | 48 | 1 |
+| Safety, Ubuntu, Python 3.10 | 1,758 | 0 | 48 | 1 |
+| Safety, macOS, Python 3.13 | 1,760 | 0 | 46 | 1 |
+| Safety, Windows, Python 3.13 | 1,772 | 0 | 59 | 1 |
+| Full Python suite, Ubuntu | 3,733 | 0 | 54 | 1 |
+| Full Python suite, macOS | 3,735 | 0 | 52 | 1 |
+| Full Python suite, Windows | 3,753 | 0 | 59 | 1 |
+| Extension unit tests | 2,348 | 0 | 2 | — |
+| Extension evidence boundary | 27 | 0 | 0 | — |
+
+- **Skips and deselections:** they are counted apart from passes, never as passes. Each job's skip count equals the last green run on `main` (`ea9659c`, run 39360496278).
+- **The one deselection in every Python job** is the private word-list test, as always.
+
+**Security evidence executed on Linux and macOS** (from the run's public annotations: each job's skip list and the file-safety observations):
+
+- **The isolation guard:** both formerly failing tests ran and passed. The child-process scenario performed its 11 operations, each refused by the guard.
+- **G-3 on credential writes:** observed on Ubuntu with Python 3.13 and 3.10, and on macOS with Python 3.13:
+  - a new credentials file is `0o600`;
+  - a private `0o600` file is rewritten and stays `0o600`;
+  - an existing `0o644` file is refused and left `0o644`, unchanged.
+- **The permission patterns:** all eight cases of `test_a_rewritten_credentials_file_is_owner_only_whatever_its_old_bits` ran.
+- **The two POSIX-only assertions:**
+  - `test_a_folder_at_the_credentials_path_is_an_error_and_is_left_as_it_was` (POSIX: G-3's `StorageError`);
+  - `test_a_dangling_link_planted_at_the_temp_name_is_never_written_through[credentials]` (POSIX: `StorageAccessError`, the link left intact).
+- **The new tests:** every test of `test_global_config_storage.py` and `test_mcp_request_scope.py` ran, including the POSIX permission checks and MCP request-scope isolation and freshness.
+- **The rest:** the storage write witness, the frozen-baseline comparison, the goldens, the inventory and publishability.
+- **The only skips** were platform cases:
+  - on Linux, the macOS `/tmp` cases and two isolation cases that need Windows or Python 3.14;
+  - on macOS, the same two isolation cases.
+
+**Unchanged:**
+
+- DD-1 to DD-3 remain approved (2026-10-20), and verified on all three systems.
+- The frozen records, goldens and contract fixtures are unchanged.
+- The version is 0.1.5. Unified Storage is **NOT ACTIVATED**.
+- US-D26's `STORAGE_UNAVAILABLE` stays OPEN, and is needed before 2B-4.
+- Batch 0B's evidence is incomplete: P1, P3 and P8 NOT EXECUTED; P2 FAIL.
+- All eight activation blockers still apply.
+- Batch 2B-3 to 2B-6 have NOT STARTED.
+- US-D29's open terms remain. §15.2 and §15.4 keep Batches 2 to 4 on the verification branch until integration is complete, and bring them to `main` only by an owner-approved fast-forward. D-1 allows no partial consumer migration into `main` without separate authorization.
+
+No decision status changed.
+
+#### Batch 2B-3 — decision gate and slice design (2026-10-20)
+
+**Status: Batch 2B-3 — NOT STARTED.** This is a decision gate: documentation and a read-only review only. *(The owner's decisions were recorded later on 2026-10-20: "Batch 2B-3 — owner decisions and final contract gate", below.)*
+
+- **Reviewed at:** `92efd66` on `verify/0.1.6-storage`, with `main` and `origin/main` at `ea9659c`.
+- **What it does not do:**
+  - it changes no code, test, helper, fixture, golden, baseline or extension file;
+  - it approves nothing, and changes no decision's status;
+  - it runs no probe and regenerates nothing.
+- **What was read:**
+  - `storage.py`'s identity and `RepositoryStorage`;
+  - the six settings modules, `cli.py`'s handlers and `mcp_server.py`;
+  - the frozen Batch 0A records, both contract fixtures and the task goldens;
+  - the extension's sources.
+
+  Two read-only searches mapped the current CLI and MCP behaviour and the extension's access; their key claims were checked against the source.
+- **Every "proposed" item below waits for the owner.** Implementation waits for explicit authorization.
+
+**Why 2B-3 needs a gate of its own.**
+
+- **The first `RepositoryStorage` consumer.** 2B-3 is the first product code to use it. That makes it the first to read and publish `repository.json`, and the first to meet the containment and record checks.
+- **Its prerequisites are not decided.** §14.3's per-slice table lists only US-D9 for 2B-3. In fact 2B-3 also depends on:
+  - US-D4 (OPEN);
+  - US-D8 (PROPOSED);
+  - US-D26's `STORAGE_UNAVAILABLE` (OPEN), or an interim rule for it;
+  - for its second half, the golden approvals that US-D30 requires.
+
+##### Part 1 — The split (proposed)
+
+| Slice | Moves | User-facing change | AI-facing change | Task goldens |
+| --- | --- | --- | --- | --- |
+| **2B-3a**: namespace and identity access, and the files that do not reach task text | <ul><li>project `instructions.md`</li><li>project Fix Modes</li><li>`project_settings.json`</li><li>`repository_profile.json`</li></ul> Each to `settings/` of the repository namespace (`settings/fix_modes/` for Fix Modes) | <ul><li>the files live in the data folder</li><li>the new refusals (part 3)</li><li>CLI text and warnings name the new place in display form</li><li>the instructions help stops calling the file committed (US-D9)</li></ul> | none | **all 17 byte-identical** |
+| **2B-3b**: the files whose source lines reach task text | <ul><li>`verification.md`</li><li>`ai_behavior.md`</li></ul> | their CLI display, help and messages | <ul><li>the source and notice lines</li><li>the US-D9 introduction line of Project Instructions</li></ul> | 6 of 17, each separately approved (part 8) |
+
+- **The order.**
+  - 2B-3a exercises the namespace, the identity record and the new refusals with no change an AI agent can see.
+  - 2B-3b holds every task-text and golden change, so that review is about wording alone.
+- **One proposed placement.** The US-D9 introduction line ("This repository's shared instructions for AI agents.") belongs to the instructions file. It is placed in 2B-3b because it is task text.
+- **A transient inconsistency.** Between the two slices, `task.md` still calls the per-user Project Instructions "shared". Also, `verification.md` and `ai_behavior.md` still live in `.bugpilot/` while the other four have moved. This exists only on the verification branch, which is not activated.
+- **Independently testable.**
+  - 2B-3a passes only with all 17 goldens unchanged and only its listed designed differences.
+  - 2B-3b passes only with exactly the approved golden diffs and its own listed differences.
+- **Reviewed separately.** Each slice has its own approvals, commit, push authorization and CI run.
+
+##### Part 2 — US-D26 is needed before 2B-3, not 2B-4 (corrected sequencing)
+
+Earlier records say `STORAGE_UNAVAILABLE` must be decided "before 2B-4", where identity-record reads begin. In fact 2B-3a reads the record first.
+
+- **Every settings read reads the record.** It goes through `RepositoryStorage.settings_file(name, create=False)` or `fix_modes_dir(create=False)`. Once a namespace exists, `_check_record` reads `repository.json`.
+- **A record that cannot be read** (a permission error, or a file still in use after storage's retries) raises `storage.StorageUnavailable` at once.
+- **Every settings write runs `ensure()`.** That publishes the record, and its system failures reach the caller as raw `OSError`.
+
+So `StorageUnavailable` reaches clients for the first time in 2B-3a, through `bug`, `task-preview`, `context-preview`, every `show`, and the MCP prepare and Fix Mode tools.
+
+**Proposed:** the public `STORAGE_UNAVAILABLE` code, or an owner-approved interim rule for 2B-3 (part 3), becomes a prerequisite of 2B-3a.
+
+The register row and §14.3's per-slice table carry a matching note. Their earlier text is kept, and no decision status changes.
+
+##### Part 3 — The storage-failure matrix for project settings (US-D26; no code chosen here)
+
+Classes, as Q-1 defined them:
+
+- **U:** storage unavailable;
+- **P:** a policy refusal;
+- **I:** invalid configuration;
+- **A:** absent.
+
+"0.1.5" means the same failure today, on the same surface, at `.bugpilot/`. The internal exceptions are as implemented in `storage.py` today, which is not changed.
+
+| # | Condition | Internal exception | 0.1.5 (today) | 2B-3a with no new rule | Proposed rule (pending) |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `repository.json` cannot be read: no permission, or still in use after the retries (U) | `storage.StorageUnavailable`, a `StorageError` | none: no record exists | F2: `INVALID_INPUT` on every surface. Text: `ERROR: BugPilot cannot read ~/.bugpilot/repositories/<id>/repository.json right now: …`. MCP prepare tools: `[INVALID_INPUT]`. MCP Fix Mode tools: the SDK's generic tool error | **O1, O2 or O3** (below); O2 recommended |
+| 2 | Record corrupt, mismatched, a link, or not a regular file (P) | `StorageIdentityError` | none | `INVALID_INPUT` (F2, frozen); fatal for reads and writes | frozen: F2, US-D24 |
+| 3 | A namespace component cannot be examined: a permission error on `lstat` (U) | raw `PermissionError` from `_existing` | `is_link_or_junction` lets the raw error escape. JSON: `INTERNAL_ERROR`, with the absolute path in the text. Text mode: a traceback | the same, now naming the data root's absolute path | the consumer raises `errors.StorageAccessError.during("read", <display path>, error)`. Each surface keeps its code (M-1): `INTERNAL_ERROR` at the last resort, or its own handler's code. One sentence, no absolute path, no traceback |
+| 4 | A non-folder on the way (for example `settings` is a file) (P) | `StorageError` | `.bugpilot` as a file: treated as missing, or a non-fatal problem | `INVALID_INPUT`, fatal | frozen: F2; fail closed |
+| 5 | `BUGPILOT_HOME` unusable: its parent missing (I) | writes: `StorageError` from `_ensure_root`. Reads: none, because absent means defaults | none | writes: `INVALID_INPUT`. Reads: defaults, nothing created | as 2B-2 (I) |
+| 6 | Permission or space failure on write (U): data-root creation, `mkdir`, the atomic write's temporary file or replace, `unlink` on clear, reset or delete | raw `OSError` from `_ensure_root`, `_directory` or `atomic_write_text` | `INVALID_INPUT` from each handler: <ul><li>`instructions`, `verification` and `ai-behavior` `set`: "The text could not be read: …" (mislabelled);</li><li>`project-settings set`: "--from-file could not be read: …";</li><li>`repository-profile set`: the `OSError` text, **with the absolute path**;</li><li>`fix-mode`: "Fix Mode storage is not writable: …", **with the absolute path**</li></ul> | the same codes, now exposing the data root's absolute path | **M-1 extended to project scope:** `StorageAccessError.during(<action>, <display path>, error)`. Every surface keeps its 0.1.5 code (all `INVALID_INPUT` through the handlers), with one sentence and no absolute path. The handlers' mislabelled prefix stays as in 2B-2, unless the owner asks for a wording fix (F4 allows one) |
+| 7 | Publishing the identity record fails | `mkstemp`: raw (U). `os.link` not `EEXIST`: raw (U). `_check_temp`: `StorageError` (P). A POSIX file system without hard links: `StorageError` (I). The final state is not "ok": `StorageIdentityError` (P) | none | U: as row 6. P and I: `INVALID_INPUT` | U as row 6; P and I frozen (F2) |
+| 8 | Policy refusals: <ul><li>the data root inside this repository, or the repository inside the data root (containment);</li><li>the data root inside a Git working tree or `GIT_WORK_TREE`, including "cannot be examined" (G-1, G-2);</li><li>a link or junction at the file or on the way (P)</li></ul> | `StorageError` from `_check_containment`, `_check_data_root`, `_existing` or `_file` | containment: none. Links: non-fatal on reads (a warning, then defaults); `INVALID_INPUT` on writes | `INVALID_INPUT`, **fatal for reads and writes** | frozen: F2. **P-1** (part 4): fail closed; storage is not loosened |
+| 9 | Invalid user paths and arguments: <ul><li>a `--from-file` that is missing, too large or not JSON;</li><li>an invalid Fix Mode id;</li><li>a repository root that is missing or not a folder;</li><li>a settings name outside `SETTINGS_NAMES` (a programming error, unreachable from input)</li></ul> | the handlers' `ValueError`, `FixModeError` and `OSError`; identity: `StorageError` | `INVALID_INPUT` from the handlers. A deleted working folder: raw | unchanged for input files. The root: `INVALID_INPUT` (I) | unchanged (not storage) |
+| 10 | The settings file's own content: unreadable once located, not UTF-8, too large, invalid JSON or front matter, a bad value. Also a Fix Mode file that is invalid or unreadable | the readers' own handling | non-fatal: a visible problem, then the defaults, or the mode left out | unchanged | **unchanged:** Q-1's rule for optional documents |
+| 11 | Absent: no namespace, or no file (A) | none | the defaults; no warning | the defaults; no warning; **nothing created** (`create=False`) | unchanged |
+
+**Options for row 1** (the owner's choice; none is chosen here):
+
+| | **O1**: keep F2's letter | **O2**: classify as U at the consumer boundary (recommended) | **O3**: a public `STORAGE_UNAVAILABLE` code |
+| --- | --- | --- | --- |
+| What happens | `StorageUnavailable` reaches clients as a `StorageError`: `INVALID_INPUT` | <ul><li>The settings consumers catch `storage.StorageUnavailable` and raise `errors.StorageAccessError` with storage's sentence.</li><li>It then follows M-1 per surface: `INTERNAL_ERROR` at the last resort; `INVALID_INPUT` inside the `set` handlers.</li><li>F2 stays true in letter: no `StorageError` reaches a client with another code.</li></ul> | <ul><li>a new code in `errors.py`, and an arm in `error_code_for`;</li><li>F2 amended to exclude `StorageUnavailable`;</li><li>the fixture's `open_choices` resolved;</li><li>the extension's `diagnose` learns the code (Batch 3)</li></ul> |
+| Contract change | none | none (no new code). It decides F5 for 2B-3 in the sense of Q-1's class U | yes: a public code, §8.10, the fixture and F2 |
+| Weakness | a transient permission problem reads as bad input | <ul><li>`INTERNAL_ERROR`'s advice in the extension points to a trace, which this failure no longer has (as in 2B-2);</li><li>the two handlers that report U as `INVALID_INPUT` keep doing so</li></ul> | the largest change; the extension is not ready for the code before Batch 3 |
+| Files | none beyond the consumers | the consumers, or one shared helper (part 10) | `errors.py`, the fixture, `tests/test_storage_identity.py`, §8.10, and later the extension |
+
+**MCP.**
+
+- **`prepare_jira_bug`, `prepare_bug_description` and `refine_investigation`** already turn any exception into `Could not … [CODE]: <sentence>`, with the code from `error_code_for`.
+- **`list_fix_modes` and `show_fix_mode` catch only `FixModeError`.** A `StorageError` or a `StorageAccessError` escapes to the SDK's generic tool error, with no BugPilot sentence. This has been true for the user scope since 2B-2, and becomes common with the project scope (rows 1, 2 and 8).
+- **Proposed (M-P, the owner's choice):** both tools turn `StorageError` and `StorageAccessError` into `ToolError("Could not list Fix Modes [CODE]: <sentence>")`, or `show`'s equivalent. That needs no new code. The alternative is to leave them as they are.
+
+##### Part 4 — Link and containment policy for the project scope (P-1, proposed)
+
+**Fatal: fail closed.** The command stops and nothing is read or written. The code is `INVALID_INPUT` (P, I) or the surface's U code (part 3). The conditions:
+
+- **Containment:** the data root is this repository's folder or inside it, or the repository is inside the data root.
+  - This includes **a repository root that is the home folder while the default data root is in use**. Today BugPilot runs there; from 2B-3a, every command that reads project settings refuses it (`bug`, `task-preview`, `context-preview`, every `show`, the MCP prepare and Fix Mode tools).
+  - It works with a `BUGPILOT_HOME` outside the home folder.
+  - This is approved storage behaviour (R5, H1, Batch 1). 2B-3a is the first place a user meets it, so the owner's acknowledgement is asked for.
+- **Git working trees:** the data root inside a Git working tree or `GIT_WORK_TREE`, including when that cannot be examined (G-1, G-2).
+- **Links:** a link or junction anywhere from the data root to the settings file, **for reads too**:
+  - `repositories/`, the namespace, `settings/` and `settings/fix_modes/`;
+  - the file itself.
+
+  This is the project-scope analogue of C-2 (a). No existing user is affected: the 0.1.5 files are not read, so a link at the new place would be a new one.
+- **Other refusals:** a non-folder on the way; a corrupt or mismatched record; an unreadable record; an unexaminable component.
+
+**Non-fatal: 0.1.5's rule is kept.** The problem is visible, then the defaults apply or the mode is left out. Never silent, never fatal. This covers part 3's row 10.
+
+**Absent:** the defaults, no warning, nothing created. No read creates a namespace.
+
+**Writes:**
+
+- `ensure()` runs first, so the record exists before any settings file does.
+- `settings/` and `settings/fix_modes/` are created by storage (`0700`).
+- The existing atomic writer writes inside the located folder, and its `refuse_link` still catches a link created in between.
+- `fix_mode_store`'s own folder and containment checks (`_unsafe_directory_reason`, `mode_path`) stay as defence in depth.
+
+**Not changed:** `storage.py`, and every storage check.
+
+**0.1.5 defects found by this review.**
+
+| Defect | Where | Proposed for 2B-3a |
+| --- | --- | --- |
+| absolute paths in messages: the profile's read warning (`str(OSError)`), the profile `set` error, and every project Fix Mode message and `issues[].path` | `repository_profile.py`, `cli.py`, `fix_mode_store.py` | **fix**: the move would otherwise expose the data root's absolute path. Display form (US-D22 for these messages: owner decision) |
+| `UnicodeDecodeError` and `RecursionError` from a Fix Mode file are not caught, so one bad file fails every catalog user; the profile does not catch `RecursionError` | `fix_mode_store.py`, `repository_profile.py` | residue: not storage, recorded for a later fix |
+| write failures labelled as read failures | the `set` handlers in `cli.py` | residue, as in 2B-2 (F4 would allow a wording fix) |
+| a folder at a `.json` settings name is treated as missing; the `.md` readers report it | `project_settings.py`, `repository_profile.py` | residue: read semantics unchanged |
+| the profile save does not check for a link again after `mkdir` | `repository_profile.py` | superseded: storage's `_file` and `atomic_write_text` refuse it |
+
+##### Part 5 — Repository identity against the implementation: US-D4 and US-D8 (no change to the algorithm)
+
+**What is frozen:**
+
+- US-D5 (APPROVED with conditions): the algorithm, §7.2;
+- US-D6 and US-D24 (APPROVED): the record, and refusal without repair;
+- US-D7 (APPROVED): one namespace per worktree;
+- the existing tests in `tests/test_storage_identity.py` and `tests/test_storage_safety.py`.
+
+**What is open:** US-D4 (OPEN), the root is the folder BugPilot runs in; and US-D8 (PROPOSED), a move or rename starts a new namespace.
+
+2B-3 is where both start to govern user settings. The rule as implemented:
+
+1. `realpath(root, strict=True)`.
+2. The key is `normcase` on Windows, and the path unchanged on POSIX.
+3. `slug-<16 hex>`.
+4. The record stores `root`. A mismatch is refused, and a case-only rename of the same folder is accepted (B1-13).
+
+| Case | Identity (implementation, existing test) | Effect on project settings in 2B-3 | Status | New 2B-3a test (synthetic folders only) |
+| --- | --- | --- | --- | --- |
+| T-1: the top-level folder, spelled differently (separators, `.`, a trailing separator; letter case on Windows) | one ID (`test_storage_identity`: spelling variants, Windows case) | the same settings | frozen (US-D5) | `project-settings set` under one spelling, `show` under another: the same values. Windows case: Windows only |
+| T-2: a subfolder of a repository | its own namespace (§7.1) | settings saved at the top level are **not** seen in the subfolder, which gets the defaults | **open: US-D4** | set at the top level, show in a subfolder: the defaults, no warning, nothing created for the subfolder |
+| T-3: a nested repository (a submodule or a vendored checkout) | the folder BugPilot runs in (nested test) | the outer and inner settings are independent | follows US-D4 | set in the outer, show in the inner: the defaults, and the reverse |
+| T-4: a Git worktree | its own namespace (worktree test) | **each worktree is configured separately**. Today an untracked `.bugpilot/` is also per worktree; a committed one is shared | frozen (US-D7) | set in the main checkout, show in a worktree: the defaults (needs `git`; skipped where it is missing) |
+| T-5: outside any repository | any folder can be a root; no `git` needed | works as today | follows US-D4 | a folder without `.git`: set and show round-trip |
+| T-6: the home folder with the default data root | containment "inside" (safety tests: data root inside the repository) | **refused** for reads and writes (part 4) | frozen (R5, H1); newly visible | with a synthetic home folder as the root and no `BUGPILOT_HOME`: `project-settings show` and `set` fail with one sentence and create nothing in the data root; `bug --allow-mock` fails with one sentence |
+| T-7: a repository inside the data root | containment "contains" | refused | frozen | `show` fails with `INVALID_INPUT`, and nothing is created |
+| T-8: the root reached through a symbolic link or junction | one ID, the target's (symlink and junction tests) | the same settings through the link and the target | frozen | set through the link, show through the target (skipped where links cannot be made) |
+| T-9: Windows folders that differ only in case, in a case-sensitive directory | equal keys; the record check sees another root and **refuses** (folded collision test) | settings commands fail with `INVALID_INPUT` in the second folder | frozen | covered by the storage test; no consumer test needed |
+| T-10: macOS `/var` and `/private/var` | one ID (macOS `/private` test) | the same settings | frozen | macOS only: set through `/var/…`, show through `/private/var/…` |
+| T-11: macOS, `BUGPILOT_MCP_REPO_ROOT` spelled with a different case, or NFC and NFD spellings | **two IDs** (POSIX case and NFC/NFD tests) | the MCP server sees the defaults where the CLI saved settings | frozen ("prefer split over merge"); documented limitation | macOS only: the CLI saves under the stored spelling, MCP is bound to a case variant, and the MCP tools see the defaults and create nothing |
+| T-12: the repository moved or renamed | a new ID (rename test) | **the settings revert to the defaults, silently.** The old namespace keeps them, orphaned, and nothing is deleted | **open: US-D8** | set, rename the folder, show: the defaults. The old namespace's files are unchanged |
+| T-13: a case-only rename of the same folder (Windows, macOS) | accepted: same file identity (B1-13) | the settings are kept | frozen | covered by the storage test (case-only rename); a consumer round-trip is optional *(Corrected on 2026-10-20 ("Batch 2B-3 — owner decisions and final contract gate", part 2): Windows only. On macOS and Linux a case-only rename gives a new ID, as T-12.)* |
+| T-14: a new clone at another path | a new ID | per clone | frozen | covered by T-12's pattern |
+| T-15: a *different* repository later placed at a former repository's path | **the same ID** (predicted from the code): the key is the path, and the record's `root` matches | **the newcomer inherits the earlier folder's settings** (and, from 2B-4, its work items) | frozen (US-D5, US-D6: a path, not an inode, §7.2); this consequence for settings is newly stated | set in folder A, remove A, create a different folder at the same path, show: the earlier values. This pins the behaviour, not a fix |
+| T-16: a root that is missing or not a folder | `StorageError` before anything is written | a fatal one-sentence error | frozen | `show` in a removed folder: `INVALID_INPUT`, nothing created |
+
+**Decisions asked:**
+
+- **US-D4:** approve as recommended. The root stays the folder BugPilot runs in, with the settings consequences T-2, T-3 and T-6. The `below_git_toplevel` diagnostic stays 2B-5 work.
+- **US-D8:** approve as recommended. The settings consequences T-12 and T-15 are acknowledged, and relocation stays DEFERRED.
+- **Acknowledge** the frozen consequences T-4 (settings per worktree), T-11 and T-15.
+- **No identity change is proposed.**
+
+##### Part 6 — US-D9: migration and sharing
+
+| Situation | 0.1.5 | 0.1.6 after 2B-3 |
+| --- | --- | --- |
+| an untracked `.bugpilot/` with settings | read | **not read, not copied, not deleted** (R4). The developer's settings revert to the defaults with no warning (US-D20's notice is DEFERRED). The release notes (§13.1, §13.2) say so |
+| a committed team `.bugpilot/` | shared through Git | the same, for every teammate. The files stay committed and BugPilot never touches them. Each developer sets their own, and changes to them are no longer reviewed through Git |
+| no settings anywhere | the defaults | the defaults. Nothing is created by a read |
+| both legacy and new settings | — | only the new ones are used. No merge, no precedence, no warning. Until Batch 3 the extension may still open the legacy file (part 9) |
+| a read-only repository (permissions, or a read-only mount) | `set` fails | `set` works: nothing is written to the repository |
+| several working copies: clones, worktrees, subfolders | committed settings shared; untracked ones per copy | **per working copy** (T-2, T-4, T-14). Each is configured separately |
+| a moved or renamed repository | the settings move with it | **the defaults** (T-12; US-D8) |
+| `BUGPILOT_HOME` set | — | the settings live under it. Changing it changes every repository's settings, as with any second data folder. A `BUGPILOT_HOME` inside the repository, or in another Git working tree, is refused (part 4) |
+| migration, fallback or deletion | — | **none** (§15.3, R4). No reader of `.bugpilot/`, no "if absent, try the old file" |
+
+**Import and export (recommendation).**
+
+- **Not needed for 0.1.6.** §13.2's manual re-creation stands.
+- **A candidate for later:** an explicit, user-started export and import pair, for example `bugpilot settings export --to FILE` and `import --from FILE`. Its rules:
+  - it names one file explicitly;
+  - it never looks for `.bugpilot/` by itself, and never runs automatically.
+
+  It would serve both deferred needs: team sharing (§13.3) and relocation (US-D8, T-12).
+- **What it must not be:** a legacy reader (R4). An "import from `.bugpilot/`" shortcut would be one.
+- **When:** in its own decision, not in 2B-3.
+
+**Decision asked: US-D9.** Approve "per-user per-repository; no team sharing through the repository; no reading, copying or deleting of `.bugpilot/`". Its wording part (no claim of "shared" or "committed") applies as follows:
+
+- **In 2B-3a:** the CLI help, including `instructions`' "can be committed with it" (`cli.py`, the `instructions` help), and the module docstrings of the moved files.
+- **In 2B-3b:** the task-text introduction line (part 8).
+
+The section names "Project / Team Instructions" are kept.
+
+##### Part 7 — The JSON and profile contracts
+
+**Today, on the branch** (`show --json` path keys):
+
+| Command | Key and value today | §8.10 (frozen, approved in part) | Storage accessor in 2B-3 |
+| --- | --- | --- | --- |
+| `instructions show` | `project.path` = `.bugpilot/instructions.md`. `user.path` = `~/.bugpilot/config/instructions.md` or `BUGPILOT_HOME/config/instructions.md`, a display string kept by DD-1 | row 18: `path` `abs`, "value (was a display string)". Row 19: `display_path` `display`, **new** | `RepositoryStorage.settings_file("instructions.md")`; the user scope's `GlobalStorage` accessor |
+| `project-settings show`, `repository-profile show` | `path` = `.bugpilot/<name>` (the profile's built in `cli.py`) | row 20: `path` `abs`. Row 21: `display_path`, **new** | `settings_file("project_settings.json")`, `settings_file("repository_profile.json")` |
+| `verification show`, `ai-behavior show` (2B-3b) | `path` = `.bugpilot/<name>` | rows 20 and 21 | `settings_file("verification.md")`, `settings_file("ai_behavior.md")` |
+| `fix-mode list` | `issues[].path` **absolute** (`str(path)`) | row 22: `display`, "value (was absolute; SF-3)" | `fix_modes_dir()` |
+| MCP `list_fix_modes` | `issues[]` has no `path`; the message may hold an absolute path | — | the same |
+
+**The conflict.** 2B-2 deliberately kept `instructions show`'s user `path` as a display string and added no field (D-9, DD-1). §8.10's rows 18 to 21 say `abs`, plus a new `display_path`.
+
+The extension reads none of these `path` values. From `show` it reads only `file.exists`, and it ignores `instructions`' per-scope `path`. Its only use of a CLI path is `fix-mode list`'s `issues[].path`, shown as text. So the timing is a contract choice, not an extension constraint.
+
+**Exact definitions (proposed).**
+
+- **`path`, when rows 18 and 20 are implemented:** `str()` of the accessor's result with `create=False`.
+  - Project scope: `<data root>/repositories/<repository id>/settings/<name>`. User instructions: `<data root>/config/instructions.md`.
+  - The form: storage's canonical data root, the platform's separators, no trailing separator.
+  - It is present whether or not the file exists, and never null. Computing it creates nothing.
+  - When the accessor refuses (part 3), the command fails, so a `path` is never a guess.
+- **`display_path`:** `storage.display_path(path)`, which is `~/.bugpilot/repositories/<repository id>/settings/<name>` or `BUGPILOT_HOME/…`, written with `/`.
+- **The interim `path`** (option J-2 below): the display form of the new place, as DD-1 did. No `display_path` is added.
+- **CLI text, warnings, problems, lint lines and `bugpilot.log`:** the display form only. This extends US-D22 to these messages; US-D22 is PROPOSED beyond 2B-2, so it is the owner's decision.
+- **`task.md` and other AI-facing text:** no settings path (part 8, 2B-3b).
+
+**Options for when rows 18 to 22 are implemented:**
+
+| | J-1: in each slice | **J-2: in one later contract step (recommended for rows 18 to 21)** |
+| --- | --- | --- |
+| 2B-3a | <ul><li>rows 18 and 19 (both instruction scopes, so DD-1's approved value is superseded);</li><li>rows 20 and 21 for `project-settings` and `repository-profile`;</li><li>row 22</li></ul> | `path` keeps being a display string, now of the new place. No new field |
+| 2B-3b | rows 20 and 21 for `verification` and `ai-behavior` | the same interim form |
+| Rows 18 to 21 | split across two slices and the scopes | all at once: in 2B-6, which already holds US-D26's remaining rows, or in a separate step before Batch 3. Batch 3's Edit needs the absolute `path` (part 9) |
+| Baseline generator | absolute values need the `<data>` label **and** portable separators (a cross-OS byte comparison) | the display values need only the repository-ID label |
+
+**Row 22, either way:** it is proposed for **2B-3a**. Otherwise `fix-mode list --json` would start exposing the data root's absolute path for project-scope issues. The extension already treats the value as display text (`fixModes.ts`). The user scope's `issues[].path` changes with it.
+
+**`tests/fixtures/repository_profile_contract.json`** (no change is made here). Field by field:
+
+| Field | Today | Affected | Proposed |
+| --- | --- | --- | --- |
+| `//` | the comment | no | unchanged |
+| `modes`, `default_mode`, `fallback_mode`, `labels`, `fields` | the model | no | unchanged byte for byte. The extension's `repositoryProfile.test.ts` reads these |
+| `path` | `.bugpilot/repository_profile.json` | **yes** | **PC-1 (recommended):** `"settings/repository_profile.json"`, of the `ns` kind, relative to the namespace. `tests/test_repository_profile.py`'s one assertion (`test_the_contract_fixture_is_the_model`) then checks it against storage's name: `"settings/" + PROFILE_FILE_NAME`, with `PROFILE_FILE_NAME` in `storage.SETTINGS_NAMES`. <br> **PC-2:** leave it. That would keep a constant for a place no product code uses, so the contract would be stale. <br> **PC-3:** remove `path` (changes the fixture's key set). <br> Nothing in the extension reads `path` |
+
+##### Part 8 — Goldens and baselines
+
+**2B-3a.**
+
+- **Goldens:** all 17 task goldens are byte-identical, and so are the context, retry and prompt-boundary goldens. A hard gate.
+  - The task text cannot change in 2B-3a. The only project-instructions text in `task.md` that named `.bugpilot` was the link-problem text, and a link is now fatal (P-1).
+- **The harnesses move their inputs.** `tests/task_golden.py` (`_resolved_inputs`) and `tests/prompt_boundary_sources.py` write project inputs straight into `<root>/.bugpilot/`. In 2B-3a they write `instructions.md` and `project_settings.json` through the storage accessor (`settings_file(name, create=True)`) in the per-session data root. In 2B-3b they do the same for `verification.md` and `ai_behavior.md`.
+  - If a harness is not moved, the configured goldens lose their inputs and fail, which is the intended guard.
+  - The converse guard is the R4 test (part 10): unchanged goldens alone cannot prove that the product stopped reading `.bugpilot/`.
+- **Predicted designed differences** (from the frozen Batch 0A values). They are categories now. Exact values are observed, then reviewed by the owner before the commit, as with DD-1 to DD-3:
+
+| Id (proposed) | Record | Pointer | From (frozen) | To (predicted) |
+| --- | --- | --- | --- | --- |
+| DD-4 | `pollution.json` | `/steps/8/created` | `[".bugpilot", ".bugpilot/instructions.md"]` | `[]` |
+| DD-5 | `pollution.json` | `/steps/9/created` | `[".bugpilot/verification.md"]` | `[".bugpilot", ".bugpilot/verification.md"]`: indirect, because `verification set` now creates the folder first |
+| DD-6 | `pollution.json` | `/steps/11/created` | `[".bugpilot/project_settings.json"]` | `[]` |
+| DD-7 | `pollution.json` | `/steps/12/created` | `[".bugpilot/repository_profile.json"]` | `[]` |
+| DD-8 | `pollution.json` | `/steps/13/created` | `[".bugpilot/fix_modes", ".bugpilot/fix_modes/team-fix.json"]` | `[]` |
+| DD-9 | `pollution.json` | `/git_status` | the 26 frozen lines | 22 lines. The four `?? .bugpilot/` lines for `fix_modes/team-fix.json`, `instructions.md`, `project_settings.json` and `repository_profile.json` are gone. One entry for the whole list, since its length changes |
+| DD-10 | `cli_paths.json` | `/instructions show --json path fields/project` | `".bugpilot/instructions.md"` | J-2: `"BUGPILOT_HOME/repositories/<repository-id>/settings/instructions.md"` |
+| DD-11 | `cli_paths.json` | `/project-settings show --json path fields/path` | `".bugpilot/project_settings.json"` | J-2: `"BUGPILOT_HOME/repositories/<repository-id>/settings/project_settings.json"` |
+| DD-12 | `cli_paths.json` | `/repository-profile show --json path fields/path` | `".bugpilot/repository_profile.json"` | J-2: `"BUGPILOT_HOME/repositories/<repository-id>/settings/repository_profile.json"` |
+
+  Unchanged in 2B-3a:
+  - `/bugpilot_folders_in_repository`: `verification` and `ai-behavior` still create `.bugpilot`;
+  - `/steps/10/created`;
+  - `/user_configuration_written`, still DD-3's `[]`;
+  - `handoff.json` and `task_size.json`.
+
+  Under J-1, DD-10 to DD-12 would hold `<data>/…` values with portable separators, and DD-1 would be superseded.
+- **Two mechanism changes** (`tests/storage_baseline.py`; proposed):
+  - **M-a, the repository-ID label.**
+    - The session computes its own repository's ID through `storage.repository_identity(session.repo).repository_id`. That function is frozen and pinned by golden vectors; the ID is never parsed from command output.
+    - `normalize()` replaces exactly that string with `<repository-id>`.
+    - A test checks that no other `<slug>-<16 hex>` ID survives normalization. An ID from another root would mean a wrong namespace.
+    - The label hides the per-OS key, so the records stay byte-identical across systems.
+  - **CH-1, chained per-slice records** (recommended).
+    - Each slice gets its own file: `tests/baselines/0.1.6-batch2b3a/designed_differences.json`, later `…batch2b3b/…`.
+    - The files are applied in slice order: 2B-2, then 2B-3a, then 2B-3b. Each entry's `from` is the value after the earlier slices: the frozen value when none touched it, otherwise the earlier `to`.
+    - `frozen` keeps hashing the Batch 0A records. A pointer may recur only across files, in order.
+    - Approval is recorded per file, so DD-1 to DD-3's approved record is never edited.
+    - The alternative, **CH-2**, is one cumulative file rewritten per slice. It is simpler, but it edits approved entries. CH-1 is needed because 2B-3b changes `/steps/9/created` and `/git_status` again.
+- **Neutrality first** (2B-2's sequence):
+  1. M-a and CH-1 alone, with an empty 2B-3a file. Every record must match under 2B-2's approved DD-1 to DD-3, and all 17 goldens must be unchanged.
+  2. Then the implementation.
+  3. Then the observed values.
+  4. Then the owner's approval of the exact values.
+  5. Then the commit, the authorized push, and CI.
+
+**2B-3b.**
+
+- **Affected goldens:** 6 of 17, and 9 lines.
+  - 5 goldens carry the source lines (`verification.py`'s `SOURCE_FILE` line, `ai_behavior.py`'s additions line).
+  - 3 carry the US-D9 introduction.
+  - One golden, `jira-fix-current-configured`, carries only the introduction. The earlier 2B-3 scope review counted 5 goldens, for the source lines alone; with the introduction it is 6.
+- **Candidate texts** (proposed, for the owner to choose; no path, so the goldens need no repository-ID normalization):
+  - **V:** `Source: repository Verification Policy (.bugpilot/verification.md).` → `Source: repository Verification Policy.`
+  - **A:** `Source: BugPilot defaults, with this repository's additions (.bugpilot/ai_behavior.md).` → `Source: BugPilot defaults, with this repository's additions.`
+  - **I:** `This repository's shared instructions for AI agents.` → `This repository's instructions for AI agents.`
+
+  The alternative is to name the display path. That is longer, needs the ID label in the golden harness, and gives the agent a path it has no use for.
+- **Predicted per golden.** Computed in memory from the committed goldens with the candidate texts; no file was written.
+
+| Golden | Lines | Chars | Approx. tokens |
+| --- | --- | ---: | ---: |
+| `jira-fix-current-ai-behavior` | 57 (A) | 12,023 → 11,996 | 3,006 → 2,999 |
+| `jira-fix-current-configured` | 44 (I) | 12,363 → 12,356 | 3,091 → 3,089 |
+| `jira-fix-current-configured-ai-behavior` | 44 (I), 65 (A) | 12,729 → 12,695 | 3,182 → 3,174 |
+| `jira-fix-current-verification-file` | 44 (I), 50 (V) | 11,975 → 11,940 | 2,994 → 2,985 |
+| `jira-fix-current-verification-file-ai-behavior` | 42 (V), 56 (A) | 11,697 → 11,642 | 2,924 → 2,910 |
+| `jira-investigation-current-ai-behavior` | 57 (A) | 12,671 → 12,644 | 3,168 → 3,161 |
+
+  - **Size:** every affected golden shrinks, which is within US-D30's per-golden rule with a zero delta.
+  - **The median** moves from 3,090 to 3,089: `jira-fix-current-configured` becomes the median case. So `task_size.json`'s `/median_approx_tokens` and `/normalized_median_approx_tokens` change, along with each affected case's `/cases/<name>/chars` and `/approx_tokens`.
+- **2B-3b's other predicted differences, chained on 2B-3a's:**
+
+| Pointer | From | To |
+| --- | --- | --- |
+| `pollution.json` `/steps/9/created` | `[".bugpilot", ".bugpilot/verification.md"]` | `[]` |
+| `pollution.json` `/steps/10/created` | `[".bugpilot/ai_behavior.md"]` | `[]` |
+| `pollution.json` `/git_status` | 22 lines | 20 lines |
+| `pollution.json` `/bugpilot_folders_in_repository` | `[".ai", ".ai_memory", ".bugpilot"]` | `[".ai", ".ai_memory"]` |
+| `cli_paths.json` | the `verification` and `ai-behavior` `path` values | their interim display form |
+
+- **The AI-facing effect:**
+  - the agent no longer sees a repository-relative `.bugpilot/` path that it might open or edit, or recreate in the repository;
+  - nothing it needs is lost, because the policy text itself is still in `task.md`;
+  - the introduction stops claiming the instructions are shared.
+- **Other AI-facing text, not covered by a golden** (listed for approval with V, A and I): the Verification Policy's and AI Behavior's problem-source and notice lines (`verification.py`'s and `ai_behavior.py`'s fallback lines). Each names `.bugpilot/…` today. They are proposed to follow V and A: no path.
+- **Per-golden approval, before any golden is touched:**
+  1. The owner approves the exact replacement strings (V, A, I, and the fallback lines).
+  2. The implementation renders the 17 tasks in memory and gives one reviewer-readable diff per golden. `--update` is not used yet.
+  3. The owner approves each golden by name.
+  4. Only then does `python tests/task_golden.py --update` run. Its diff must equal the approved diffs exactly; any other byte is a stop.
+  5. `task_size.json`'s differences are recorded with the approved values.
+  6. The plan records the approval per golden.
+
+##### Part 9 — Extension compatibility (US-D29 preserved; no extension change)
+
+**What the extension does today.**
+
+- **Writes:** none of the six files directly. It writes through the CLI, with the working directory set to the repository and temporary input files in the system temporary folder.
+- **Direct contact**, all at hard-coded `<repository>/.bugpilot/…` paths:
+  - `lstat` and `stat` of `verification.md` and `ai_behavior.md` (`host/bugpilotFiles.ts`, `host/ports.ts`);
+  - opening those two files in an editor tab (`controller.ts`, `#editVerificationPolicy` and `editAiBehavior`);
+  - one watcher on `.bugpilot/` for `instructions.md`, `verification.md`, `ai_behavior.md` and `project_settings.json`.
+
+| Component | 2B-3a | 2B-3b |
+| --- | --- | --- |
+| Project Instructions (`instructions.ts`; `show` and `set --stdin`/`--clear`; the per-scope `path` ignored) | compatible | — |
+| Project settings and Repository Profile (`show` and `set --from-file`) | compatible. They reread at environment checks, and the profile is not watched | — |
+| Fix Modes (`fix-mode` commands; `issues[].path` shown as text) | compatible | — |
+| The watcher | **degraded:** saves to `instructions.md` and `project_settings.json` no longer fire it. Rereads still happen on window focus, Run, Rebuild, Fix with AI, New Attempt and environment checks | **degraded** likewise for `verification.md` and `ai_behavior.md` |
+| Verification and AI Behavior **Edit** | unaffected (the files are still in `.bugpilot/`) | **disagrees.** Edit decides "absent" by `lstat` of the repository path, then creates the file through the CLI and opens the repository path |
+| The outdated-CLI gate (`verification-text`, `ai-behavior-text`) | unaffected | it asks whether the repository file exists |
+| Strings (`VERIFICATION_FILE`, `AI_BEHAVIOR_FILE`, `html.ts`, the Reset dialogs) | unaffected | **wrong:** "This deletes .bugpilot/verification.md" while `reset` deletes the namespace file |
+
+**Overwrite risk in 2B-3b with today's extension.** When `<repository>/.bugpilot/ai_behavior.md` is absent but the namespace file exists:
+
+- **AI Behavior Edit** runs `ai-behavior set --stdin` with the CLI's empty template, **replacing the developer's additions**. It then fails to open the repository path, and it repeats this on every click.
+- **Verification Edit** re-renders a valid file's front matter, which silently clears the "default changed" state. It **replaces** a file that has a problem with BugPilot's default.
+- **When a legacy repository file exists,** Edit opens it, and the CLI ignores it. Nothing warns.
+- **A linked `.bugpilot` folder** makes Edit refuse, although the CLI's file is elsewhere.
+
+**Nothing deletes a legacy file.**
+
+**Version skew.** The same overwrite applies to a 0.1.5 extension driving a 0.1.6 CLI, which a user-configured `bugpilot.executablePath` allows. §13.5 calls that pairing harmless; for these settings it is not. It is recorded for Batch 3 and Batch 5, with no 2B-3 change.
+
+**An intermediate layer is not recommended.**
+
+- A CLI-side compatibility path would be a legacy fallback (§15.3, R4), and a feature flag was rejected (§15.2).
+- Batch 3 must instead:
+  - open the file the CLI names, which needs rows 20 and 21's absolute `path` first (part 7);
+  - take the file's state from the CLI, not from a repository `lstat`;
+  - rely on the reread points, or watch the namespace's `settings/`;
+  - gate on `unified-storage` (§13.5);
+  - change the strings.
+
+**Is testing blocked?**
+
+- **Python:** no.
+- **Extension unit tests:** no failure is predicted. They mock the CLI's JSON. The cross-language tests read only `MAX_INSTRUCTION_CHARS`, the project-settings switches and `DEFAULT_BRANCH_TEMPLATE_LABEL`, `git_ops.py`'s template limit and the Fix Mode id pattern, and those lines are protected in both slices.
+
+  Each slice's CI confirms this. A failure goes on §15.4's ledger, unmasked, and stops the slice for review.
+- **Real-window checks:**
+  - after 2B-3a, only with a disposable `BUGPILOT_HOME` and synthetic repositories;
+  - after 2B-3b, **never Edit or Reset against real settings** before Batch 3.
+
+**US-D29.** Both slices stay on `verify/0.1.6-storage`. No partial integration into `main`, no pull request, no activation.
+
+##### Part 10 — Slice contracts (proposed; nothing is authorized)
+
+**2B-3a: namespace and identity access, and four settings.**
+
+1. **Scope:**
+   - project `instructions.md`, `project_settings.json`, `repository_profile.json` and project Fix Modes, read and written through `RepositoryStorage`;
+   - the namespace's creation by the first write (`ensure()`);
+   - part 3's rules, as approved;
+   - P-1;
+   - row 22, and rows 18 to 21 per the J choice;
+   - US-D9's CLI-facing wording;
+   - the display form for the messages listed in §4.
+
+   **Excluded:**
+   - `verification.md` and `ai_behavior.md`;
+   - all task text and goldens;
+   - work items, memory, deletion (2B-4) and `doctor` (2B-5);
+   - any `.bugpilot/` reader, copy or deletion;
+   - the extension.
+2. **Production allowlist:**
+   - `bugpilot/core/instructions.py`: the project scope, its shown name and the docstring. Not `MAX_INSTRUCTION_CHARS`, and not the introduction text.
+   - `bugpilot/core/project_settings.py`: the path and shown name only. Not the switch tuples, and not `DEFAULT_BRANCH_TEMPLATE_LABEL`.
+   - `bugpilot/core/repository_profile.py`.
+   - `bugpilot/core/fix_mode_store.py`: the project scope's folder; message display form.
+   - `bugpilot/cli.py`: the profile's and settings' text, `fix-mode list`'s `issues[].path`, the help wording, and part 3's arms if needed.
+   - `bugpilot/mcp_server.py`, only if M-P is approved.
+   - **Proposed:** one new module, `bugpilot/core/repository_settings.py`. It would be the single chokepoint that resolves the namespace for a root and applies part 3's U mapping. The alternative is the same helper in each consumer.
+   - **Only under O3:** `bugpilot/core/errors.py`.
+3. **Test and helper allowlist:**
+   - **modified:**
+     - `tests/test_instructions.py`, `test_project_settings.py`, `test_repository_profile.py`, `test_fix_mode_store.py`, `test_fix_mode_custom.py`, `test_mcp_server.py`, `test_context_preview.py`, `test_task_preview.py`, `test_terminal_output.py`, `test_protected_rules.py`, `test_storage_baseline.py` and `test_storage_inventory.py`, each only where it pins a moved place;
+     - `tests/storage_inventory.json`;
+     - `tests/storage_baseline.py` (M-a, CH-1);
+     - `tests/task_golden.py` (`_resolved_inputs` only);
+     - `tests/prompt_boundary_sources.py` (the input writer and reset only);
+   - **added:**
+     - `tests/test_repository_settings_storage.py`: T-1 to T-16, part 3's matrix, P-1, and the R4 test (a planted `.bugpilot/` file's sentinel text never appears in any output or task);
+     - `tests/baselines/0.1.6-batch2b3a/designed_differences.json`.
+   - **Conditional:** `tests/fixtures/repository_profile_contract.json`, under PC-1 or PC-3 only.
+   - **Any other test file:** stop and ask, as in 2B-2.
+4. **Protected:**
+   - `bugpilot/core/storage.py`, `tests/_isolation.py`, `verification.py`, `ai_behavior.py`, `prompts.py`, `handoff.py`, `workflow.py`, `task_preview.py`, `context_preview.py`;
+   - every golden, and the frozen Batch 0A records;
+   - `tests/fixtures/storage_cli_contract.json` and `tests/test_storage_identity.py`;
+   - `extension/`, and the version files;
+   - the owner's local files.
+5. **Security and privacy:**
+   - fail closed (P-1); `storage.py` is not loosened;
+   - no absolute path in any message;
+   - `repository.json`'s `root` only where US-D6 allows;
+   - `0700` folders and `0600` files, by storage;
+   - no reading, copying or deleting of `.bugpilot/`;
+   - synthetic folders and a per-test data root only;
+   - the isolation guard and the storage write witness stay green;
+   - no network and no credentials; no hostile-character matrices.
+6. **CLI and MCP:** the codes per part 3 as approved. No new code unless O3. No new JSON field unless J-1.
+7. **Golden and baseline:** 17 goldens unchanged; DD-4 to DD-12 exact values observed, then approved; neutrality first (part 8).
+8. **Local verification (Windows):**
+   - the whole Python suite, with an absolute `PYTHONPATH` and an isolated home;
+   - the new test file;
+   - the neutrality run;
+   - the baseline comparison with the approval gate;
+   - the golden check;
+   - the extension suite, unchanged;
+   - publishability;
+   - `git diff --check`;
+   - the protected files.
+9. **CI:**
+   - one owner-dispatched `workflow_dispatch` on the branch, after an authorized push;
+   - all nine jobs;
+   - the POSIX permission checks of `settings/`, the record and the new files must run on Linux and macOS;
+   - skips compared with run 39486855193;
+   - pass, skip and deselect counts reported per job.
+10. **Prerequisites and gates:**
+    - US-D4 and US-D8 approved, and US-D9's substance approved;
+    - the part 3 choice (O1, O2 or O3) and M-P;
+    - P-1, J, PC, M-a and CH-1;
+    - the allowlists;
+    - an explicit implementation authorization.
+11. **Rollback and stop conditions:** stop on any of these:
+    - any golden byte changed;
+    - a record difference beyond DD-4 to DD-12;
+    - a change to `storage.py`;
+    - a file outside the allowlist;
+    - a test failure (keep the traceback);
+    - a remaining `.bugpilot/` reader for the moved files;
+    - an absolute path in a message;
+    - an unexpected extension failure;
+    - a red CI job.
+
+    Rollback is the owner's decision. The slice is one commit on the branch, so before an authorized push it can be discarded on instruction, and after it reverted by an approved commit. There is no force-push or reset.
+12. **Plan updates:** §14.0, a §14.3 record, §18 and §19. §16.1 changes only for what the owner approves.
+
+**2B-3b: Verification Policy and AI Behavior.** *(Superseded on 2026-10-21 by "Batch 2B-3b — decision gate and implementation contract": its part 4 corrects these allowlists (E-4), and its parts 5 to 11 are the implementation contract. The text below is kept as written.)*
+
+1. **Scope:**
+   - `verification.md` and `ai_behavior.md` through `RepositoryStorage`;
+   - their CLI display, help and messages;
+   - the approved task texts V, A and I and the fallback lines;
+   - the 6 approved goldens;
+   - rows 20 and 21 for these two commands, per J.
+
+   **Excluded:** everything 2B-3a excluded, and any other task text.
+2. **Production allowlist:**
+   - `bugpilot/core/verification.py` and `bugpilot/core/ai_behavior.py`: path, shown name, source and notice lines, messages;
+   - `bugpilot/core/instructions.py`: the introduction text only;
+   - `bugpilot/cli.py`: these two commands' text and help;
+   - the 2B-3a chokepoint module, if it exists.
+   - If `task_preview.py` or `workflow.py` turn out to need a change: stop and ask.
+3. **Test and helper allowlist:**
+   - `tests/test_verification_policy.py`, `test_ai_behavior.py`, `test_task_golden.py`, `test_protected_rules.py`, `test_context_preview.py`, `test_task_preview.py`, `test_repository_profile.py` (its `verification.md` reference), `test_storage_inventory.py` and `test_repository_settings_storage.py`;
+   - `tests/storage_inventory.json`;
+   - `tests/task_golden.py` and `tests/prompt_boundary_sources.py` (the two inputs);
+   - **the 6 named golden files, only after per-golden approval;**
+   - `tests/baselines/0.1.6-batch2b3b/designed_differences.json`.
+4. **Protected:**
+   - 2B-3a's list;
+   - the other 11 task goldens, and the context, retry and prompt-boundary goldens;
+   - `MAX_*` constants and the verification switches read by the extension's tests;
+   - US-D13's work-path text (2B-4).
+5. **Security and privacy:**
+   - as 2B-3a;
+   - `task.md` names no settings path;
+   - the protected-rule framing of both documents is unchanged; only their source lines change.
+6. **CLI and MCP:**
+   - `verification` and `ai-behavior` `show`, `set`, `clear` and `reset`, and the MCP prepare tools' warnings, under part 3's rules;
+   - no new code unless O3.
+7. **Golden and baseline:**
+   - part 8's six goldens, per-golden approval, the `task_size.json` values;
+   - the chained `pollution.json` and `cli_paths.json` differences;
+   - no golden is modified before its approval.
+8. **Local verification:** as 2B-3a, plus the approved-diff check of `--update`.
+9. **CI:** as 2B-3a.
+10. **Prerequisites and gates:**
+    - 2B-3a committed and CI-verified;
+    - V, A, I and the fallback lines approved;
+    - each golden approved;
+    - US-D22's extension to these messages;
+    - US-D30's per-golden rule applied. Every delta is negative, so no budget A is needed.
+11. **Rollback and stop conditions:** stop on any of these:
+    - a golden diff that differs from the approved one;
+    - a size above a golden's frozen size;
+    - any 2B-3a stop condition.
+12. **Plan updates:** as 2B-3a, plus the per-golden approval table.
+
+**Live-agent evidence:** none known for either slice. Every activation gate (§14.3's eight blockers, Batch 0B's P1, P2, P3 and P8) still applies.
+
+##### Part 11 — Owner decisions this gate asks for (none is approved here)
+
+| # | Decision | Recommendation |
+| --- | --- | --- |
+| G-1 | The split into 2B-3a and 2B-3b, with the US-D9 introduction in 2B-3b | approve |
+| G-2 | US-D4 (OPEN), with the settings consequences T-2, T-3, T-6 | approve as recommended in §16.1 |
+| G-3 | US-D8 (PROPOSED), with T-12 and T-15; relocation DEFERRED | approve as recommended |
+| G-4 | US-D9 (OPEN): per-user per-repository, no sharing, no reading, copying or deleting of `.bugpilot/`; wording per part 6; import and export not in 0.1.6 | approve |
+| G-5 | US-D26 for 2B-3: O1, O2 or O3 (part 3), now needed **before 2B-3a** | O2. The public code stays OPEN under O1 and O2 |
+| G-6 | P-1, including the home-folder refusal (T-6) | approve |
+| G-7 | When rows 18 to 22 are implemented: J-1 or J-2, and row 22 in 2B-3a | J-2 for rows 18 to 21; row 22 in 2B-3a |
+| G-8 | `repository_profile_contract.json`'s `path`: PC-1, PC-2 or PC-3 | PC-1 |
+| G-9 | M-P: the MCP Fix Mode tools report storage failures as one sentence with a code | approve |
+| G-10 | M-a (the repository-ID label) and CH-1 (chained per-slice records) | approve |
+| G-11 | US-D22 extended to 2B-3's messages, including the absolute paths the move would expose (part 4) | approve |
+| G-12 | 2B-3a's allowlists (part 10), including whether to add `repository_settings.py` | approve, or narrow |
+| G-13 | 2B-3b's texts V, A and I and the fallback lines (can wait until before 2B-3b) | the candidates in part 8 |
+| G-14 | The corrections recorded with this gate: §14.3's per-slice row for 2B-3, and US-D26's "before 2B-4" | approve |
+
+**Unchanged by this record:**
+
+- every register status: 21 APPROVED, 7 OPEN, 7 PROPOSED, 4 DEFERRED;
+- the version, 0.1.5;
+- US-D26's `STORAGE_UNAVAILABLE`, OPEN;
+- Batch 0B's evidence (P1, P3 and P8 NOT EXECUTED; P2 FAIL), and all eight activation blockers;
+- US-D29's open terms.
+
+**Batch 2B-3 — NOT STARTED. Batch 2B-4 to 2B-6 — NOT STARTED.**
+
+#### Batch 2B-3 — owner decisions and final contract gate (2026-10-20)
+
+**Status:**
+
+- **Batch 2B-3a and 2B-3b: NOT STARTED.**
+- **Batch 2B-3a: NOT READY.** Two owner choices still block it: T-15 (part 3) and F2-S (part 4). Two exact-behaviour approvals are also needed before its implementation: PC-1's values (part 6) and M-P's behaviour (part 7). *(B-1 to B-4 were decided later on 2026-10-20: "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract", below.)*
+
+**Nature of this record.** Documentation and a read-only analysis, at `92efd66` on `verify/0.1.6-storage`, with the decision-gate record above.
+
+- No code, test, helper, fixture, golden, baseline or extension file changed.
+- No probe ran, nothing was regenerated, and nothing was staged, committed or pushed. *(The 2B-3 records were then committed together on 2026-10-20, without pushing: §19.)*
+- The version is 0.1.5, and Unified Storage is not activated.
+
+##### Part 1 — The owner's decisions (2026-10-20)
+
+| # | Owner's decision | Recorded as | Remaining condition |
+| --- | --- | --- | --- |
+| G-1 | **APPROVED** | 2B-3 is split into 2B-3a and 2B-3b. The AI-facing "shared instructions" wording and every task-golden change belong to 2B-3b | none |
+| G-2 | **APPROVED WITH CONDITIONS** | **US-D4: APPROVED — with conditions.** The existing root and identity rules are unchanged, the home-folder refusal included | <ul><li>T-1 to T-16 verified (part 2: one correction, T-13);</li><li>they are implemented as tests that pass on Windows, Linux and macOS;</li><li>the unresolved choices are named (part 2)</li></ul> |
+| G-3 | **PARTIALLY APPROVED** | **US-D8: APPROVED — in part.** A moved or renamed repository may start a new namespace, with no automatic migration | T-15 is **not approved** (part 3) |
+| G-4 | **APPROVED** | **US-D9: APPROVED** | <ul><li>Settings are per user and per repository namespace.</li><li>Legacy `.bugpilot/` is never read, migrated, copied or deleted.</li><li>No import or export in 0.1.6.</li><li>Losing implicit Git-based team sharing is an **intentional compatibility impact** (§13.3).</li><li>The exact AI-facing texts are decided at the 2B-3b gate (G-13).</li></ul> |
+| G-5 | **O2 APPROVED IN PRINCIPLE**, subject to exact error-contract verification | US-D26 stays **APPROVED — in part**. No public `STORAGE_UNAVAILABLE` code is introduced for 2B-3 | Not fully resolved: matrix row 1 needs F2-S (part 4) |
+| G-6 | **APPROVED** | P-1: fail closed for links, containment, Git working trees and identity records. Content problems stay non-fatal where the existing contract says so. `storage.py` is unchanged | its consequences are in part 4 |
+| G-7 | **J-2 APPROVED AS A STAGING DIRECTION ONLY** | rows 18 to 21 deferred; row 22 in 2B-3a, which is compliant | the interim state is **not compliant** with rows 18 to 21 (part 5) |
+| G-8 | **PC-1 APPROVED IN PRINCIPLE** | the fixture stays unchanged until its exact values are approved | the exact values are in part 6 |
+| G-9 | **M-P APPROVED IN PRINCIPLE** | — | the exact behaviour is in part 7, awaiting approval |
+| G-10 | **APPROVED IN PRINCIPLE** | M-a (the repository-ID label) and CH-1 (chained per-slice records) | the requirements are in part 8 |
+| G-11 | **APPROVED** | **US-D22:** its approved part now also covers Batch 2B-3's user-facing messages, with no unnecessary wording change | the rest of US-D22 stays PROPOSED |
+| G-12 | **APPROVED FOR PLANNING ONLY** | 2B-3a's allowlist, including a new `bugpilot/core/repository_settings.py`, is a plan. No file was modified | an implementation authorization |
+| G-13 | **DEFERRED** to the 2B-3b gate | V, A, I, the fallback lines and the six task goldens are untouched and unapproved | the 2B-3b gate *(decided on 2026-10-21: the seven texts approved as E-1; each of the six goldens still needs its own approval; §14.3, "Batch 2B-3b — decision gate and implementation contract")* |
+| G-14 | **APPROVED** | US-D26's applicable contract must be resolved **before 2B-3a**, not before 2B-4. This is recorded in §14.3's per-slice table and in §16.1 | — |
+
+##### Part 2 — T-1 to T-16, verified against the implementation (G-2)
+
+Each classification in "Batch 2B-3 — decision gate and slice design", part 5, was checked against `storage.py` and the existing tests:
+
+| Case | Verified against | Result |
+| --- | --- | --- |
+| T-1 spellings | `_identity` (`realpath`, then `normcase` on Windows); `test_spelling_variants_of_one_folder_share_one_id`, `test_windows_letter_case_variants_share_one_id` | confirmed |
+| T-2 a subfolder | `repository_identity` does no Git discovery | confirmed (2B-3a adds the consumer test) |
+| T-3 a nested repository | `test_a_nested_repository_has_its_own_namespace` | confirmed |
+| T-4 a worktree | `test_each_git_worktree_has_its_own_namespace` | confirmed |
+| T-5 outside a repository | identity needs no `.git`; G-1 applies only to the data root | confirmed |
+| T-6 the home folder | `test_a_repository_that_is_the_home_folder_is_refused_by_default`, `test_a_repository_above_the_default_data_root_is_refused` | confirmed, and **wider**: every ancestor of the data root is refused: the home folder, a folder above it, a drive or file-system root. Separately, since 2B-2, a home folder that is itself a Git working tree makes G-1 refuse the default data root (`test_a_home_folder_that_is_a_git_repository_keeps_the_default_data_root_out`) |
+| T-7 inside the data root | `test_a_repository_inside_the_data_root_is_refused` | confirmed |
+| T-8 through a link | the symbolic-link and junction identity tests; the retargeted-link tests | confirmed |
+| T-9 a Windows case collision | `test_a_genuine_folded_key_collision_is_refused` | confirmed |
+| T-10 macOS `/private` | `test_macos_working_directory_gives_the_stored_case_and_private_var_resolves` (macOS only) | confirmed |
+| T-11 macOS case or NFC/NFD | `test_posix_case_distinct_folders_are_distinct_repositories`, `test_nfc_and_nfd_spellings_never_merge_two_folders` | confirmed |
+| T-12 moved or renamed | `test_a_renamed_repository_gets_a_new_namespace_and_the_old_one_is_untouched` | confirmed |
+| T-13 a case-only rename | `_renamed_by_case_only` returns early unless `os.name == "nt"`; `test_a_case_only_rename_keeps_the_namespace_and_never_rewrites_the_record` is Windows-only | **corrected:** the namespace is kept **on Windows only**. On macOS and Linux the key is the case-sensitive canonical path, so a case-only rename gives a new ID and behaves as T-12. The gate's "(Windows, macOS)" was wrong |
+| T-14 a new clone elsewhere | the same mechanism as T-12; `test_two_repositories_with_the_same_basename_get_different_ids_and_the_same_slug` | confirmed |
+| T-15 path reuse | `test_a_folder_replaced_at_the_same_path_keeps_its_path_based_id`: **a frozen test pins it** | confirmed (part 3) |
+| T-16 a missing root | `test_a_missing_folder_or_a_file_is_refused_before_anything_is_written` | confirmed, refined: the CLI computes `Path.cwd()` before any handler, so a deleted working folder fails there first, as in 0.1.5 (unchanged). Storage's refusal is reached through MCP's bound root, or a direct call; 2B-3a's T-16 test uses those |
+
+**Root and identity choices still unresolved:**
+
+- **T-15:** part 3; the owner's choice.
+- **`below_git_toplevel`:** the US-D26 row that follows US-D4. G-2 does not decide the diagnostic, which stays with 2B-5.
+- **`subst` and mapped drives:** still NOT VERIFIED (D0A-5).
+
+There are no others.
+
+##### Part 3 — T-15: a different repository at a former repository's path
+
+**Findings** (`storage.py` as committed; nothing changed):
+
+1. **Identity comes from the path alone.** `_identity` computes `realpath(strict=True)`, then the key (`normcase` on Windows), then SHA-256 with the versioned prefix, then `<slug>-<16 hex>`. No file index, Git data, remote or time is used. US-D5 and the test above pin this.
+2. **`repository.json` binds to the path, not to the folder.** It holds `schema_version`, `repository_id` and `root`, the canonical path as text. `_record_state` compares `root` exactly. File identity (`_same_folder`) is consulted only on Windows, and only to *accept* a case-only rename. The per-process cache stores `(st_dev, st_ino)` only to decide whether to recompute; a recomputation gives the same ID.
+3. **Deleting repository A and creating repository B at the same path cannot be detected.** The key, the ID and the record's `root` are all the same, so the namespace is "ok", and B inherits A's project settings: Project Instructions, Fix Modes, project settings and Repository Profile. From 2B-4 it would also inherit A's work items and similar-fix memory.
+4. **What ordinary operations do:**
+   - **Inside one folder:** checkout, pull, reset, rebase, stash and clean keep one ID. So settings no longer vary by branch, whereas a committed `.bugpilot/` did.
+   - **Clones:** a clone to a new path gets a new ID. Deleting and re-cloning at the same path, of the same or another project, inherits the namespace.
+   - **Worktrees:** `git worktree add` gives a new path and ID. Removing a worktree and adding another at the same path inherits.
+   - **Moves:** moving a repository gives a new ID (US-D8). Moving it back reaches the original namespace again.
+5. **A stronger rule would change frozen behaviour.**
+   - A file index in the ID would keep the namespace across a rename on one volume, which changes US-D8. It would also break the frozen test and US-D5; §7.2 rejected it as unstable across restores and re-clones.
+   - A Git-based ID would need Git, against US-D4; would merge clones, against R3; and would merge worktrees, against US-D7.
+   - Only a binding check *beside* the path ID leaves US-D4 and US-D8 as they are (option B).
+
+**Options:**
+
+| | **A**: accept and document | **B**: detect a replaced folder and fail closed | **C**: an explicit, user-started reset or reassociation |
+| --- | --- | --- | --- |
+| What | the namespace belongs to the path; stated in §7.6 and the release notes; pinned by a test | <ul><li>record a binding when the namespace is created: the root folder's `(st_dev, st_ino)`, as a new record key or a second file;</li><li>on mismatch, refuse ("this namespace was created for another folder at this path");</li><li>a *new* namespace for the same path is impossible without changing the ID rule</li></ul> | a command, for example `bugpilot storage reset`, moves this path's namespace aside inside `repositories/` after confirmation, deleting nothing, so the next write starts afresh. Later it could reassociate an orphaned one (US-D8's deferred relocation) |
+| Security | <ul><li>no privilege boundary is crossed: the namespace, the settings and both repositories belong to the same account, and only someone who can already write that account's folders can arrange this;</li><li>the risk is confusion: B's `task.md` carries A's instructions and policies, which is the merge §7.3 calls unsafe;</li><li>visible through `show`, `task-preview` and later `doctor`</li></ul> | prevents silent inheritance and fails closed | user-started and never automatic; refuses links and containment, crosses no namespace, deletes nothing. It does not prevent inheritance; it gives the remedy |
+| Compatibility | none. The benign cases keep their settings: re-cloning the same project at the same path, a restore from backup, moving a folder back | **false positives exactly in those benign cases**, plus file systems that report no file index (they cannot prove a match, so they must refuse or skip). Each false positive stops every command for that repository until the user resets, so B needs C anyway | additive: a new command, its JSON and later a panel action. Nothing existing changes |
+| Tests | a consumer test that settings set in folder A are read after A is replaced at the same path; the existing identity test stays | binding match and mismatch on three systems; no file index; restore; re-clone; record-schema tests | reset moves the namespace aside and the next write creates a new one; refusals; nothing deleted; not callable by MCP |
+| Scope | documentation and one test, in 2B-3a | `storage.py`, the record contract (US-D6, US-D24: `_RECORD_KEYS` and `schema_version`), a new refusal class, `doctor`'s state, and C. Beyond 2B-3; against §7.2's reasons | a new storage operation (`storage.py`), a CLI command and its contract (§8.10), and later extension UI. Fits 2B-5 or a later release |
+
+**Recommendation: A for 0.1.6, with C recorded as the deferred remedy.** C would be decided with `doctor` (2B-5) or later, and is not approved by this. B is not recommended.
+
+What A needs in 2B-3a:
+
+- the T-15 consumer test;
+- a limitation line in §7.6;
+- the release-note sentence (Batch 5);
+- `doctor` showing the record's root (2B-5, US-D21).
+
+**This is the owner's choice, and it blocks 2B-3a.**
+
+##### Part 4 — US-D26: the 11-row matrix reconciled (G-5, O2)
+
+**The public boundaries**, as `cli.py` and `mcp_server.py` handle exceptions today:
+
+| Boundary | Commands | Handling |
+| --- | --- | --- |
+| **R**: reaches `main()` | <ul><li>`instructions show`;</li><li>`project-settings show` and `repository-profile show`;</li><li>`verification` (every action ends in `resolve_project_settings`, which reads `project_settings.json` in 2B-3a);</li><li>`task-preview` and `context-preview`;</li><li>every `fix-mode` action, whose catalog load comes first and includes the project scope</li></ul> | <ul><li>Text: `UnsafePathError` (the `StorageError` family) and `StorageAccessError` print `ERROR: <sentence>`; any other `OSError` prints a traceback.</li><li>JSON: `error_code_for`: `StorageError` gives `INVALID_INPUT`, and `StorageAccessError` gives `INTERNAL_ERROR`.</li></ul> |
+| **W**: the `set` handlers' `except (OSError, ValueError)` | <ul><li>`instructions set`;</li><li>`project-settings set` and `repository-profile set`;</li><li>`fix-mode` `create`, `update`, `duplicate` and `delete` (`except OSError`, wrapped as `FixModeError`)</li></ul> | `INVALID_INPUT`. A `ValueError` gives its own text. An `OSError` gets the handler's prefix: "The text could not be read: …", "--from-file could not be read: …", or "Fix Mode storage is not writable: …". The profile's handler gives the text alone |
+| **BUG**: `bug` | `run_investigation` | `ValueError` gives `INVALID_INPUT`, plus the log hint in text. Anything else reaches `main()` |
+| **MCP-R** | `prepare_jira_bug`, `prepare_bug_description`, `refine_investigation` | `ToolError("Could not … [CODE]: <text>")`, with `CODE` from `error_code_for` |
+| **MCP-F** | `list_fix_modes`, `show_fix_mode` | only `FixModeError` is caught. Anything else is the SDK's unanticipated error: the model sees only `Error executing tool <name>` (MCP SDK 2.1.1) |
+
+**The rows.** "Chokepoint" means the consumer-side helper G-12 plans (`repository_settings.py`). Every sentence is in display form, and none holds an absolute path.
+
+| # | Actual source | Class | 0.1.5 public behaviour | 2B-3a CLI text | 2B-3a CLI JSON | 2B-3a MCP | Frozen implications | Required tests |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `_record_state` raises `storage.StorageUnavailable` through `_unreadable`: a `PermissionError` on the record's `lstat` or read, after the retries. Reached from `_check_record` (every read with an existing namespace) and from `ensure()` before publishing (writes) | U | none: no record existed. The nearest failure, a permission error on the way to a settings file, gave: R and BUG `INTERNAL_ERROR` (raw, absolute path, text traceback); W `INVALID_INPUT` | the chokepoint re-raises it as `errors.StorageAccessError` with storage's sentence ("BugPilot cannot read `~/.bugpilot/repositories/<id>/repository.json` right now: …"). R and BUG: `ERROR: <sentence>`. W: `ERROR: <prefix><sentence>` | **under O2:** R and BUG `INTERNAL_ERROR`; W `INVALID_INPUT` | MCP-R `[INTERNAL_ERROR]`; MCP-F as part 7 | **F2's letter** says a `StorageError` reports `INVALID_INPUT`, and `StorageUnavailable` is one. O2 therefore needs **F2-S** (below) | an unreadable record (an injected `PermissionError`; POSIX: mode `000`) at each boundary: the code, one sentence, no absolute path, no traceback, nothing written |
+| 2 | `_record_state` returns "corrupt" or "mismatch" (including a link or folder at the record, a wrong schema or ID, another root), and `RepositoryStorage._refusal` raises `StorageIdentityError` | P | none | R: `ERROR: BugPilot will not use … : it belongs to a different repository folder. …` or `…: it is not a readable repository record. …`. BUG: the same, plus the log hint. W: the sentence alone (`ValueError` branch). `fix-mode` writes: reaches `main()` | `INVALID_INPUT` everywhere | MCP-R `[INVALID_INPUT]`; MCP-F as part 7 | F2 exactly; US-D24 (refuse, never repair) | a corrupt record and a record naming another root: `INVALID_INPUT` at each boundary; the record's bytes unchanged |
+| 3 | `_existing` and `refuse_link`: a raw `PermissionError` from `lstat` of `repositories/`, the namespace, `settings/`, `settings/fix_modes/` or the file | U | R and BUG `INTERNAL_ERROR`, with the absolute path in the text and a traceback in text mode; W `INVALID_INPUT` with the system error's text | the chokepoint raises `StorageAccessError.during("read", <settings folder display path>, error)`, or `"prepare"` on writes | R and BUG `INTERNAL_ERROR`; W `INVALID_INPUT` | MCP-R `[INTERNAL_ERROR]` | M-1 (C-1): every surface keeps 0.1.5's code; F4: the wording changes and loses the absolute path; F2 does not apply (an `OSError`) | an `lstat` that raises `PermissionError` on the settings folder: code, sentence, no absolute path, no traceback |
+| 4 | `_existing`: something that is not a folder on the way (`StorageError`) | P | `.bugpilot` as a file was read as missing (the `.json` files) or reported as a problem (the `.md` files), non-fatal | `ERROR: <sentence>` | `INVALID_INPUT` | `[INVALID_INPUT]` | F2. A new refusal at a new place; no existing user is affected | `settings` as a file: `INVALID_INPUT` at each boundary, nothing replaced |
+| 5 | `data_root()`: an unusable `BUGPILOT_HOME` (relative, `~`, control characters; refused for reads too, since 2B-2). `_ensure_root`: a missing parent (writes) | I | none | `ERROR: <sentence>` | `INVALID_INPUT` | `[INVALID_INPUT]` | F2; 2B-2's class I. Reads with a valid root and no namespace stay row 11 | one read and one write with a missing parent; nothing created |
+| 6 | Writing the settings file: `_ensure_root` or `_directory` (`mkdir`), `atomic_write_text` (`mkstemp`, `os.replace` and its fallback), `unlink` (clear, delete): raw `OSError` | U | W `INVALID_INPUT`, with the handler's prefix; the profile's and Fix Modes' messages held the **absolute path** | each consumer's save wraps it as `StorageAccessError.during("write" or "remove", <file display path>, error)`. W: `ERROR: <prefix><sentence>`; the profile: the sentence | `INVALID_INPUT` | MCP has no settings writes | M-1; F4; G-11: the absolute paths go | an injected `PermissionError` from the atomic writer, and POSIX mode `0500` on `settings/`: `INVALID_INPUT`, sentence, no absolute path, the file unchanged |
+| 7 | `ensure()` when the first write publishes the record. `_publish_record`'s `mkstemp`, write or `os.link` (not `EEXIST`): raw (U). `_check_temp`: `StorageError` (P). A POSIX file system without hard links: `StorageError` (I). The final `_record_state`: "mismatch" or "corrupt" gives `StorageIdentityError` (P), and a permission failure gives `StorageUnavailable` (U, as row 1) | U, P, I | none | W: U as row 6, with the action `prepare` and the namespace's display path; P and I give the sentence | `INVALID_INPUT` on every W surface, for U, P and I alike. No F2 conflict here: W reports `INVALID_INPUT` either way | no MCP writes | F2 for P and I; M-1 for U. A failure after the folder exists leaves a namespace with no record, which the next `ensure()` completes (§7.5). Harmless and deterministic | injected `os.link` (`EPERM`) and `mkstemp` failures: `INVALID_INPUT`, sentence; a rerun after recovery succeeds, and the record equals `_record_text` |
+| 8 | `_check_containment` (inside, contains), `_check_data_root` (G-1, G-2, "cannot be examined"), `_existing` and `_file` (a link or junction on the way or at the file, including `settings/fix_modes/`): `StorageError` | P | containment: none. Links: non-fatal on reads (a warning, defaults; a linked project Fix Mode folder was one `issues[]` entry, and the built-ins remained); `INVALID_INPUT` on writes | `ERROR: <sentence>` | `INVALID_INPUT`, **fatal for reads and writes** (G-6) | `[INVALID_INPUT]` | F2; G-6 | home-folder root (T-6), repository inside the data root (T-7), `BUGPILOT_HOME` inside a checkout, a symbolic link (and a junction on Windows) at `settings/`, `settings/fix_modes/` and the file: `INVALID_INPUT` at each boundary, nothing read or written |
+| 9 | Input: `--from-file` (missing, too large, not JSON or UTF-8); an invalid Fix Mode ID (`FixModeError`); a repository root that is missing or not a folder (`StorageError`, MCP's bound root); a settings name outside `SETTINGS_NAMES` (a programming error) | I | `INVALID_INPUT` from the handlers. A deleted CLI working folder fails at `Path.cwd()` (unchanged) | unchanged | `INVALID_INPUT` | `[INVALID_INPUT]` | F2 for the root; the handlers unchanged | the existing input tests, re-pointed; MCP with a removed bound root gives `[INVALID_INPUT]` |
+| 10 | The file's own content, once located: unreadable, not UTF-8, too large, invalid JSON or front matter, bad values; a Fix Mode file that is invalid or unreadable | content | non-fatal: a warning and defaults, or a catalog issue. Messages held the absolute path for the profile's read failure and for Fix Modes | unchanged: a non-fatal `WARN:`, now in display form (G-11) | not an error; `warnings[]` or `issues[]` | `warnings` or `issues[].message`, display form | Q-1's rule for optional documents; G-6 "where explicitly required". Residue, not storage: `UnicodeDecodeError` and `RecursionError` from a Fix Mode file and `RecursionError` from the profile stay uncaught, as in 0.1.5 | the content tests re-pointed to the new place; no absolute path in any warning or issue |
+| 11 | Absent: no data root, namespace or file | A | defaults, no warning | none | not an error | not an error | §7.5 (reads create nothing) | a fresh data root: every R command, `bug --allow-mock` and the MCP prepare tools create no `repositories/` entry |
+
+**`StorageUnavailable` is not one thing.** Each source is decided where it occurs:
+
+- **The record read** (rows 1 and 7) is the only source that reaches 2B-3a.
+- **Deletion's** "could not finish deleting …; part of it may remain" (2B-4) means a partial removal, with different recovery advice.
+- **`check()`'s** unavailable state is `doctor`'s (2B-5).
+
+Neither of the last two is decided by this record.
+
+**What G-6 means for the catalog.** `fix-mode` (every action), `bug`, `task-preview`, `context-preview`, `show_fix_mode` and `list_fix_modes` load the whole Fix Mode catalog, including the project scope. Under G-6, a row 1 to 8 failure on the project scope therefore stops them, built-ins included. 0.1.5 kept the built-ins and reported a linked project folder as an issue. This matches 2B-2's C-2 (a) for the user scope, and it is recorded as a consequence of G-6, not a new choice.
+
+**F2-S: the smallest owner decision that blocks 2B-3a.**
+
+- **The conflict.** O2 keeps every existing code for the nearest 0.1.5 failure, and makes row 1 consistent with row 3: the same physical cause, no permission, gives `INTERNAL_ERROR` on R, BUG and MCP-R. But `StorageUnavailable` is a `StorageError`, and F2 (§8.10; fixture `unchanged.storage_errors_report`) says a `StorageError` reports `INVALID_INPUT`. The plan already noted this conflict as F5 (§14.3, "Batch 2B-2 — final contract resolution").
+- **F2-S (recommended).** The owner confirms that F2 governs the policy refusals and invalid configuration that reach a public boundary as `StorageError` or `StorageIdentityError`. A `StorageUnavailable` (class U) is translated at the consumer boundary into `errors.StorageAccessError` and reports under M-1.
+  - §8.10's bullet gets a dated clarifying note. The fixture value `INVALID_INPUT` is unchanged; it names no class.
+  - No public code is added.
+- **The alternatives:**
+  - **O1 for row 1 only.** F2 is kept literally, so an unreadable record reports `INVALID_INPUT` on R, BUG and MCP-R. That is inconsistent with row 3, for the same cause.
+  - **O3.** A public `STORAGE_UNAVAILABLE` code, which G-5 has ruled out for 2B-3.
+- **Until F2-S is decided, US-D26 is not fully reconciled, and 2B-3a cannot start (G-14).**
+
+##### Part 5 — J-2, the staged JSON contract (G-7)
+
+| Field | 2B-3a | Against §8.10 |
+| --- | --- | --- |
+| the envelope; every error code (part 4); every other `show --json` key | unchanged | compliant |
+| `instructions show` `user.path` | a display string, as since 2B-2 (DD-1) | **not compliant** with row 18 (`abs`). This was already true after 2B-2 |
+| `instructions show` `project.path` | a display string of the new place (`~/.bugpilot/repositories/<id>/settings/instructions.md` or `BUGPILOT_HOME/…`) | **not compliant** with row 18 |
+| `instructions show` `display_path` (both scopes) | absent | **not compliant** with row 19 (new, never null) |
+| `project-settings show` and `repository-profile show`: `path` | a display string of the new place | **not compliant** with row 20 |
+| the same commands' `display_path` | absent | **not compliant** with row 21 |
+| `verification show` and `ai-behavior show`: `path` | `.bugpilot/<name>`, still accurate: their files move in 2B-3b | **not compliant** with row 20 (unchanged since 0.1.5); `display_path` absent (row 21) |
+| `fix-mode list` `issues[].path` (both scopes) | **display** | **compliant** with row 22 |
+
+**Who can observe it.**
+
+- **The extension:** no. It reads none of these `path` values (only `fix-mode list`'s, as text), so row 22 suits it.
+- **MCP:** no. No path fields.
+- **Automated tests:** no. `tests/test_storage_contract.py`, which §8.10 names, does not exist yet; the fixture is checked only against §8.10's prose.
+- **Third-party scripts: yes.**
+  - A script that joined 0.1.5's relative `path` to the repository root gets a wrong path under J-2 (`<repository>/BUGPILOT_HOME/…` or `<repository>/~/.bugpilot/…`).
+  - Under the target `abs` value, a join yields the right file.
+  - This is an interim compatibility gap, recorded and not called compliant.
+
+**What must transition together, later.** Rows 18 to 21, for all five commands and both instruction scopes, in one step, together with:
+
+- the runtime contract test;
+- `cli_paths.json`'s DD-1 and DD-10 to DD-12 (and 2B-3b's) superseded by `abs` values, written with portable separators by the generator;
+- the absolute `path` that Batch 3's Edit needs.
+
+Proposed placement: one step after 2B-3b and before Batch 3, either 2B-6 or a dedicated step. That is the owner's choice and does not block 2B-3a.
+
+**Row 22 in 2B-3a.**
+
+- `issues[].path` becomes `storage.display_path` of the file, for the user and project scopes.
+- The text mode's `WARN: <scope> Fix Mode <display path>: <message>` matches it.
+- MCP keeps omitting the path. The messages lose any absolute path (G-11).
+- The existing assertions (`test_fix_mode_custom.py`, `test_fix_mode_store.py`) check `endswith("broken.json")`, which still holds.
+
+##### Part 6 — PC-1, exact values (G-8; the fixture is not changed here)
+
+`tests/fixtures/repository_profile_contract.json`: 16 lines, SHA-256 `a52f632d68a0b2086460969586e62d495e002473c62d87449e099231aa00dd33` at `92efd66`.
+
+| Field | From (exact) | To (exact) | Consumers |
+| --- | --- | --- | --- |
+| `path` (line 7) | `".bugpilot/repository_profile.json"` | `"settings/repository_profile.json"`: §8.10's `ns` kind, relative to the repository namespace | only `tests/test_repository_profile.py::test_the_contract_fixture_is_the_model` (its `path` assertion) |
+| `//`, `modes`, `default_mode`, `fallback_mode`, `labels`, `fields` | unchanged byte for byte | unchanged | <ul><li>the Python test (all but `//`);</li><li>`extension/test/repositoryProfile.test.ts`: `modes`, `default_mode`, `labels`, `fields`, never `path`;</li><li>no product code reads the fixture</li></ul> |
+
+**Tests required with it:**
+
+1. The `path` assertion becomes `f"settings/{PROFILE_FILE_NAME}" == CONTRACT["path"]`, with `PROFILE_FILE_NAME in storage.SETTINGS_NAMES`.
+2. A new assertion ties the fixture to the product. The file `RepositoryStorage.settings_file(PROFILE_FILE_NAME, create=False)` returns, relative to the namespace, equals `CONTRACT["path"]`. `repository-profile show --json`'s interim `path` ends with `/` plus `CONTRACT["path"]`.
+3. The extension test is unchanged and passes.
+4. The review shows exactly one changed line, line 7.
+
+The approval asked for is these exact values.
+
+##### Part 7 — M-P, the exact MCP behaviour (G-9)
+
+| Tool | Caught, in addition to today | Message the model sees | Code |
+| --- | --- | --- | --- |
+| `list_fix_modes` | `StorageError` (including `StorageIdentityError`) and `errors.StorageAccessError` (including the translated `StorageUnavailable`), around the catalog load | `Error executing tool list_fix_modes: Could not list the Fix Modes [CODE]: <sentence>` | `INVALID_INPUT` for `StorageError`; `INTERNAL_ERROR` for `StorageAccessError`. These are the codes `_run` already gives the same failures in the prepare tools. No new code |
+| `show_fix_mode` (`_resolve_fix_mode`) | the same, beside the existing `FixModeError` | `Error executing tool show_fix_mode: Could not read the Fix Modes [CODE]: <sentence>` | as above |
+
+**Not caught:** anything else, including a raw `OSError`, `UnicodeDecodeError` and `RecursionError`. These stay the SDK's `Error executing tool <name>`, which carries no text to the model. The server's own log keeps the traceback, as today.
+
+**The output:**
+
+- `<sentence>` is storage's or the carrier's own: display form only, never an absolute path or a system error's text.
+- No partial list is returned.
+- `issues[]` for content problems is unchanged in shape (`scope`, `message`), and its messages are in display form.
+
+**Tests:**
+
+- for each tool, a policy refusal (a link at `settings/fix_modes/`, the home-folder root) and a U failure (an unreadable record);
+- the exact prefix and code;
+- the per-test data root's and repository's absolute paths never appear;
+- the prepare tools are unchanged.
+
+The approval asked for is this exact behaviour.
+
+##### Part 8 — Baselines and goldens (G-10): requirements and review
+
+| Requirement | How it is met | Status |
+| --- | --- | --- |
+| The frozen Batch 0A records stay byte-identical | CH-1 never edits them; each slice's file keeps `frozen` as the 0A records' SHA-256s, checked on every comparison | met by design |
+| Per-slice differences are chained and individually approved | <ul><li>files are applied in order: 2B-2, 2B-3a, 2B-3b;</li><li>each entry's `from` must equal the value after the earlier files (DD-5 and DD-9 chain into 2B-3b's `/steps/9/created` and `/git_status`);</li><li>within one file, a pointer is never listed twice or nested;</li><li>`approved` per entry;</li><li>the approval-gate test covers every file</li></ul> | a condition of 2B-3a's mechanism change |
+| The repository-ID label cannot hide a wrong identity | <ul><li>M-a replaces only the session repository's ID, computed by `storage.repository_identity(session.repo)` and never parsed from output;</li><li>afterwards no other ID may match `REPOSITORY_ID_RE` anywhere in the records, so a namespace computed from a subfolder, the data root or another root fails;</li><li>a normalizer test plants a second, foreign ID and expects that failure (the identity-collision test G-10 asks for);</li><li>the algorithm itself stays pinned by the golden vectors</li></ul> | a condition |
+| Consumer-level identity collision | T-9: the folded Windows collision refuses settings commands; T-15 per part 3 | a condition (T-15 pending) |
+| Neutrality first | M-a and CH-1 alone, with an empty 2B-3a file: every record equals the committed ones under DD-1 to DD-3, and all 17 goldens are unchanged, before any product change | a condition |
+| All 17 task goldens unchanged in 2B-3a | the only `.bugpilot` and "shared" strings in task goldens are the six 2B-3b lines and the three introduction lines; the context, retry and prompt-boundary goldens have none. The two harnesses must write their 2B-3a inputs through storage, or the configured goldens fail, which is the intended guard. The R4 test proves no legacy read | met, with the harness change |
+| The six affected goldens reserved for 2B-3b | 2B-3a's allowlist excludes every golden. Any golden byte change in 2B-3a is a stop | met by design |
+| Exact owner approval of each observed difference | DD-4 to DD-12 are categories now. Their observed values are approved before the 2B-3a commit, as with DD-1 to DD-3 | in flow *(done on 2026-10-21, before any commit; §14.3, "Batch 2B-3a — implementation and local verification", "Owner approval of DD-4 to DD-12 and final local verification")* |
+
+**No blocker was found in the baselines or goldens.** The conditions above become 2B-3a's stop conditions.
+
+##### Part 9 — 2B-3a readiness, and what remains
+
+**Readiness: NOT READY.**
+
+**Blocking owner choices:**
+
+| # | Choice | Options | Recommendation |
+| --- | --- | --- | --- |
+| B-1 | T-15 (part 3) | A, B or C | A, with C deferred |
+| B-2 | F2-S (part 4) | F2-S, O1 for row 1, or O3 | F2-S |
+| B-3 | PC-1's exact values (part 6) | approve, or keep the fixture unchanged in 2B-3a | approve |
+| B-4 | M-P's exact behaviour (part 7) | approve, or change it | approve |
+
+B-3 and B-4 are approvals of exact behaviour that G-8 and G-9 asked to see.
+
+**Then:** an implementation authorization naming the final allowlist. G-12 approved it for planning only.
+
+**Not blocking 2B-3a:**
+
+- where the rows 18 to 21 transition goes (part 5);
+- C's timing (part 3);
+- the residue fixes (part 4, row 10);
+- the extension's Edit overwrite risk (Batch 3);
+- the handlers' prefix wording;
+- G-13 (the 2B-3b gate);
+- the DD-4 to DD-12 values (approved after observation).
+
+**Prerequisites once those are decided:**
+
+- **US-D4, US-D8 (in part) and US-D9:** approved (G-2, G-3, G-4).
+- **US-D26's applicable contract:** resolved by B-2 (G-5, G-14).
+- **Already approved (G-6, G-10, G-11):**
+  - P-1;
+  - M-a and CH-1, with part 8's conditions;
+  - US-D22 for 2B-3's messages.
+- **Live-agent evidence:** none needed.
+- **Activation gates:** unchanged.
+
+**Unchanged by this record:**
+
+- **The register's other statuses.** After this record: 24 APPROVED, 5 OPEN, 6 PROPOSED, 4 DEFERRED.
+- **US-D26:** APPROVED — in part.
+- **Batch 0B's evidence:** P1, P3 and P8 NOT EXECUTED; P2 FAIL.
+- **All eight activation blockers.**
+- **US-D29's open terms.**
+- **The version:** 0.1.5.
+
+**Batch 2B-3a and 2B-3b — NOT STARTED.**
+
+#### Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract (2026-10-20)
+
+**Status:**
+
+- **Batch 2B-3a:** its decisions are complete. It is **ready for an implementation authorization, which has not been given**, and has **NOT STARTED**.
+- **Batch 2B-3b: NOT STARTED.** Its gate (G-13) is still ahead.
+
+**Nature of this record.** Documentation and a read-only verification, at `92efd66` on `verify/0.1.6-storage`, after the two 2B-3 records above.
+
+- No code, test, helper, fixture, golden, baseline or extension file changed.
+- Nothing was staged, committed or pushed, and no CI ran. *(The 2B-3 records were then committed together on 2026-10-20, without pushing: §19.)*
+- The version is 0.1.5. Unified Storage is not activated, and US-D29's branch isolation is unchanged.
+
+##### Part 1 — The owner's decisions (2026-10-20)
+
+| # | Decision | Conditions | Register effect |
+| --- | --- | --- | --- |
+| B-1 | **T-15: option A APPROVED.** The path-based identity is accepted for 0.1.6: a different repository at exactly the same normalized path may inherit the earlier namespace | <ul><li>It is documented as a known compatibility and **configuration-contamination** risk (part 2).</li><li>No claim that identity detects a replaced folder.</li><li>The identity algorithm and the frozen identity tests are unchanged.</li><li>Option C (an explicit namespace reset or reassociation) is **deferred** to its own future design.</li><li>No automatic clean-up, migration or reassignment.</li></ul> | **US-D8: APPROVED** in full: T-15 was its only open part. US-D4's named choice T-15 is decided |
+| B-2 | **F2-S APPROVED** as an explicit contract clarification, subject to verification | <ul><li>Policy refusals and invalid configuration report `INVALID_INPUT`.</li><li>Genuine unavailability keeps each command's existing failure behaviour (M-1).</li><li>No public `STORAGE_UNAVAILABLE` code.</li><li>No silent rewrite of frozen evidence.</li><li>A fixture or public-code change would need separate approval.</li></ul> **Verified (part 3): none is needed** | US-D26 stays **APPROVED — in part**. For 2B-3a, its applicable contract is resolved (G-14). The public `STORAGE_UNAVAILABLE` question stays OPEN for later slices |
+| B-3 | **PC-1 APPROVED**: exactly one expected fixture difference, `repository_profile_contract.json`'s `path`, from `.bugpilot/repository_profile.json` to `settings/repository_profile.json` | <ul><li>no other field, entry or schema change;</li><li>exact-value verification;</li><li>the four tests (part 5);</li><li>the fixture is changed only by the authorized implementation</li></ul> | — |
+| B-4 | **M-P APPROVED WITH CONTRACT CONDITIONS**, with part 7 of the previous record as the basis | <ul><li>concise, actionable, safe;</li><li>no absolute path or environment value;</li><li>successful results unchanged;</li><li>public codes and the frozen contract kept;</li><li>2B-2's per-call request scope and concurrency unchanged;</li><li>no programming error caught as a storage failure;</li><li>no retry, and no bypass of a fail-closed check.</li></ul> **Verified (part 4): no new envelope and no contradiction** | — |
+| JSON | **J-2 kept.** Rows 18 to 21 transition together in a later, explicitly approved step | a dedicated contract-completion step before Batch 3 (part 6); an interim field is never called compliant | — |
+
+##### Part 2 — T-15, the accepted limitation (B-1)
+
+**What is accepted.** BugPilot 0.1.6 keys a repository's namespace by its normalized path alone (§7.2, US-D5). It records that path in `repository.json` (US-D6). It **cannot tell** that the folder at a path was replaced. So a different repository created at exactly the path of an earlier one gets the earlier one's namespace:
+
+- **in 2B-3:** its Project Instructions, project Fix Modes, project settings and Repository Profile;
+- **from 2B-4:** its work items and similar-fix memory.
+
+**The risk.** This is a configuration-contamination risk within one account. The new repository's `task.md` can carry instructions and policies written for another codebase. It crosses no account boundary: the namespace, the settings and both repositories belong to the same user. It is a compatibility limitation, not a detection feature: **nothing in BugPilot detects a replaced repository.**
+
+**Where it is stated:**
+
+- §7.3's case table;
+- §7.6's limitations;
+- risk RK-20 (§16.2);
+- 2B-3a's test, which pins the behaviour: settings saved in folder A are read after A is replaced by another folder at the same path. The existing identity test `test_a_folder_replaced_at_the_same_path_keeps_its_path_based_id` stays unchanged;
+- Batch 5's release notes, which must say it.
+
+**How a developer gets out of it today:**
+
+- see the effective settings with `show` and `task-preview`, and remove the unwanted ones with the existing commands (`instructions set --clear`, `fix-mode delete`, `project-settings set`, `repository-profile set`);
+- or set a different `BUGPILOT_HOME`.
+
+**Deferred:** option C, an explicit reset or reassociation of a namespace, needs its own design and approval. It is not part of 0.1.6. Nothing automatic is added.
+
+##### Part 3 — F2-S, the contract clarification (B-2), verified
+
+**The clarification.** "`StorageError` and `StorageIdentityError` report `INVALID_INPUT`" (F2) governs the **policy refusals** and **invalid configuration** that reach a public boundary as `StorageError` or `StorageIdentityError`.
+
+- A `storage.StorageUnavailable`, which is genuine unavailability (class U), is translated where the repository-settings consumers call storage into `errors.StorageAccessError`, carrying storage's own sentence.
+- It then reports each command's existing failure behaviour under M-1.
+- This is decided for Batch 2B-3a's consumers. It is a dated clarification, not a rewrite: F2's sentence, the 2B-2 F1 to F6 analysis and every earlier record stay as written.
+
+**The verification the owner asked for:**
+
+1. **The 11-row matrix** ("Batch 2B-3 — owner decisions and final contract gate", part 4) was rechecked against `cli.py`, `mcp_server.py`, `fix_mode_state.py` and the MCP SDK (2.1.1). It holds, with three precisions:
+   - **Every `fix-mode` action is a read boundary for row 1:** the catalog load comes first and catches only `FixModeError`. That includes `create` and the other writes, so an unreadable record gives `INTERNAL_ERROR` there. A U failure *during* a Fix Mode write is still the handler's `INVALID_INPUT`.
+   - **`bug`'s first storage read is the Fix Mode catalog** (`select_fix_mode`, before `.ai/<id>/` is prepared), so a namespace-level failure stops it before anything is written. A refusal at a single settings file is met later, after `.ai/<id>/` is prepared, as any 0.1.5 mid-run failure is.
+   - **The `set` handlers wrap an `OSError` as `"<prefix>: {strerror or text}."`.** The carrier's sentence already ends with a full stop, so the message ends with two. This was already so for 2B-2's user scope, and is kept as residue (G-11).
+2. **The frozen statements affected,** and what happens to each:
+
+| Statement | Where | Effect |
+| --- | --- | --- |
+| "`StorageError` and `StorageIdentityError` report `INVALID_INPUT`." | §8.10, "What stays the same" | a dated clarifying note is added next to it; the sentence itself is unchanged |
+| "One error family …" | §8.6 | a dated note is added next to it |
+| "Until it is chosen, such failures use the existing generic code." | §8.10; the fixture's `open_choices` | an open choice, not a frozen rule (F3). A dated note in §8.10 gives the per-command codes. The fixture text is unchanged and still true in what it decides: no separate code |
+| `unchanged.storage_errors_report: "INVALID_INPUT"` | `tests/fixtures/storage_cli_contract.json`, asserted by `tests/test_storage_identity.py::test_the_contract_fixture_is_well_formed` | **unchanged.** The value names no class; F2-S does not change it |
+| `StorageUnavailable`'s docstring: "which error code it maps to is still open" | `storage.py` | unchanged (`storage.py` is not modified). It stays true in general; the 2B-3a mapping is the consumer's, documented there |
+| F2, F3 and F5 in "Batch 2B-2 — final contract resolution" | §14.3 | historical analysis, unchanged. F5's conflict is resolved for 2B-3a by F2-S |
+
+3. **The approved clarification** is recorded here, in §8.6 and §8.10 as dated notes, and in §16.1.
+4. **Exact assertions for an unreadable `repository.json`.** M is storage's sentence, exactly:
+
+   > BugPilot cannot read BUGPILOT_HOME/repositories/&lt;id&gt;/repository.json right now: it is in use or not readable. Nothing was read or written; try again, and check the folder's permissions if it persists.
+
+   The tests set `BUGPILOT_HOME`, and `<id>` is the test repository's ID.
+
+| Boundary | Command or tool | Exit | Machine-readable result | Text |
+| --- | --- | --- | --- | --- |
+| R, JSON | `project-settings show --json` | 1 | one envelope: `ok: false`, `command: "project-settings"`, `error.code: "INTERNAL_ERROR"`, `error.message` = M | stderr `ERROR: M` |
+| R, text | `project-settings show` | 1 | — | stderr `ERROR: M`; stdout empty |
+| R, Fix Modes | `fix-mode list --json` (any action) | 1 | `command: "fix-mode"`, `INTERNAL_ERROR`, M | — |
+| W | `project-settings set --from-file F --json` | 1 | `INVALID_INPUT`, `--from-file could not be read: M.` | — |
+| W | `instructions set --scope project --stdin --json` | 1 | `INVALID_INPUT`, `The text could not be read: M.` | — |
+| W | `repository-profile set --mode generic --json` | 1 | `INVALID_INPUT`, M | — |
+| BUG, JSON | `bug JR-12345 --allow-mock --json` | 1 | `command: "bug"`, `INTERNAL_ERROR`, M (the last-resort envelope, with no `work_item_id`) | — |
+| BUG, JSON lines | `bug JR-12345 --allow-mock --json-lines` | 1 | the terminal event: `type: "completed"`, `ok: false`, `error.code: "INTERNAL_ERROR"`, `error.message` = M | — |
+| BUG, text | `bug JR-12345 --allow-mock` | 1 | — | stderr `ERROR: M`, with no log hint |
+| MCP | `prepare_jira_bug` (`issue_key` `JR-12345`) | — | a `ToolError`, not an `UnexpectedToolError`: `Error executing tool prepare_jira_bug: Could not prepare JR-12345 [INTERNAL_ERROR]: M` | — |
+| MCP | `list_fix_modes` (M-P) | — | `Error executing tool list_fix_modes: Could not list the Fix Modes [INTERNAL_ERROR]: M` | — |
+
+   **Common to every row:**
+   - no absolute path of the repository or the data root, and no environment value;
+   - no `Traceback`, and no system error's own text;
+   - the record, every settings file and the repository tree byte-identical afterwards.
+
+   **The contrast case:** a corrupt or mismatched record (row 2) gives `INVALID_INPUT` at every one of these boundaries, under F2. Text `bug` then also prints its log hint.
+5. **Fixture or public-code change: none is needed.**
+   - No fixture changes: `storage_cli_contract.json`'s value and open choice stay; PC-1 is separate, under B-3.
+   - No error code is added, renamed or repurposed (F4).
+   - The envelope is unchanged (F1).
+
+**US-D26 after B-2:**
+
+- **For 2B-3a:** its applicable error contract is resolved (G-14).
+- **Still OPEN:**
+  - the public `STORAGE_UNAVAILABLE` question for later slices: 2B-4's deletion, whose `StorageUnavailable` means a partial removal, and 2B-5's `doctor` state;
+  - the rows that follow US-D16, US-D18 and US-D25;
+  - US-D3's `legacy_config_dir_variable`;
+  - `below_git_toplevel`.
+- **The status** stays **APPROVED — in part**.
+
+##### Part 4 — M-P, verified (B-4)
+
+**The current exception boundaries.**
+
+- **`list_fix_modes`** calls `catalog_for(bound.repo_root)` with no `try`. Every exception reaches MCP SDK 2.1.1's tool runner. The runner turns a `ToolError` into `Error executing tool list_fix_modes: <text>`, and anything else into `UnexpectedToolError` (`Error executing tool list_fix_modes`, with no text and the traceback in the server's log).
+- **`show_fix_mode`** goes through `_resolve_fix_mode`. That catches `FixModeError` only, as `ToolError(str(exc))`. Everything else is unanticipated.
+- **Both run inside `_request_scoped`:** one storage request scope per call.
+
+**The representation (unchanged from the basis).**
+
+| Tool | Success | `StorageError` or `StorageIdentityError` (P, I) | `errors.StorageAccessError`, including a translated `StorageUnavailable` (U) | Anything else |
+| --- | --- | --- | --- | --- |
+| `list_fix_modes` | unchanged: `default_mode_id`, `modes[]`, `issues[]` (`scope`, `message`); messages in display form (G-11) | `Error executing tool list_fix_modes: Could not list the Fix Modes [INVALID_INPUT]: <sentence>` | `… [INTERNAL_ERROR]: <sentence>` | unchanged: `Error executing tool list_fix_modes` (unanticipated) |
+| `show_fix_mode` | unchanged | `Error executing tool show_fix_mode: Could not read the Fix Modes [INVALID_INPUT]: <sentence>` | `… [INTERNAL_ERROR]: <sentence>` | unchanged; `FixModeError` unchanged as `ToolError(str(exc))` |
+
+**Compatibility:**
+
+- **No new envelope.** MCP has no structured error object in BugPilot. The text form `Could not <action> [CODE]: <sentence>` is the one `_run` already uses for the prepare tools (`Could not prepare JR-12345 [CODE]: …`), as 2B-2's `test_a_refused_data_folder_reaches_the_client_as_one_sentence_with_its_code` and `test_an_unavailable_configuration_reaches_the_client_as_one_sentence_with_the_generic_code` (`tests/test_mcp_request_scope.py`) assert.
+- **The codes** are `errors.error_code_for`'s, the same ones the prepare tools give for the same failures. No code is new or changed.
+- **Successful results are unchanged in shape.** Only `issues[].message` text loses any absolute path (G-11).
+- **Safety.** Every storage sentence names paths only through `display_path`, as `~/.bugpilot/…` or `BUGPILOT_HOME/…`; this review scanned `storage.py`'s refusal messages. Variable *names* appear, never their values. `display_path` refuses a path outside the data folder.
+- **Scope and concurrency.** The `try` sits inside the decorated tool body, so `_request_scoped` still opens and closes one scope per call. No lock is added, and the scope ends with the exception (2B-2's tests assert `storage._active_scope() is None` after a failure).
+- **The existing tests stay valid.** `test_a_change_between_two_calls_is_seen_by_the_second` (2B-2) expects a `ToolError` without the repository's or data root's path, and gets one, now anticipated. `test_an_unknown_mode_is_an_error_not_a_quiet_default` is unaffected.
+- **Narrow catching.** Only `storage.StorageError` (with its subclasses) and `errors.StorageAccessError` are caught. Never `ValueError`, `UnsafePathError`, `OSError` or `Exception`.
+  - `UnicodeDecodeError`, `RecursionError` and raw `OSError` stay unanticipated.
+  - The two programming-error `StorageError`s in `storage.py` (an unknown settings name; an invalid computed ID) cannot be reached from the Fix Mode path.
+- **No retry,** and no change to any storage check.
+
+**Tests (2B-3a):**
+
+- for each tool: a policy refusal (a link at `settings/fix_modes/`; the home folder as root), an identity refusal (a mismatched record) and a U failure (an unreadable record);
+- the exact prefix and code, and `not isinstance(…, UnexpectedToolError)`;
+- no absolute path or `BUGPILOT_HOME` value;
+- the scope closed afterwards;
+- a raw `OSError` injected below the catalog stays unanticipated;
+- success results unchanged.
+
+**Result: B-4's conditions are met by the specification, with no discrepancy.** It is implementation-ready.
+
+##### Part 5 — PC-1, the approved expected difference (B-3)
+
+`tests/fixtures/repository_profile_contract.json` at `92efd66`: 16 lines, SHA-256 `a52f632d68a0b2086460969586e62d495e002473c62d87449e099231aa00dd33`.
+
+| Line | From (exact) | To (exact) |
+| --- | --- | --- |
+| 7 | `  "path": ".bugpilot/repository_profile.json",` | `  "path": "settings/repository_profile.json",` |
+
+Every other byte is unchanged, including `//`, `modes`, `default_mode`, `fallback_mode`, `labels` and `fields`. The new SHA-256 is recorded when the file is changed.
+
+**The four tests:**
+
+1. `tests/test_repository_profile.py::test_the_contract_fixture_is_the_model` asserts `f"settings/{PROFILE_FILE_NAME}" == CONTRACT["path"]` and `PROFILE_FILE_NAME in storage.SETTINGS_NAMES`.
+2. A new assertion: the file `RepositoryStorage.settings_file(PROFILE_FILE_NAME, create=False)` returns, relative to the namespace and written with `/`, equals `CONTRACT["path"]`. `repository-profile show --json`'s interim `path` ends with `/` plus `CONTRACT["path"]`.
+3. `extension/test/repositoryProfile.test.ts` is unchanged and passes. It reads `modes`, `default_mode`, `labels` and `fields`, never `path`.
+4. The fixture's diff is exactly line 7.
+
+**Affected:** `tests/test_repository_profile.py` (one assertion changed, one added). No product code reads the fixture.
+
+##### Part 6 — Rows 18 to 21: J-2 kept, and a dedicated completion step (proposed)
+
+**Through 2B-3a and 2B-3b,** the `path` values of `instructions`, `project-settings`, `repository-profile`, `verification` and `ai-behavior` `show --json` are display strings, or `.bugpilot/…` until a file moves. `display_path` is absent.
+
+These are **interim and not compliant** with §8.10 rows 18 to 21. That includes `instructions show`'s user `path` since 2B-2 (DD-1). Row 22 is compliant from 2B-3a.
+
+**Proposed: Batch 2B-7, "storage JSON contract completion".** It is a step of its own, after 2B-3b and before Batch 3, approved separately, and it folds into no consumer migration. It contains:
+
+- rows 18 to 21 for all five commands and both instruction scopes, at once: `path` becomes `abs`, and `display_path` is new and never null;
+- the runtime contract test §8.10 names (`tests/test_storage_contract.py`), which checks every listed key's kind;
+- the `cli_paths.json` designed differences: the generator writes `abs` values with portable separators, superseding DD-1, DD-10 to DD-12 and 2B-3b's entries through a chained record (CH-1);
+- no extension change. Batch 3 then uses the absolute `path` for Edit (§15.1).
+
+The interim gap stays recorded: a third-party script that joins `path` to the repository root builds a wrong path until 2B-7.
+
+##### Part 7 — Implementation requirements found by the verification (within G-6 and G-11)
+
+- **R-PRE, no write before a refusal.** In 2B-3a, two commands write first and read project settings afterwards:
+  - `instructions set --scope user` writes the user file, then reloads both scopes;
+  - `verification set`, `clear` and `reset` write `.bugpilot/verification.md`, then call `resolve_project_settings`.
+
+  In a refused root (the home folder; a link; a bad record), each would write, and then fail with a sentence that says "Nothing was read or written". Both must check the project namespace for reading, through the chokepoint, **before** writing, so that the refusal comes first and stays true. This is a consequence of G-6, not a new choice. The tests cover both. The checks live in `cli.py`'s `instructions` and `verification` handlers (allowlisted) and run before `save_instructions`, `save_verification` or `remove_verification`. No protected file changes for them: `verification.py` stays protected until 2B-3b.
+- **The chokepoint catches narrowly** (F2-S, G-6; found at the commit review, 2026-10-20). Around the storage accessor calls and the settings-file I/O it wraps, it catches only `storage.StorageUnavailable` and an `OSError` that is not already an `errors.StorageAccessError`. It never catches `ValueError`, `UnsafePathError`, any other `StorageError`, or `Exception`. Policy refusals keep their class and code, and programming errors propagate unchanged.
+- **2B-3a's test allowlist: three files the slice contract omitted** (found at the commit review, 2026-10-20). Each must change by design. None is added silently: each is **proposed for approval with the implementation authorization**.
+  - `tests/test_verification_policy.py`: its `_switches` helper writes `.bugpilot/project_settings.json`, which 2B-3a moves. The helper only.
+  - `tests/test_ai_behavior.py`: `test_the_task_has_one_ai_behavior_section_and_no_working_guidance` writes `.bugpilot/instructions.md`, which 2B-3a moves. That line only; its `verification.md` and `ai_behavior.md` stay for 2B-3b.
+  - `tests/test_global_config_storage.py` (2B-2): `test_user_files_live_in_the_configuration_folder_and_project_files_where_they_were` asserts the project files in `.bugpilot/`, the boundary 2B-3a moves by design. Its two project assertions, and its name, only.
+  - Checked and not expected to change: `test_file_safety_baseline.py` (`save_instructions("project", …)` under a linked root expects "ok"); `test_storage_safety.py` (legacy `.bugpilot/` files are never touched); `test_storage_identity.py` (protected); `test_fix_modes.py`, `test_fix_mode_prompts.py` and `test_fix_mode_selection.py` (in-memory `source="project"` values only). If any of them fails, stop and ask.
+- **Residue, recorded and not changed in 2B-3a:**
+  - storage's link refusal at a settings *file* reads "BugPilot cannot write …" also on reads (`storage.py`'s `_file`, as for 2B-2's user scope);
+  - the handlers' double full stop;
+  - the uncaught `UnicodeDecodeError` and `RecursionError` from a Fix Mode file, and `RecursionError` from the profile;
+  - a folder at a `.json` settings name read as missing;
+  - for `bug` and the MCP prepare tools, a refusal at a single settings file comes after `.ai/<id>/` is prepared (moved by 2B-4).
+
+##### Part 8 — 2B-3a readiness
+
+**Decided:**
+
+- G-1 to G-14 and B-1 to B-4;
+- US-D4 (with conditions), US-D8 and US-D9 approved;
+- US-D22's part covering 2B-3's messages;
+- US-D26's applicable contract for 2B-3a (F2-S);
+- P-1;
+- M-a and CH-1 (with the conditions of "owner decisions and final contract gate", part 8);
+- PC-1 and M-P as specified;
+- J-2 and the proposed 2B-7.
+
+**Still needed before any implementation:** the owner's explicit **implementation authorization**. It names the final allowlist, since G-12 approved the allowlist for planning only, and the phases. It also approves or refuses the three test files part 7 found.
+
+**Within the implementation, before its commit:**
+
+- the neutrality run;
+- the observed DD-4 to DD-12 values and PC-1's exact diff, each approved by the owner;
+- R-PRE;
+- every stop condition in "Batch 2B-3 — decision gate and slice design", part 10.
+
+**Not needed:** live-agent evidence.
+
+**Unchanged:**
+
+- **US-D29:** Batches 2 to 4 stay on `verify/0.1.6-storage`. No partial integration into `main`, no pull request, no fast-forward without the owner's approval.
+- **Activation:** not activated. All eight activation blockers and Batch 0B's evidence (P1, P3 and P8 NOT EXECUTED; P2 FAIL) still apply.
+- **The version:** 0.1.5.
+- **The counts:** 24 APPROVED, 5 OPEN, 6 PROPOSED, 4 DEFERRED.
+
+**Batch 2B-3a and 2B-3b — NOT STARTED.**
+
+#### Batch 2B-3a — implementation and local verification (2026-10-21)
+
+**Status: Batch 2B-3a — IMPLEMENTED and verified locally on Windows; uncommitted; NOT CI-verified; NOT ACTIVATED.** *(Later on 2026-10-21: committed as `743f542`, pushed, and CROSS-PLATFORM CI VERIFIED by run 39675645316; see "Batch 2B-3a — cross-platform CI verification".)*
+
+- **Where:** `verify/0.1.6-storage` at `5b66ffe`. The work is in the working tree only: nothing is staged, committed or pushed for it.
+- **Not yet verified:** Linux and macOS have run none of it. It needs a commit, an authorized push and an owner-dispatched CI run.
+- **Awaiting the owner:** the review of the implementation and of DD-4 to DD-12's observed values. *(DD-4 to DD-12 approved on 2026-10-21; see "Owner approval of DD-4 to DD-12 and final local verification" below. The implementation's review remains.)*
+- **Unchanged:** Batch 2B-3b has NOT STARTED, the version is 0.1.5, and US-D29's branch isolation and every activation blocker still apply.
+
+**The documentation push.** With the owner's authorization, `5b66ffe` (the 2B-3 decision records) was fast-forwarded to `origin/verify/0.1.6-storage`, which now points at it. No CI was dispatched; the workflow runs on pushes to `main` only.
+
+**Owner approvals made during implementation (2026-10-21):**
+
+- **Outside the slice contract's allowlist**, after a stop:
+  - `tests/test_cli_json.py`: only `test_the_cli_writes_utf8_json_through_a_pipe_whatever_the_code_page`'s setup. The command now runs in `tmp_path / "repo"`, beside the data folder `tmp_path / "data"`. Every assertion is unchanged. The data folder had been inside the folder the test ran in, which P-1 now refuses.
+  - `tests/test_storage_api_boundary.py`: only `APPROVED_IMPORTERS`, which gains `bugpilot/core/repository_settings.py`, the chokepoint.
+- **The chokepoint:** the unused `shown_fix_modes_dir` and `remove` were removed from `bugpilot/core/repository_settings.py`, with the `os` import only they used. `tests/test_no_unwired_symbols.py` is unchanged and passes.
+- **The three test files found at the commit review** (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4", part 7):
+  - `tests/test_verification_policy.py`: its `_switches` helper only;
+  - `tests/test_ai_behavior.py`: the one `.bugpilot/instructions.md` line only, now one line through storage's accessor, with an inline import to stay within the line;
+  - `tests/test_global_config_storage.py`: one test's name and its two project assertions.
+
+**A third assertion, approved separately (2026-10-21).** That same `test_global_config_storage.py` test had a third project-location assertion, which the first approval did not name:
+
+```text
+assert sorted(os.listdir(_data_root())) == ["config"]
+```
+
+The project's files now live in the data folder too (`repositories/`, the US-D1 layout), so the test failed on that line with `['config', 'repositories'] == ['config']`.
+
+- **Change:** the line was left alone until the owner approved exactly `== ["config", "repositories"]`. Nothing else changed, and the optional repository-ID assertion was not added.
+- **Result:** the test then passed with every assertion, including the `config/` listing after it, which had not run before. Its file passes 22/22.
+
+**Phase A — neutrality, before any product change.**
+
+- **M-a and CH-1** were added to `tests/storage_baseline.py`:
+  - the session's repository ID comes from `storage.repository_identity` and shows as `<repository-id>`;
+  - any other repository-ID token in a record raises;
+  - the designed-difference files apply in `DESIGNED_CHAIN` order, each entry's `from` taken from the earlier slices, with chain-wide unique ids and the frozen 0A hashes checked per file.
+- **The empty 2B-3a record:** `tests/baselines/0.1.6-batch2b3a/designed_differences.json`, base commit `5b66ffe`.
+- **New tests in `tests/test_storage_baseline.py`:**
+  - six for the chain;
+  - four for the label and the foreign-ID guard, two of which are identity-collision tests, a subfolder's ID and another folder's ID.
+- **The neutrality result:**
+  - 37 baseline tests pass;
+  - `python tests/storage_baseline.py --check` reports "baselines match";
+  - the task goldens and the identity tests pass (249 passed, 3 platform skips);
+  - the frozen Batch 0A records and the 2B-2 record are unchanged.
+
+**Phase B — production.** Allowlisted files only:
+
+| File | Change |
+| --- | --- |
+| `bugpilot/core/repository_settings.py` (new) | The chokepoint: `settings_file`, `fix_modes_dir`, `shown_path`, `require_readable` (R-PRE) and `write_text`. `guarded` catches only `storage.StorageUnavailable` and a non-carrier `OSError`, and re-raises them as `errors.StorageAccessError` (F2-S); nothing else is caught |
+| `bugpilot/core/instructions.py` | The project scope goes through the chokepoint. Each `InstructionFile` carries its display path (`shown`, never compared), and `display_path(scope, repo_root)`. A project write failure is one sentence. `PROJECT_CONFIG_DIR`, `link_problem` and `read_text_document` are kept for the 2B-3b modules |
+| `bugpilot/core/project_settings.py` | Through the chokepoint. Warnings, the log line and the payload name the display path, and a read failure names the error's class, never its text. `SHOWN_PATH` is replaced by `shown_path(repo_root)`; `settings_from_mapping` names the file passed to it |
+| `bugpilot/core/repository_profile.py` | Through the chokepoint. Its read warning no longer holds the absolute path; `shown_profile_path` is added; `PROJECT_CONFIG_DIR` is removed |
+| `bugpilot/core/fix_mode_store.py` | The project scope goes through the chokepoint. Issue paths and folder messages use display form where storage owns the folder (row 22). A read failure names the error's class. Writes re-raise the chokepoint's sentence unchanged. `FIX_MODE_DIR_NAME` is removed |
+| `bugpilot/cli.py` | R-PRE in the `instructions` (user scope) and `verification` handlers, before anything is written. The profile's, the settings' and the legacy switches' text and `path` are in display form. US-D9 help wording |
+| `bugpilot/mcp_server.py` | M-P: `list_fix_modes` and `show_fix_mode` turn `StorageError` and `StorageAccessError` alone into `Could not … [CODE]: <sentence>` |
+
+No other production file changed. Untouched:
+
+- `storage.py` and `_isolation.py`;
+- the 2B-3b modules (`verification.py`, `ai_behavior.py`) and `prompts.py`, `workflow.py`, `task_preview.py`, `context_preview.py`, `fix_mode_state.py`, `errors.py`;
+- every golden and the frozen records;
+- `storage_cli_contract.json`;
+- the extension.
+
+All 214 of these files' SHA-256s match.
+
+**Phase C — tests and harnesses.**
+
+- **Harnesses:** `task_golden._resolved_inputs` and `prompt_boundary_sources` (the project input in `task()`, and `reset()`) write the two moved inputs through storage's accessor. All 17 task goldens stay byte-identical; the golden and prompt-boundary suites pass 589.
+- **The allowlisted test files,** each only where it pinned a moved place or asserted changed behaviour:
+  - the link tests now expect storage's fail-closed refusal (G-6);
+  - expected places are built from the repository's ID and the test's `BUGPILOT_HOME`.
+- **New `tests/test_repository_settings_storage.py`:**
+  - T-1 to T-16, including T-13 per platform and the T-15 inheritance pin;
+  - matrix rows 1 to 8, 10 and 11, row 1 at every boundary with part 3's exact assertions;
+  - R-PRE, M-P, row 22 and the R4 legacy sentinel;
+  - the nine DD evidence tests.
+
+  On Windows: 41 passed and 2 macOS-only skips (T-10, T-11).
+- **The inventory record** was regenerated by its own `--update`, from 650 occurrences in all to 626. `bugpilot-dir` fell from 115 to 103, `path-constant` from 103 to 83 and `path-helper` from 104 to 102. `home-bugpilot` rose from 20 to 30: help text and docstrings now name the 0.1.6 place, `~/.bugpilot/repositories/…`, which the pattern counts alike.
+
+**PC-1** (B-3).
+
+- **The change:** `tests/fixtures/repository_profile_contract.json` line 7, `"path": ".bugpilot/repository_profile.json"` to `"path": "settings/repository_profile.json"`. That is the only changed line (1 in, 1 out, 16 lines).
+- **SHA-256:** `a52f632d…dd33` before, `4a848a30…a08a` after.
+- **The four tests:**
+  1. the contract assertion against storage's name;
+  2. `test_the_contract_path_is_where_the_profile_lives`, which ties the fixture to `settings_file` and to `show --json`;
+  3. the extension's `repositoryProfile.test.ts`, unchanged and passing;
+  4. the one-line diff.
+
+**Phase D — the designed differences, observed.**
+
+- **Method:** the records were regenerated into a scratch folder, Batch 2B-2's approved differences applied in memory, and what remained listed by pointer.
+- **Result:** exactly nine differences, the categories DD-4 to DD-12 and nothing else.
+- **Recorded** with their exact values in the 2B-3a file. Each names its evidence test in `tests/test_repository_settings_storage.py`; `approved` is empty. *(Approved on 2026-10-21; the gate now passes. See below.)*
+
+| Id | Record | Pointer | From | To |
+| --- | --- | --- | --- | --- |
+| DD-4 | `pollution.json` | `/steps/8/created` | `[".bugpilot", ".bugpilot/instructions.md"]` | `[]` |
+| DD-5 | `pollution.json` | `/steps/9/created` | `[".bugpilot/verification.md"]` | `[".bugpilot", ".bugpilot/verification.md"]` |
+| DD-6 | `pollution.json` | `/steps/11/created` | `[".bugpilot/project_settings.json"]` | `[]` |
+| DD-7 | `pollution.json` | `/steps/12/created` | `[".bugpilot/repository_profile.json"]` | `[]` |
+| DD-8 | `pollution.json` | `/steps/13/created` | `[".bugpilot/fix_modes", ".bugpilot/fix_modes/team-fix.json"]` | `[]` |
+| DD-9 | `pollution.json` | `/git_status` | the 26 frozen lines | 22 lines: the same in the same order, without `?? .bugpilot/fix_modes/team-fix.json`, `?? .bugpilot/instructions.md`, `?? .bugpilot/project_settings.json` and `?? .bugpilot/repository_profile.json` |
+| DD-10 | `cli_paths.json` | `/instructions show --json path fields/project` | `".bugpilot/instructions.md"` | `"BUGPILOT_HOME/repositories/<repository-id>/settings/instructions.md"` |
+| DD-11 | `cli_paths.json` | `/project-settings show --json path fields/path` | `".bugpilot/project_settings.json"` | `"BUGPILOT_HOME/repositories/<repository-id>/settings/project_settings.json"` |
+| DD-12 | `cli_paths.json` | `/repository-profile show --json path fields/path` | `".bugpilot/repository_profile.json"` | `"BUGPILOT_HOME/repositories/<repository-id>/settings/repository_profile.json"` |
+
+- **Unchanged, as predicted:**
+  - `handoff.json`, `task_size.json` and `/bugpilot_folders_in_repository`;
+  - `/steps/10/created` and `/user_configuration_written` (still DD-3's `[]`).
+- **No foreign repository ID** appeared anywhere.
+- **DD-10 to DD-12** are J-2's interim display strings, **not compliant** with §8.10 rows 18 to 21, which the proposed 2B-7 completes.
+
+**Local verification (Windows, Python 3.14).**
+
+- **The whole Python suite** (absolute `PYTHONPATH`, the test isolation's own home): **2 failed, 3,805 passed, 59 skipped**, in 27.5 minutes.
+  - It started before the third assertion was approved, so it ran the old line, and does not validate the change. Its two failures:
+    - `test_global_config_storage.py::test_user_files_live_in_the_configuration_folder_and_project_files_in_the_repository_namespace`: `assert ['config', 'repositories'] == ['config']`, the old line;
+    - `test_storage_baseline.py::test_every_designed_difference_is_approved_by_the_owner`: `assert ['DD-4', … 'DD-9', …] == []`, the approval gate. DD-4 to DD-12 await the owner.
+  - The approved line was then verified on its own (above). It is the only change made after this run started.
+  - **Skips:** 59, against 2B-2's 57. The difference is the new file's two macOS-only tests; the `subst` skip is as before.
+  - **The expected failure that remains** is the approval gate, until the owner approves DD-4 to DD-12. *(Approved on 2026-10-21; the fresh full run below has no failure.)*
+- **Extension, from Git Bash:** `npm run typecheck` clean; `npm test` 2,350 passed, 0 failed, 0 skipped.
+- **Extension, from PowerShell:** `executablePath.test.ts`'s "on Windows, a bugpilot.exe in the working directory never runs — the one on PATH does" fails with `spawn bugpilot ENOENT`. It passes 12/12 from Git Bash, from the same unchanged files.
+  - **The cause:** PowerShell hands Node the variable as `Path`, Git Bash as `PATH`, and the test's `{ PATH }` does not replace a `Path` key.
+  - **Scope:** an environment sensitivity of an existing extension test, unrelated to this batch, and out of its scope (no extension change). It is recorded for Batch 3's attention.
+- **Generator and integrity:**
+  - `python tests/storage_baseline.py --check`: "baselines match", and "awaiting the owner's approval: DD-4, …, DD-12"; *(nothing pending since the approval on 2026-10-21)*
+  - the protected and frozen files, publishability and `git diff --check`: see §19 and the report.
+
+**Precisions found while implementing:**
+
+- **Text-mode `bug` and the log hint.** A namespace refusal comes from the Fix Mode catalog, before `.ai/<id>/` is prepared. So text-mode `bug` prints no `bugpilot status` hint for it, for row 2 either. The hint needs `run.json`. The matrix's "text `bug` then also prints its log hint" holds only for a refusal met after preparation.
+- **`fix-mode` user-scope actions** now also stop on a project-scope refusal, because the catalog is loaded first (G-6, recorded earlier).
+
+**What remains:**
+
+1. The owner's review of the implementation, and approval of DD-4 to DD-12's values. *(The values were approved on 2026-10-21; the review remains.)*
+2. The implementation commit authorization.
+3. An authorized push. *(Done on 2026-10-21: `5b66ffe..743f542`.)*
+4. One owner-dispatched CI run, all nine jobs. *(Done: run 39675645316, SUCCESS 9/9 on its second attempt; see "Batch 2B-3a — cross-platform CI verification".)* It covers:
+   - the POSIX permission and storage checks;
+   - Linux's and macOS's case-only rename (T-13);
+   - macOS's T-10 and T-11, skipped on Windows.
+5. Activation stays blocked: §14.3's eight blockers, Batch 0B's evidence and US-D29's open terms.
+
+**Owner approval of DD-4 to DD-12 and final local verification** (2026-10-21):
+
+**Status: Batch 2B-3a — IMPLEMENTED LOCALLY; VERIFICATION COMPLETE ON WINDOWS; NOT COMMITTED; NOT ACTIVATED.** *(Later on 2026-10-21, with the owner's authorization: committed on `verify/0.1.6-storage` by the commit that carries this note, parent `5b66ffe`; not pushed; not CI-verified; NOT ACTIVATED.)* DD-4 to DD-12 are approved. Linux and macOS are not verified. Batch 2B-3b: NOT STARTED.
+
+- **Preflight.** Every check passed before anything changed:
+  - `verify/0.1.6-storage` and `origin/verify/0.1.6-storage` at `5b66ffe`; `main` and `origin/main` at `ea9659c`; nothing staged;
+  - the 11 protected files and the 214 protected 2B-3a files match their SHA-256s;
+  - the frozen Batch 0A records and the 17 task goldens are byte-identical; the version is 0.1.5.
+- **DD-4 to DD-12 are approved,** after exact-value verification:
+  - the four frozen records match the hashes that both files of the chain carry, and are unchanged;
+  - with 2B-2's DD-1 to DD-3 applied, each frozen value equals its entry's `from`, and each regenerated value its `to`;
+  - with the whole chain applied, no difference and no pointer is left over, so no entry is missing or extra;
+  - each category is the contract's:
+    - DD-4 to DD-8 are the pollution steps of the four moved settings and of the Verification Policy;
+    - DD-9 is the Git status;
+    - DD-10 to DD-12 are the display paths;
+  - each of the nine evidence tests passes on its own.
+
+  Each entry's `approved` is `2026-10-21`, and nothing else in the record changed. The approval gate passes, and `--check` reports "baselines match" with nothing pending. The values are those in the Phase D table above.
+
+  | Id | Evidence test, in `tests/test_repository_settings_storage.py` |
+  | --- | --- |
+  | DD-4 | `test_dd4_project_instructions_are_written_to_the_namespace_and_nothing_into_the_repository` |
+  | DD-5 | `test_dd5_the_verification_policy_now_creates_the_bugpilot_folder_itself` |
+  | DD-6 | `test_dd6_project_settings_are_written_to_the_namespace_and_nothing_into_the_repository` |
+  | DD-7 | `test_dd7_the_repository_profile_is_written_to_the_namespace_and_nothing_into_the_repository` |
+  | DD-8 | `test_dd8_a_project_fix_mode_is_written_to_the_namespace_and_nothing_into_the_repository` |
+  | DD-9 | `test_dd9_only_the_verification_policy_and_ai_behavior_still_reach_git_status` |
+  | DD-10 | `test_dd10_instructions_show_names_the_project_file_in_display_form` |
+  | DD-11 | `test_dd11_project_settings_show_names_its_file_in_display_form` |
+  | DD-12 | `test_dd12_repository_profile_show_names_its_file_in_display_form` |
+- **DD-5: where `.bugpilot` now comes from.** There is no unauthorized repository write. Each settings step was traced, in the repository and in the data folder:
+  - **Step 8**, project instructions, now writes nothing into the repository. The data folder gets the namespace, its `repository.json`, `settings/` and `settings/instructions.md`.
+  - **Step 9**, `verification set`, creates exactly `.bugpilot` and `.bugpilot/verification.md` in the repository, and nothing in the data folder.
+    - The folder comes from `save_verification`'s own `path.parent.mkdir(parents=True, exist_ok=True)` in `bugpilot/core/verification.py`.
+    - That is the Verification Policy, which 2B-3b moves and this batch leaves unchanged.
+  - **R-PRE writes nothing.** It is the read check before that write. `verification set` was also run first, in a fresh repository with no namespace. It again created exactly those two entries, and nothing in the data folder.
+  - **Step 10** adds only `.bugpilot/ai_behavior.md` (2B-3b, unchanged).
+  - **Steps 11 to 13** write only into the namespace.
+
+  So the folder's creation moves from step 8 to step 9 only because the instructions no longer create it first.
+- **DD-9: the complete Git status.** The frozen status has 26 lines; today's has 22.
+  - **Removed, exactly four:** `?? .bugpilot/fix_modes/team-fix.json`, `?? .bugpilot/instructions.md`, `?? .bugpilot/project_settings.json` and `?? .bugpilot/repository_profile.json`.
+  - **Added:** none.
+  - **Order:** the 22 that remain are in the same order. Their `.bugpilot` lines are `ai_behavior.md` and `verification.md`, the 2B-3b files.
+
+  Both complete lists are the entry's `from` and `to` in the record.
+- **DD-10 to DD-12: the full display paths.** Before any normalization, the three values are:
+  - `BUGPILOT_HOME/repositories/<id>/settings/instructions.md`;
+  - `BUGPILOT_HOME/repositories/<id>/settings/project_settings.json`;
+  - `BUGPILOT_HOME/repositories/<id>/settings/repository_profile.json`.
+
+  All three carry one repository ID:
+  - it equals both `storage.repository_identity(repo)` and `storage.repository_id_for` of the real path, the pure function the golden vectors pin;
+  - it is the only ID in the three values, so the `<repository-id>` label hides no foreign ID;
+  - the guard's tests pass: a foreign ID raises, and so do a subfolder's ID and another folder's ID (the collision tests).
+
+  The values are approved under J-2, as interim display strings. They stay **not compliant** with §8.10 rows 18 to 21, which the proposed 2B-7 completes.
+- **PC-1.** The fixture differs from `5b66ffe` only at line 7's `path`: `.bugpilot/repository_profile.json` to `settings/repository_profile.json` (SHA-256 `a52f632d…dd33` to `4a848a30…a08a`). The consumer tests pass:
+  - `test_repository_profile.py`, 44;
+  - the extension's `repositoryProfile.test.ts`, 12 of 12.
+
+**The approval gate and the focused groups** (Windows 11, Python 3.14, an absolute `PYTHONPATH` naming the checkout; separate runs; skips are platform skips, not counted as passed):
+
+| Group | Files or command | Result |
+| --- | --- | --- |
+| The approval gate, the baselines, the goldens and PC-1's consumer | `test_storage_baseline.py`, `test_task_golden.py`, `test_global_config_storage.py`, `test_repository_profile.py` | 222 passed |
+| The approval gate alone | `test_every_designed_difference_is_approved_by_the_owner` | 1 passed |
+| The gate, label, foreign-ID and collision tests, selected | six tests in `test_storage_baseline.py` | 6 passed |
+| The nine DD evidence tests | `test_dd4_` to `test_dd12_` in `test_repository_settings_storage.py` | 9 passed |
+| The generator | `python tests/storage_baseline.py --check` | "baselines match", exit 0 |
+| Storage identity and security | `test_storage_identity.py`, `test_storage_safety.py`, `test_storage_witness.py`, `test_isolation_guard.py`, `test_storage_api_boundary.py`, `test_batch4_file_safety.py`, `test_file_safety_baseline.py` | 435 passed, 52 skipped |
+| MCP | `test_mcp_server.py`, `test_mcp_request_scope.py` | 100 passed |
+| R-PRE, links, containment and legacy | `test_containment.py`, `test_repository_settings_storage.py`, `test_storage_safety.py`, `test_file_safety_baseline.py`, `test_instructions.py`, `test_project_settings.py`, `test_repository_profile.py`, `test_fix_mode_store.py`, `test_fix_mode_custom.py`, `test_verification_policy.py`, `test_ai_behavior.py`; then the legacy-sentinel and R-PRE tests selected by name | 614 passed, 31 skipped (platform skips, among the full suite's 59); the selected tests 12 passed |
+| Inventory and publishability | `test_storage_inventory.py`, `test_publishable.py`, `test_no_unwired_symbols.py` | 26 passed |
+
+**The fresh full Python suite.** It ran after the DD approvals and the third-assertion correction, on Windows 11 with Python 3.14, an absolute `PYTHONPATH` and the test isolation's own HOME.
+
+- **Result:** **3,807 passed, 59 skipped, 0 failed, 0 errors, 0 deselected**, exit code 0, in 29 minutes.
+- **The earlier run is unchanged.** Its 2 failed, 3,805 passed and 59 skipped stand as recorded above; it is not relabelled.
+- **Skips:** all 59 are platform skips, none counted as passed. 48 are POSIX permission bits and file names. 2 are other POSIX-only cases: `mkdir` with `dir_fd`, and `st_ctime`. 2 are Windows limitations: a file held open, and the file-symlink privilege. 5 are macOS-only cases, including the new file's T-10 and T-11. 1 is the identity suite's case-folding case. The last is the deferred subst-drive check. The count equals the earlier run's 59; the 2 more passes are the two tests that failed then.
+
+**The extension.**
+
+- **From Git Bash** (GNU bash 5.3.15, Node v24.22.0, npm 11.19.1; Node sees the variable as `PATH`): `npm run typecheck` passed. `npm test` passed 2,350, with 0 failed and 0 skipped. CI uses Node 22.
+- **From PowerShell: an unresolved environment observation.**
+  - **The symptom:** from PowerShell 7.6.6, Node sees the variable as `Path`. `executablePath.test.ts` passes 11 of 12. "on Windows, a bugpilot.exe in the working directory never runs — the one on PATH does" fails with `spawn bugpilot ENOENT`.
+  - **The handling:** no extension source changed, and the test is not weakened. The observation is recorded for Batch 3's attention.
+  - **The verified environment:** Git Bash is the extension's verified environment here.
+
+**Integrity:**
+
+- `git diff --check` is clean, and nothing is staged.
+- **No public contract change beyond the approved ones:** the production diff adds no JSON field and no error code. Only the `path` values change (DD-10 to DD-12, row 22), and so do M-P's messages, which reuse the existing codes.
+- The 11 protected files and the 214 protected 2B-3a files are unchanged.
+- The frozen Batch 0A records and the 17 task goldens are byte-identical.
+- Also unchanged:
+  - `storage.py` and `_isolation.py`;
+  - the contract fixtures, except PC-1's line;
+  - the extension and the workflows;
+  - the version, 0.1.5.
+
+**Commit readiness.** Every changed file is within part 10's allowlist or the extras the owner approved after a stop, which are:
+
+- `test_verification_policy.py`, `test_ai_behavior.py` and `test_global_config_storage.py`, approved with the implementation authorization;
+- `test_cli_json.py` and `test_storage_api_boundary.py`, approved at the allowlist expansion.
+
+`errors.py` is unchanged; O3 was not needed. The proposed implementation commit holds 30 files, this plan included:
+
+- the seven production files;
+- the 22 test, harness, fixture and record files.
+
+It excludes the owner's `docs/bugpilot_prototype_development_plan.md`, `.bugpilot/` and `.vscode/extensions.json`.
+
+**Still required:**
+
+1. the owner's review of the implementation; *(done: the owner authorized the implementation commit on 2026-10-21)*
+2. the implementation commit authorization; *(given on 2026-10-21: committed on `verify/0.1.6-storage`, parent `5b66ffe`, not pushed)*
+3. an authorized push; *(done on 2026-10-21: `5b66ffe..743f542`)*
+4. one owner-dispatched CI run, all nine jobs. *(Done: run 39675645316, SUCCESS 9/9 on its second attempt; see "Batch 2B-3a — cross-platform CI verification".)* Linux and macOS have run none of 2B-3a, including:
+   - the POSIX permission and storage checks;
+   - T-13's case-only rename;
+   - macOS's T-10 and T-11;
+5. activation stays blocked: §14.3's eight blockers, Batch 0B's evidence and US-D29's open terms.
+
+J-2's interim `path` remains an accepted limitation until the proposed 2B-7. Batch 2B-3b has NOT STARTED.
+
+#### Batch 2B-3a — cross-platform CI verification (2026-10-21)
+
+**Status: Batch 2B-3a — IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED.**
+
+- **Scope of this status:** it is the slice's completion on its verification branch. It is not Unified Storage's completion, and not release readiness.
+- **The branch:** `verify/0.1.6-storage` holds `743f542ad328b1af5eb9f0b494d07491f2b33ed7`, the implementation (`feat(storage): move project settings into repository storage (Batch 2B-3a)`, parent `5b66ffe`). With the owner's authorization it was pushed by fast-forward, `5b66ffe..743f542`.
+- **`main`:** `main` and `origin/main` remain at `ea9659c`, and nothing is integrated.
+- **This record:** the documentation commit on top of `743f542`, not pushed.
+
+**The run:** [run 39675645316](https://github.com/xsw7910/bugpilot/actions/runs/39675645316), dispatched by the owner from the Actions page, since the GitHub CLI is not installed here.
+
+- **What it tested:** event `workflow_dispatch`, branch `verify/0.1.6-storage`, commit `743f542ad328b1af5eb9f0b494d07491f2b33ed7`, as the run's and every job's own metadata show.
+- **The evidence:** observed through GitHub's public API: the jobs, their steps, and each job's annotations (its test summary, skip list and the file-safety observations).
+
+**Attempt 1 failed; no test failed.** It ran 2026-10-21, 21:03 to 21:22 UTC. Conclusion: **FAILURE.**
+
+- **The eight jobs that ran** all succeeded, with 0 failed tests.
+- **Safety, macOS, Python 3.13 was cancelled:** "The job was not acquired by Runner of type hosted even after multiple attempts". GitHub's notices named the cause, capacity constraints on macOS arm64 runners. The job had no runner and ran no step, so it is an infrastructure cancellation, not a test result.
+- **The attempt stays recorded as a failure.**
+
+**Attempt 2 passed:** the owner re-ran the failed job.
+
+- **What ran:** only the macOS safety job, 2026-10-22, 00:11 to 00:14 UTC (job `119560675659`; every step succeeded).
+- **The other eight:** attempt 1's results, carried into attempt 2 with new job ids but their original runners and times. They ran once, on the same commit.
+- **Conclusion: SUCCESS, 9/9.**
+
+| Job | Attempt that ran it | Passed | Failed | Skipped | Deselected |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Safety, Ubuntu, Python 3.13 | 1 | 1,768 | 0 | 48 | 1 |
+| Safety, Ubuntu, Python 3.10 | 1 | 1,768 | 0 | 48 | 1 |
+| Safety, macOS, Python 3.13 | 2 (cancelled in 1) | 1,770 | 0 | 46 | 1 |
+| Safety, Windows, Python 3.13 | 1 | 1,782 | 0 | 59 | 1 |
+| Full Python suite, Ubuntu | 1 | 3,783 | 0 | 57 | 1 |
+| Full Python suite, macOS | 1 | 3,787 | 0 | 53 | 1 |
+| Full Python suite, Windows | 1 | 3,804 | 0 | 61 | 1 |
+| Extension unit tests | 1 | 2,348 | 0 | 2 | — |
+| Extension evidence boundary | 1 | 27 | 0 | 0 | — |
+
+**The counts against 2B-2's green run** ([run 39486855193](https://github.com/xsw7910/bugpilot/actions/runs/39486855193), on `0b7dd6c`):
+
+- **Skips and deselections** are counted apart from passes, never as passes. The one deselection in every Python job is the private word-list test, as always.
+- **Each safety job:** 10 more passed; skips unchanged. The macOS safety job's 24 skip lines are identical to 2B-2's.
+- **Each full suite collected the same 53 new tests:**
+  - Ubuntu: 50 passed, 3 skipped;
+  - macOS: 52 passed, 1 skipped;
+  - Windows: 51 passed, 2 skipped.
+- **The only new skips** are the new file's platform-gated tests:
+  - T-8's junction case, on Linux and macOS;
+  - T-10 and T-11, which are macOS-only, on Linux and Windows.
+- **The extension and the evidence boundary** are unchanged.
+- **Against the local Windows run** (3,807 passed, 59 skipped, none deselected), CI's Windows differences are three of CI's own:
+  - the private word-list test is deselected;
+  - the private forbidden-samples digests are absent, so that test skips;
+  - the `Path.copy` isolation case needs Python 3.14, and CI runs 3.13.
+
+**Repository identity on Linux and macOS** (from the skip lists and observations):
+
+- **T-10 and T-11 ran and passed on macOS:** `/private/var` reaches the same settings, and a case-variant root reads another namespace and creates nothing.
+- **T-13 matched each system's documented behaviour.** It is not gated, and asserts per system:
+  - on Windows, a case-only rename keeps the settings;
+  - on Linux and macOS, the renamed root starts from the defaults.
+- **T-15's accepted path-reuse inheritance** passed on all three systems.
+- **macOS:** `test_storage_identity.py`'s `/private/var` case ran. The realpath observation:
+  - the temporary folder is under `/private`;
+  - `getcwd()` returns the stored case;
+  - a case variant does not resolve to the stored case.
+- **Windows:** GitHub truncates the published skip lists for both Windows jobs, so they cannot show which cases ran. The case-folding and junction cases running there is an **inference from the counts**:
+  - CI's 61 skips are the local Windows run's 59, whose full list has neither case, plus CI's two own;
+  - its passes are the local 3,807 less those two and the one deselection.
+- **Linux:** the realpath observation shows a case variant missing (`FileNotFoundError`), as on any case-sensitive file system.
+- **The baselines' guards:** the repository-ID label, the foreign-ID guard and the collision tests ran on all three systems.
+
+**Security and containment on Linux and macOS:**
+
+- **File safety:** observed on Ubuntu with Python 3.13 and 3.10, and on macOS with Python 3.13:
+  - new files are `0o600` under every tested umask;
+  - credentials are born `0o600`; a private file stays `0o600`, and a `0o644` one is refused and left `0o644`;
+  - credentials never follow a link;
+  - links at `.ai` and `.ai/JR-12345` are refused;
+  - the setuid, setgid and sticky bits are cleared on rewrite;
+  - atomic replacement tore no read.
+- **macOS only:** writes through `/private/tmp` behave as through `/tmp`.
+
+  The macOS `realpath` observation is identical to 2B-2's. The macOS file-safety observation is identical except the concurrent-read sample: 244 reads against 240, with 0 torn in both.
+- **The POSIX permission, link and containment tests ran on both systems**, along with the storage write witness: `test_batch4_file_safety.py`, `test_file_safety_baseline.py`, `test_storage_safety.py`, `test_private_folder.py` and `test_storage_witness.py`. Only their Windows access-list cases skip.
+- **Windows junction refusal:** T-8's junction case, among others. It runs only on Windows; that it ran in CI is inferred from the counts, as above.
+- **R-PRE, M-P and MCP:** `test_repository_settings_storage.py`, `test_mcp_server.py` and `test_mcp_request_scope.py` ran on all three systems with 0 failures. That includes:
+  - the refusal-before-write tests;
+  - the Fix Mode error sentences;
+  - request-scope isolation;
+  - the unchanged success-result assertions.
+- **Identity-record errors fail closed.** On all three systems, `test_repository_settings_storage.py`'s rows 1 and 2 passed:
+  - an unreadable `repository.json` gives one sentence with each surface's code;
+  - a corrupt or mismatched one is refused everywhere.
+
+  `test_storage_safety.py` passed too.
+
+**Contracts and baselines:**
+
+- **DD-4 to DD-12:** they remain approved (2026-10-21). On all three systems, their evidence tests, the approval gate and the chained comparison (2B-2's record, then 2B-3a's) passed, in every safety job and every full suite.
+- **PC-1:** the contract test and `test_the_contract_path_is_where_the_profile_lives` passed on all three systems.
+- **Frozen records and goldens:** the frozen Batch 0A records, the 2B-2 record, the 17 task goldens and every other golden are unchanged since `5b66ffe`, and `test_task_golden.py` passed everywhere.
+- **The contract:** no new public error code or JSON field.
+- **J-2:** §8.10 rows 18 to 21 remain pending the separate contract-completion step (the proposed 2B-7).
+
+**Caveats:**
+
+- **One job ran in attempt 2.** Its eight companions are attempt 1's results on the same commit, and none was repeated.
+- **Platform skips remain, none counted as a pass:**
+  - Windows-only cases on Linux and macOS;
+  - POSIX permission cases on Windows;
+  - macOS-only cases elsewhere;
+  - the case-sensitive pair on macOS (`test_storage_identity.py`: two such folders cannot coexist on its default volume).
+- **The subst-drive check stays NOT VERIFIED:** deferred by D0A-5.
+- **Two checks run only on developer machines:** the private word-list and forbidden-samples checks.
+- **The extension's 2 skips on Ubuntu** are unchanged from 2B-2.
+- **macOS capacity may recur:** both 2B-2's and this run's first attempts lost the macOS safety runner.
+
+**Unchanged:**
+
+- **The version is 0.1.5.** Unified Storage is **NOT ACTIVATED**.
+- **US-D29's open terms remain.** §15.2 and §15.4 keep Batches 2 to 4 on the verification branch until integration is complete, and bring them to `main` only by an owner-approved fast-forward. D-1 allows no partial consumer migration into `main` without separate authorization.
+- **Batch 0B's evidence is incomplete:** P1, P3 and P8 NOT EXECUTED; P2 FAIL.
+- **All eight activation blockers** still apply.
+- **US-D26's `STORAGE_UNAVAILABLE` stays OPEN**, and is needed before 2B-4.
+- **J-2's rows 18 to 21** remain pending.
+- **The PowerShell `Path`/`PATH` issue** in `executablePath.test.ts` is deferred to Batch 3. It is unresolved, and the extension's suite is run from Git Bash.
+- **Batch 2B-3b has NOT STARTED.**
+
+No decision status changed.
+
+#### Batch 2B-3b — decision gate and implementation contract (2026-10-21)
+
+**Status: Batch 2B-3b — NOT STARTED. Its decisions E-1 to E-10 are recorded below; its implementation is NOT AUTHORIZED.**
+
+- **Reviewed at:** `c0b8ea7` on `verify/0.1.6-storage`, local and remote, with `main` and `origin/main` at `ea9659c`.
+- **The basis:** the read-only 2B-3b scope review of 2026-10-21. It traced every read and write of `verification.md` and `ai_behavior.md` in the CLI, MCP, workflow, previews and extension.
+- **What this record does not do:**
+  - it changes no code, test, helper, fixture, golden, baseline, contract or extension file;
+  - it authorizes no implementation, and no golden change;
+  - it changes no decision's status. The register stays 24 APPROVED, 5 OPEN, 6 PROPOSED, 4 DEFERRED.
+- **Nothing here is 2B-7 or Batch 3 work.**
+
+**Labels.** This gate's decisions are E-1 to E-10. The review used other names, and its C-1 to C-5 collide with Batch 2B-2's choices C-1 to C-5. The mapping:
+
+| Review | This record |
+| --- | --- |
+| G-13 (the AI-facing texts) | E-1 |
+| C-4 (US-D22's scope) and the user-facing wording | E-2 |
+| C-1 and its option S-1, "the explicit supersession rule" here (superseded evidence) | E-3 |
+| C-2 (allowlist corrections) | E-4 |
+| R-1 (the removal helper) | E-5 |
+| C-3 (T-15's scope) | E-6 |
+| the extension's compatibility | E-7 |
+| DD-13 to DD-26, and C-5 (US-D30) | E-8 |
+| J-2 for the two commands | E-9 |
+| the golden approval protocol | E-10 |
+
+##### Part 1 — The owner's decisions (2026-10-21)
+
+| # | Decision | Recorded as | Remaining condition |
+| --- | --- | --- | --- |
+| E-1 | **G-13: the seven AI-facing texts APPROVED** (part 2) | the wording only | no golden changes until each exact diff is approved (E-10) |
+| E-2 | **US-D22 (G-11) applies to Batch 2B-3b, confirmed.** The three user-facing wording changes in part 3 are **APPROVED** | every shown storage location is in display form | none |
+| E-3 | **Superseded evidence: the explicit supersession rule APPROVED with strict constraints** (part 6; timing corrected on 2026-10-21) | DD-5 by DD-13 and DD-9 by DD-15 only; no generic skip. B1 relies on no intentionally failing old-state assertion. A pending pair is reported by the approval gate until the owner approves its successor, and only then is it active. The approved records and the historical evidence are unchanged | the mechanism is not implemented by this record |
+| E-4 | **Allowlist corrections APPROVED** (part 4) | `project_settings.py`, `instructions.py`, `tests/storage_baseline.py` and `tests/test_storage_baseline.py` added; `tests/test_repository_profile.py` removed | every other protection boundary stays |
+| E-5 | **One removal helper APPROVED**: `repository_settings.remove_file(repo_root, name) -> bool` (part 5) | its contract is fixed here | not implemented by this record |
+| E-6 | **T-15 extended: APPROVED.** B-1's accepted path-reuse limitation also covers the Verification Policy and AI Behavior (part 8) | identity unchanged; no implicit reset | RK-20, §7.3 and §7.6 widened; prominent in the activation review |
+| E-7 | **Extension compatibility restrictions APPROVED** (part 9) | Batch 3 owns the fix | no real-data Edit or Reset through the extension until Batch 3's fix is verified; Batch 3's compatibility verification is required before integration or activation |
+| E-8 | **DD-13 to DD-26 APPROVED as categories** (part 7) | US-D30's negative per-golden deltas recorded as designed differences; the size checks kept | each exact value approved after observation; no golden change authorized |
+| E-9 | **J-2 for `verification` and `ai-behavior` `show --json` APPROVED** | an interim display-form `path` | §8.10 rows 18 to 21 stay unresolved, for the proposed 2B-7 |
+| E-10 | **The golden approval protocol APPROVED** (part 10) | — | — |
+
+##### Part 2 — The AI-facing texts (E-1)
+
+Exactly these seven changes, and no other change to AI guidance. Each is the whole changed text; nothing around it moves.
+
+| # | Where | Before (exact) | After (exact) |
+| --- | --- | --- | --- |
+| V | `verification.py`, `task.md`'s source line | `Source: repository Verification Policy (.bugpilot/verification.md).` | `Source: repository Verification Policy.` |
+| A | `ai_behavior.py`, `task.md`'s source line | `Source: BugPilot defaults, with this repository's additions (.bugpilot/ai_behavior.md).` | `Source: BugPilot defaults, with this repository's additions.` |
+| I | `instructions.py`, the project introduction | `This repository's shared instructions for AI agents.` | `This repository's instructions for AI agents.` |
+| VF | `verification.py`, the problem source | `BugPilot defaults, because the repository's .bugpilot/verification.md could not be used` | `BugPilot defaults, because the repository's Verification Policy could not be used` |
+| AF | `ai_behavior.py`, the problem source | `BugPilot defaults, because the repository's .bugpilot/ai_behavior.md could not be used` | `BugPilot defaults, because the repository's AI Behavior could not be used` |
+| VN | `verification.py`, the problem notice | `The repository's Verification Policy (.bugpilot/verification.md) was not included: {problem} Until it is fixed, BugPilot's default applies.` | `The repository's Verification Policy was not included: {problem} Until it is fixed, BugPilot's default applies.` |
+| AN | `ai_behavior.py`, the problem notice | `The repository's AI Behavior (.bugpilot/ai_behavior.md) was not included: {problem} Until it is fixed, BugPilot's defaults apply.` | `The repository's AI Behavior was not included: {problem} Until it is fixed, BugPilot's defaults apply.` |
+
+- **Goldens:** V, A and I reach 9 lines of 6 task goldens (part 10). VF, VN, AF and AN reach no golden; they appear only when a file has a problem, and tests cover them.
+- **Unchanged:** the section names ("Project / Team Instructions"), the precedence wording ("project / team layer"), every protected rule, and every other line of the task.
+- **The result:** the final AI-facing guidance names no settings path, and no obsolete repository-local path for these files. B2 verifies it.
+- **One open question:** a link substituted between storage's own check and the module's read (a time-of-check to time-of-use race) is investigated in B1 (part 11). Its outcome decides whether the result also holds in that race.
+
+##### Part 3 — The user-facing wording (E-2)
+
+**The rule.** Every storage location shown to a person uses `storage.display_path` through the chokepoint: `~/.bugpilot/repositories/<repository id>/settings/<name>`, or `BUGPILOT_HOME/…`. That covers:
+
+- CLI text and warnings;
+- lint lines;
+- errors;
+- `bugpilot.log`;
+- MCP warnings.
+
+These are substitutions of the shown path, with no other wording change (G-11), except the three below.
+
+| # | Where | Before (exact) | After (exact) |
+| --- | --- | --- | --- |
+| W-1 | `project_settings.py`, `VERIFICATION_FILE_WINS` | `The Verification switches were saved for BugPilot 0.1.2 and earlier, but .bugpilot/verification.md is this repository's effective Verification Policy: the switches do not change it.` | `The Verification switches were saved for BugPilot 0.1.2 and earlier, but this repository's Verification Policy file is its effective Verification Policy: the switches do not change it.` |
+| W-2 | `ai_behavior.py`, the lint's verification-expectation line | `Line {number} of {shown} looks like a verification expectation. What to verify belongs in the Verification Policy (.bugpilot/verification.md), which the task states on its own.` | `Line {number} of {shown} looks like a verification expectation. What to verify belongs in the Verification Policy, which the task states on its own.` |
+| W-3 | `cli.py`, the `verification` and `ai-behavior` help | the `.bugpilot/…` mentions | below |
+
+**W-1** stays a constant: the sentence names no path. **W-2's** `{shown}` is AI Behavior's display path.
+
+**W-3, `verification`:**
+
+- `help`: `Show or set the repository's Verification Policy text (this repository's, in BugPilot's data folder).`
+- `description`: `The Verification Policy says what a pass that changes source code is expected to verify. It lives in ~/.bugpilot/repositories/<repository id>/settings/verification.md (under BUGPILOT_HOME when it is set); it is your own, not stored in the repository. With it, its text replaces BugPilot's default whole; without it, the Verification switches in the project settings (BugPilot 0.1.2 and earlier) apply, or the default. The CLI, the MCP server and the VS Code extension all read it the same way, and the task puts BugPilot's own rules ahead of it.`
+- the `action` help: `show (the default) prints the effective policy and where it comes from; set writes the policy file; clear and reset are the same: they remove it, so the switches or BugPilot's default apply again.`
+
+**W-3, `ai-behavior`:**
+
+- `help`: `Show or set the repository's AI Behavior additions (this repository's, in BugPilot's data folder).`
+- `description`: `AI Behavior is how an AI agent is expected to make and report changes in this repository: conventions, not safety rules. BugPilot's defaults always apply; the repository's additions file adds its own beneath them, under Code Change Conventions, Evidence Standards and Reporting Standards. It lives in ~/.bugpilot/repositories/<repository id>/settings/ai_behavior.md (under BUGPILOT_HOME when it is set); it is your own, not stored in the repository. The task puts BugPilot's own rules ahead of it, and the Fix Mode works within it.`
+- the `action` help: `show (the default) prints the effective AI Behavior and where it comes from; set writes the additions file; clear and reset are the same: they remove it, so BugPilot's defaults apply alone.`
+
+The `--from-file` and `--stdin` help are unchanged.
+
+##### Part 4 — The final allowlists (E-4)
+
+**Production (6 files):**
+
+| File | Only |
+| --- | --- |
+| `bugpilot/core/verification.py` | <ul><li>the path through the chokepoint: read `create=False`, write `create=True`, remove through `remove_file`;</li><li>the display path carried on `VerificationFile` and `ResolvedVerification` as a field never compared;</li><li>V, VF and VN, and the shown path in warnings, lint, `log_line`, errors and `verification_payload`'s `path`;</li><li>docstrings</li></ul> Not `DEFAULT_TEXT`, `ALWAYS_LINES`, the switch lines, the lint rules, `parse_document`, or any `sha256` material |
+| `bugpilot/core/ai_behavior.py` | the same for AI Behavior, with A, AF, AN and W-2. Not `DEFAULT_TEXT`, `SECTIONS`, `TEMPLATE_BODY`, `has_additions` or the lint rules |
+| `bugpilot/core/instructions.py` | <ul><li>I;</li><li>removing `PROJECT_CONFIG_DIR`, which has no user once the two modules move (`tests/test_no_unwired_symbols.py` counts constants), and its comment;</li><li>`link_problem`'s docstring</li></ul> Not `MAX_INSTRUCTION_CHARS`, `_SECTION_TITLES`, the reading rules, or the project scope's 2B-3a code |
+| `bugpilot/core/project_settings.py` | W-1, and the module docstring's one `.bugpilot/verification.md` line. Nothing else |
+| `bugpilot/cli.py` | the `verification` and `ai-behavior` handlers' text, notes and docstrings; W-3; the one comment in the `project-settings` handler. R-PRE stays as it is |
+| `bugpilot/core/repository_settings.py` | `remove_file` (part 5) only |
+
+**Tests, harnesses and records:**
+
+- **Modified, each only where it pins a moved place, a changed text, or the chain:**
+  - `tests/test_verification_policy.py`, `tests/test_ai_behavior.py`;
+  - `tests/test_task_golden.py`, including the eight pointer-specific evidence tests of DD-19 to DD-26 (part 7);
+  - `tests/test_protected_rules.py`, `tests/test_task_preview.py`, `tests/test_context_preview.py`;
+  - `tests/test_repository_settings_storage.py`: the 2B-3b tests are added, including the link-race review's tests (part 11). Only `test_dd5_the_verification_policy_now_creates_the_bugpilot_folder_itself` and `test_dd9_only_the_verification_policy_and_ai_behavior_still_reach_git_status` are retired, and only at the point part 6 allows. Every other 2B-3a test in it stays byte-identical;
+  - `tests/storage_baseline.py`: `DESIGNED_CHAIN` and the supersession table and check (part 6) only;
+  - `tests/test_storage_baseline.py`: the chain expectations, the evidence rule (part 6) and its synthetic tests only;
+  - `tests/task_golden.py` and `tests/prompt_boundary_sources.py`: the two inputs, written through storage's accessor;
+  - `tests/storage_inventory.json`, through its own `--update`.
+- **Added:** `tests/baselines/0.1.6-batch2b3b/designed_differences.json`.
+- **The six task goldens of part 10:** only after each exact diff is approved, and only through `python tests/task_golden.py --update`.
+- **Removed from the gate's earlier list:** `tests/test_repository_profile.py`. It has no `verification.md` reference.
+- **Any other test file:** stop and ask. That includes `tests/test_storage_inventory.py`: its patterns name the symbols, and removing them changes only counts.
+
+**Protected (unchanged byte for byte):**
+
+- **Product:**
+  - `bugpilot/core/storage.py`, `tests/_isolation.py`, `bugpilot/core/errors.py`, `bugpilot/mcp_server.py`;
+  - `bugpilot/core/prompts.py`, `handoff.py`, `workflow.py`, `task_preview.py`, `context_preview.py`;
+  - `fix_mode_store.py`, `fix_mode_state.py`, `repository_profile.py`, `doctor.py`, `models.py`.
+- **Goldens:** the other 11 task goldens, and every context, retry and prompt-boundary golden.
+- **Records:**
+  - the frozen Batch 0A records;
+  - the approved `tests/baselines/0.1.6-batch2b2/designed_differences.json` and `tests/baselines/0.1.6-batch2b3a/designed_differences.json`. DD-1 to DD-12 and their approvals are never edited.
+- **Contracts:** `tests/fixtures/storage_cli_contract.json` and `tests/fixtures/repository_profile_contract.json`.
+- **Tests:** `tests/test_storage_identity.py`, `tests/test_storage_api_boundary.py` (the two modules import only the chokepoint, so the list is unchanged), `tests/test_no_unwired_symbols.py`, `tests/test_global_config_storage.py`, and `tests/test_storage_inventory.py`.
+- **Elsewhere:** `extension/`, `.github/`, the version files, and the owner's local files.
+
+##### Part 5 — Repository storage access and the removal contract (E-5)
+
+**Access.** The two modules reach their files only through `bugpilot/core/repository_settings.py`, as 2B-3a's four settings do:
+
+- **Read:** `settings_file(repo_root, NAME, create=False)`. It validates the data root, containment, Git working trees, every link on the way and at the file, and the identity record when a namespace exists. It creates nothing.
+- **Write:** each module keeps its own refusal-first checks:
+  - the link check, as defence in depth;
+  - "is not a regular file";
+  - then `settings_file(create=True)`, which runs `ensure()` first;
+  - then the atomic write, wrapped as `StorageAccessError.during("write", <display path>, error)` for an `OSError`.
+- **The shown name:** `repository_settings.shown_path(repo_root, NAME)`.
+
+**`remove_file(repo_root: Path, name: storage.SettingsName) -> bool`:**
+
+1. **Locate:** `settings_file(repo_root, name, create=False)`. Storage validates the namespace exactly as for a read. A refusal propagates as `StorageError` or `StorageIdentityError` (`INVALID_INPUT`, F2); unavailability becomes `errors.StorageAccessError` through `guarded` (F2-S).
+2. **Absent:** when nothing is at the path (`os.path.lexists` is false), it returns `False`. No `ensure()` runs, and no folder or namespace is created.
+3. **Remove:** otherwise it unlinks the file inside `guarded("remove", <display path>, …)`.
+   - `unlink` never follows a link.
+   - An `OSError` becomes `StorageAccessError.during("remove", <display path>, error)`, one sentence with no absolute path.
+   - It returns `True`.
+4. **Scope:** only `settings/<name>`, for a name in `storage.SETTINGS_NAMES`. Never a folder: not `settings/`, even when it is empty, and never anything under `<repository>/.bugpilot/`.
+5. **Narrow catching:** it catches nothing else, never `ValueError`, `UnsafePathError` or `Exception`.
+6. **Wording stays with the callers.** Each caller keeps its own "is not a regular file" check and message before calling. The helper adds no wording, no public error code and no JSON field.
+7. **Its users:** `remove_verification` and `remove_ai_behavior` both use it. 2B-3a's `instructions.py` removal is not refactored.
+8. **Its tests:**
+   - an absent file with no namespace creates nothing;
+   - a link at the file, and a refused namespace, are refused;
+   - an injected `PermissionError` becomes `StorageAccessError` with the file unchanged;
+   - a legacy `.bugpilot/` file is never touched.
+
+**R-PRE.**
+
+- **`verification` keeps its 2B-3a check** (`require_readable(repo_root, SETTINGS_FILE_NAME)`): its answer still reads `project_settings.json` after the write.
+- **`ai-behavior` needs none:** its answer reads only its own file, which the write or removal checks first.
+
+##### Part 6 — Superseded evidence (E-3)
+
+**The problem.** `test_each_designed_difference_names_independent_evidence_that_exists` requires every approved entry's evidence test to exist. 2B-3b re-sets two pointers that 2B-3a's approved entries set, and their evidence tests assert values that stop being true:
+
+| Approved entry | Record and pointer | Its `to` (2B-3a) | Its evidence | After 2B-3b |
+| --- | --- | --- | --- | --- |
+| DD-5 | `pollution.json` `/steps/9/created` | `[".bugpilot", ".bugpilot/verification.md"]` | `test_dd5_the_verification_policy_now_creates_the_bugpilot_folder_itself` | `[]`, set by DD-13 |
+| DD-9 | `pollution.json` `/git_status` | the 22 lines | `test_dd9_only_the_verification_policy_and_ai_behavior_still_reach_git_status` | 20 lines, set by DD-15 |
+
+**The rule** (the mechanism is added in Phase A; the pairs are declared in Phase B1):
+
+1. **An explicit table, not a generic skip.** `tests/storage_baseline.py` gains `SUPERSEDED`, mapping an earlier entry's id to its successor and its historical evidence. It can only ever hold exactly:
+   - `DD-5` → `DD-13`;
+   - `DD-9` → `DD-15`.
+
+   Each is recorded with the commit and CI run on which its own evidence last passed: `743f542ad328b1af5eb9f0b494d07491f2b33ed7`, run 39675645316 (§19).
+2. **A declared pair is in exactly one state:**
+
+   | State | When | The earlier entry's evidence |
+   | --- | --- | --- |
+   | **inactive** | the successor is not yet in the chain | **required**: its test must exist, and it runs and passes |
+   | **pending** | the successor is in the chain and *matches* (below), but is not yet owner-approved | the old-state test is retired. The pair is **reported as pending owner approval by the approval gate**, which fails, naming it, until approval. Nothing is silently accepted |
+   | **active** | the successor matches and is owner-approved (a non-empty `approved`) | exempt; the retired test must be absent |
+
+   **"Matches" means all of these hold:**
+   - the successor exists exactly once in the chain, in a later file of `DESIGNED_CHAIN` than the earlier entry;
+   - both entries name the same `record` and the exact same `pointer`;
+   - the successor's `from` equals the earlier entry's `to` (`_same`, as `chain_problems` compares);
+   - the successor's evidence test exists, is independent, and is not the earlier entry's.
+
+   A successor that is in the chain but does not match is a **problem**, never a pending pair.
+
+   *(Confirmed by the owner on 2026-10-21, with Phase A's commit authorization:*
+   - *inactive: the historical evidence is mandatory;*
+   - *pending: the historical current-state tests **may** be retired, the replacement evidence is mandatory, and the approval gate reports the pending pair and fails;*
+   - *active: the old current-state tests must be retired, and the approved replacement evidence is mandatory.*
+
+   *A pending pair never passes the final approval gate. "Is retired" in the table above is read accordingly.)*
+3. **The lifecycle:**
+
+   | Stage | Table | DD-5's and DD-9's evidence | Acceptance |
+   | --- | --- | --- | --- |
+   | **Phase A** (no successor exists) | empty | `test_dd5_…` and `test_dd9_…` required; they pass, because the product is unchanged | every check passes |
+   | **Phase B1** (successors recorded, `approved` empty) | the two pairs declared; pending | **historical:** the approved 2B-3a record and the recorded commit and CI run. **Current state:** the separate candidate evidence `test_dd13_…` and `test_dd15_…`, which pass. `test_dd5_…` and `test_dd9_…`, whose old-state assertions the relocation ends, are retired in the same step that records DD-13 and DD-15. **No intentionally failing old-state assertion is part of B1's acceptance** | every test passes except the approval gate. It fails, reporting as pending owner approval exactly DD-13 to DD-18 (unapproved) and the two pending pairs. Any other failure is a stop |
+   | **After the owner approves DD-13 and DD-15's exact values** (checkpoint 4, before or during B2) | both pairs active | DD-5 and DD-9 exempt; the retired tests must be absent; DD-13's and DD-15's independent evidence passes | the gate stops reporting the two pairs |
+   | **The final gate** (Phase C) | both pairs active | as above | nothing pending: no unapproved successor, no silent exemption, no altered historical record, and no unexpected current-state difference (`differences()` empty) |
+4. **Failing closed:** the supersession check (`supersession_problems(chain)`) reports a problem for each of these:
+   - a declared id that is not in the chain;
+   - a successor that appears twice;
+   - a successor in the same file, or an earlier one;
+   - a record or pointer mismatch;
+   - a `from` that differs from the earlier `to`;
+   - a successor without evidence, or naming the earlier entry's evidence;
+   - an inactive pair whose earlier evidence is missing;
+   - an active pair whose retired test is still present;
+   - any pair beyond DD-5 → DD-13 and DD-9 → DD-15.
+
+   **The approval gate** (`test_every_designed_difference_is_approved_by_the_owner`) reports every unapproved entry **and every pending pair**. A pending pair can never make it pass.
+5. **The evidence-exists check exempts an earlier entry only while its pair is pending or active.** A pending pair is never silent: the approval gate fails while it lasts.
+   - Any other entry with a missing evidence test still fails.
+   - An earlier entry whose pointer a later file re-sets, but which is not listed, keeps its evidence test. That test runs, so a value it no longer sees fails visibly.
+6. **No tolerance is added anywhere else:**
+   - `differences()` still applies the whole chain and must report nothing;
+   - `unapproved()` still covers every file;
+   - `chain_problems()` still checks every `from`, every `frozen` hash and the ids' uniqueness.
+
+   A missing or unexpected difference is rejected as before.
+7. **Unchanged:** the approved 2B-3a record, including DD-5's and DD-9's `evidence` strings and `approved` dates; no record is edited. The plan keeps their historical evidence: both tests passed on `743f542`, in run 39675645316's three full suites (attempt 1). The safety jobs do not run `test_repository_settings_storage.py`.
+8. **The current-state replacement tests** are the successors' evidence (part 7): `test_dd13_…` for `/steps/9/created`, and `test_dd15_…` for `/git_status`.
+9. **The mechanism's own tests, on synthetic records,** in `tests/test_storage_baseline.py`:
+   - an active pair passes, and its retired test's absence is required;
+   - an inactive pair, with no successor in the chain, keeps the earlier evidence required: with it missing, the check fails;
+   - a pending pair, with a matching but unapproved successor, makes the approval gate fail and name it;
+   - each of these fails closed: a missing successor treated as present; an unapproved successor treated as active; a mismatched record; a mismatched pointer; a `from` that differs from the earlier `to`; a successor in the same file or an earlier one; a successor naming no evidence, or the earlier one's; a retired test still present once active; a pair beyond the two allowed;
+   - an unlisted entry with missing evidence still fails.
+
+##### Part 7 — The designed differences DD-13 to DD-26 (E-8: categories only)
+
+Each `from` is the value after DD-1 to DD-12, or the frozen value where no earlier slice set the pointer. Every exact value is observed, then approved by the owner. None is approved here.
+
+| Id | Record | Pointer | From | To (predicted) | Evidence (to be written) | Phase |
+| --- | --- | --- | --- | --- | --- | --- |
+| DD-13 | `pollution.json` | `/steps/9/created` | `[".bugpilot", ".bugpilot/verification.md"]` (DD-5) | `[]` | `test_dd13_the_verification_policy_writes_nothing_into_the_repository` | B1 |
+| DD-14 | `pollution.json` | `/steps/10/created` | `[".bugpilot/ai_behavior.md"]` (frozen) | `[]` | `test_dd14_ai_behavior_writes_nothing_into_the_repository` | B1 |
+| DD-15 | `pollution.json` | `/git_status` | the 22 lines (DD-9) | 20 lines: `?? .bugpilot/ai_behavior.md` and `?? .bugpilot/verification.md` gone, the order kept | `test_dd15_no_bugpilot_settings_file_reaches_git_status` | B1 |
+| DD-16 | `pollution.json` | `/bugpilot_folders_in_repository` | `[".ai", ".ai_memory", ".bugpilot"]` (frozen) | `[".ai", ".ai_memory"]` | `test_dd16_no_settings_command_creates_a_bugpilot_folder` | B1 |
+| DD-17 | `cli_paths.json` | `/ai-behavior show --json path fields/path` | `".bugpilot/ai_behavior.md"` (frozen) | `"BUGPILOT_HOME/repositories/<repository-id>/settings/ai_behavior.md"` (J-2) | `test_dd17_ai_behavior_show_names_its_file_in_display_form` | B1 |
+| DD-18 | `cli_paths.json` | `/verification show --json path fields/path` | `".bugpilot/verification.md"` (frozen) | `"BUGPILOT_HOME/repositories/<repository-id>/settings/verification.md"` (J-2) | `test_dd18_verification_show_names_its_file_in_display_form` | B1 |
+| DD-19 | `task_size.json` | `/median_approx_tokens` | `3090` | `3089` | `test_task_golden.py::test_dd19_the_median_is_measured_from_the_goldens` | B2 |
+| DD-20 | `task_size.json` | `/normalized_median_approx_tokens` | `3090` | `3089` | `test_task_golden.py::test_dd20_the_normalized_median_is_measured_from_the_goldens` | B2 |
+| DD-21 | `task_size.json` | `/cases/jira-fix-current-ai-behavior` | 12,023 chars, 3,006 tokens | 11,996, 2,999 | `test_task_golden.py::test_dd21_jira_fix_current_ai_behavior_is_measured` | B2 |
+| DD-22 | `task_size.json` | `/cases/jira-fix-current-configured` | 12,363, 3,091 | 12,356, 3,089 | `test_task_golden.py::test_dd22_jira_fix_current_configured_is_measured` | B2 |
+| DD-23 | `task_size.json` | `/cases/jira-fix-current-configured-ai-behavior` | 12,729, 3,182 | 12,695, 3,174 | `test_task_golden.py::test_dd23_jira_fix_current_configured_ai_behavior_is_measured` | B2 |
+| DD-24 | `task_size.json` | `/cases/jira-fix-current-verification-file` | 11,975, 2,994 | 11,940, 2,985 | `test_task_golden.py::test_dd24_jira_fix_current_verification_file_is_measured` | B2 |
+| DD-25 | `task_size.json` | `/cases/jira-fix-current-verification-file-ai-behavior` | 11,697, 2,924 | 11,642, 2,910 | `test_task_golden.py::test_dd25_jira_fix_current_verification_file_ai_behavior_is_measured` | B2 |
+| DD-26 | `task_size.json` | `/cases/jira-investigation-current-ai-behavior` | 12,671, 3,168 | 12,644, 3,161 | `test_task_golden.py::test_dd26_jira_investigation_current_ai_behavior_is_measured` | B2 |
+
+- **Cases are whole objects.** DD-21 to DD-26's `from` and `to` are the whole case objects. `ai_path_mentions` and `absolute_path_mentions` are predicted unchanged; any change there is a stop.
+- **DD-19 to DD-26's evidence: one test per pointer,** in `tests/test_task_golden.py`, each named in the table.
+  - **What each test does:** it measures the value at its own pointer from the committed task golden files, with the test's own arithmetic: characters, `round(chars / 4)`, the two path-mention counts, and the median over the 17. It never reads `task_size.json`, the regenerated records or the designed-difference file.
+  - **What it compares against:** the owner-approved expected value at that pointer, written into the test only after the owner approves it (Phase B2).
+  - **What they check together**, through one shared helper:
+    - **Only the six named goldens change:** the test records each of the 17 goldens' SHA-256 at the base commit. The other eleven must still match theirs byte for byte.
+    - **Only the nine approved lines change:** for each of the six, the approved new lines are put back to their exact old text, at their exact line numbers. The result must match that golden's recorded base SHA-256. So any other changed byte fails.
+    - **Every size matches:** each per-golden character and token count, and both medians, equal the approved values.
+    - **US-D30 still holds:** the median is at most 3,096, and no golden is larger than its frozen 0.1.5 size, which is a zero-allowance per-golden bound.
+  - **No frozen baseline is rewritten** to make a test pass. `task_size.json` and the other frozen records keep their recorded SHA-256s (`chain_problems`), and a change to one is a stop.
+- **US-D30 (C-5):**
+  - every per-golden delta is negative, so no allowance A is drawn;
+  - the deltas are recorded as these designed differences, in place of a separate budget record;
+  - the existing size gates stay: the median at most 3,096, and the golden equality tests;
+  - DD-19 to DD-26's evidence adds the zero-allowance per-golden bound: no golden above its frozen 0.1.5 size.
+- **Unchanged, as predicted:**
+  - `handoff.json`;
+  - `pollution.json`'s other pointers, including `/steps/8/created` (DD-4) and `/user_configuration_written` (DD-3);
+  - `cli_paths.json`'s other keys;
+  - `task_size.json`'s other cases and keys.
+
+##### Part 8 — T-15 widened (E-6)
+
+**The decision.** B-1's accepted limitation now explicitly includes the two policy-bearing files. A different repository later created at exactly the normalized path of an earlier one inherits:
+
+- its Project Instructions, Fix Modes, project settings and Repository Profile (2B-3a), as B-1 recorded;
+- **its Verification Policy and AI Behavior additions (2B-3b).**
+
+**What that can do:**
+
+- It can change what the newcomer's tasks require to be verified. An inherited policy can relax, or tighten, the tests and checks an agent is asked to run.
+- It can add conventions and reporting expectations written for another codebase.
+- BugPilot's protected rules still come first and win any conflict, and nothing detects the replacement.
+
+**Not changed:** the identity algorithm, the frozen identity tests, and US-D5, US-D6 and US-D24. No implicit reset or reassociation is added; option C stays deferred.
+
+**Where it is stated:** RK-20, §7.3's case row and §7.6, each with a dated note. It is also part of the activation review (§14.3's activation preconditions, with a dated note) and Batch 5's release notes.
+
+**A 2B-3b test pins it:** a Verification Policy and AI Behavior additions set in folder A are read after A is replaced by another folder at the same path.
+
+##### Part 9 — Extension compatibility (E-7)
+
+**Confirmed against the extension's sources** at `c0b8ea7`. The production `fileKind` and `fileExists` ports `lstat` `<repository>/.bugpilot/verification.md` and `ai_behavior.md` (`src/extension.ts`); Edit opens those paths (`src/app/controller.ts`). Once the files move:
+
+| Action | Effect on the branch |
+| --- | --- |
+| AI Behavior Edit | the repository file is absent, so Edit runs `ai-behavior set --stdin` with the CLI's empty template and **overwrites the namespace additions**. It then cannot open the repository path, and repeats on every click |
+| Verification Edit | it re-writes the namespace file from the effective policy: **clears "default changed"**, and **replaces a file that has a problem with BugPilot's default** |
+| Reset | its dialog says it deletes `.bugpilot/verification.md` (or `ai_behavior.md`); `reset` deletes the namespace file. The legacy file stays, and is ignored |
+| A legacy file | Edit opens and edits it; it has no effect |
+| The watcher | it no longer fires for these two files; rereads still happen at focus, Run, Rebuild and environment checks |
+| Version skew | a 0.1.5 extension driving a 0.1.6 CLI has the same effects (§13.5's note) |
+
+The CLI never reads, copies, overwrites or deletes a legacy file.
+
+**Restrictions:**
+
+1. **No extension change in 2B-3b.** Batch 3 owns the fix (§14.4): the CLI-given paths, the file's state from the CLI, the watcher, and the strings.
+2. **No real-data Edit or Reset through the extension** until Batch 3's fix is verified. Real-window checks use a disposable `BUGPILOT_HOME` and synthetic repositories only.
+3. **Before integration and activation.** Batch 3's compatibility verification for these two files (Edit, Reset, the watcher and the strings, against a 0.1.6 CLI) is required before any integration into `main` or activation of Unified Storage. It is recorded beside §14.3's activation preconditions and in §14.4's preconditions, as dated notes; the eight blockers are not renumbered.
+4. **Version skew** (0.1.5 extension, 0.1.6 CLI) is part of Batch 3's review and the release review (Batch 5).
+5. **An extension test failure** goes on §15.4's ledger, unmasked, and stops the slice.
+
+##### Part 10 — The golden approval protocol (E-10) and the phases
+
+**Phase A — neutrality** (no product change):
+
+- `tests/baselines/0.1.6-batch2b3b/designed_differences.json`:
+  - `base_commit` is the commit the implementation is authorized on;
+  - `frozen` holds the Batch 0A hashes;
+  - `differences` is empty.
+- `DESIGNED_CHAIN` gains it.
+- `SUPERSEDED` is empty, and the supersession check and its synthetic tests are added (part 6).
+- `tests/test_storage_baseline.py` expects three files and three base commits.
+
+**Acceptance:**
+
+- `differences()` is empty, and the approval, chain and supersession checks pass;
+- all 17 task goldens and every other golden are byte-identical;
+- the approved 2B-2 and 2B-3a records and the frozen hashes are unchanged;
+- no product file is changed.
+
+**Phase B1 — relocation without AI-facing wording changes:**
+
+- **The move:**
+  - the two modules move to the chokepoint (part 5), with `remove_file`;
+  - the user-facing display paths and W-1 to W-3 are applied (part 3);
+  - the AI-facing lines (V, A, VF, AF, VN and AN) keep their exact 0.1.5 text, through a module-private literal.
+- **That last point is a temporary verification technique.** Holding the AI-facing text still lets B1 prove that the relocation alone changes no golden byte, so that relocation and wording are reviewed apart. The rules:
+  - **the B1 state is a working-tree checkpoint only.** It is never committed, pushed or released, and never committed as the final implementation;
+  - the slice's commit carries B2's final text;
+  - B2 removes the literal, and the final output carries no obsolete repository-local policy path.
+- **The harnesses** write the two inputs through storage's accessor.
+- **The tests:**
+  - the tests move;
+  - DD-13 to DD-18's evidence tests are written;
+  - DD-13 and DD-15 are recorded, with the two pairs declared in `SUPERSEDED` (pending, part 6). `test_dd5_…` and `test_dd9_…` are retired in that same step. Their historical evidence stays in the approved record and in the table's recorded commit and CI run;
+  - a new R4 test plants sentinels in `<repository>/.bugpilot/verification.md` and `ai_behavior.md`, and checks they reach no output or task, and that both files' bytes are unchanged;
+  - the T-15 test of part 8 is added;
+  - the link-race review's tests (part 11) are added.
+
+**Acceptance:**
+
+- **all 17 task goldens and every other golden byte-identical** (a hard gate);
+- the observed differences are exactly DD-13 to DD-18's categories, recorded with `approved` empty;
+- **pending owner approval, reported and never silently accepted:** the approval gate fails, naming exactly DD-13 to DD-18 and the two pending pairs. It is the only failing test; any other failure is a stop. No intentionally failing old-state assertion is part of this acceptance;
+- no command creates `<repository>/.bugpilot`;
+- no absolute path appears in any message;
+- the P-1, U, R-PRE and `remove_file` tests pass;
+- the link-race review has a finding (part 11). If the finding needs a protected-file change, B1 stops there.
+
+**Phase B2 — the wording, and the goldens:**
+
+1. Replace B1's temporary literal with exactly E-1's seven texts (V, A, I, VF, AF, VN, AN), and nothing else.
+2. Render the 17 tasks **in memory**; no golden file is written.
+3. Check:
+   - the differences are confined to the six goldens and nine lines below, with no other byte;
+   - VF, VN, AF and AN reach no golden;
+   - the sizes equal part 7's predictions;
+   - **no rendered AI-facing text names `.bugpilot/verification.md`, `.bugpilot/ai_behavior.md` or "shared instructions".** That covers the 17 tasks, the configured problem cases that use VF, VN, AF and AN, and the retry and handoff texts.
+4. Present the complete before-and-after diff of each of the six goldens.
+5. The owner approves each exact diff by name.
+6. Only then run `python tests/task_golden.py --update`, within that scope. Its diff must equal the approved diffs exactly; any other byte is a stop.
+7. Observe DD-19 to DD-26, and record them with `approved` empty.
+8. After the owner approves DD-19 to DD-26's values, write those approved values into their eight evidence tests (part 7). Never copy them from a record.
+
+| Golden | Lines |
+| --- | --- |
+| `jira-fix-current-ai-behavior` | 57 (A) |
+| `jira-fix-current-configured` | 44 (I) |
+| `jira-fix-current-configured-ai-behavior` | 44 (I), 65 (A) |
+| `jira-fix-current-verification-file` | 44 (I), 50 (V) |
+| `jira-fix-current-verification-file-ai-behavior` | 42 (V), 56 (A) |
+| `jira-investigation-current-ai-behavior` | 57 (A) |
+
+The other 11 task goldens, and every context, retry and prompt-boundary golden, stay protected.
+
+**Phase C — approval and verification:**
+
+1. **The approvals:**
+   - the owner approves DD-13 to DD-18's exact values (after B1) and DD-19 to DD-26's (after B2);
+   - approving DD-13 and DD-15, with their independent evidence passing, makes the two pairs active (part 6).
+2. Full local verification (below):
+   - no failure, and nothing pending;
+   - no unapproved successor, no silent exemption, no altered historical record;
+   - `differences()` empty.
+3. Commit, push and one CI run, each separately authorized.
+
+##### Part 11 — Security, contracts, verification and stop conditions
+
+**Security and failing closed** (P-1, F2-S, M-1, G-11):
+
+| Situation | Required behaviour |
+| --- | --- |
+| Absent file or namespace | defaults; no warning; nothing created. `clear` and `reset` with no file: "There is no … to remove.", nothing created |
+| A link or junction on the way or at the file; containment; a Git working tree; the home folder as root | fatal for reads and writes, `INVALID_INPUT`, one sentence; nothing read or written. *(0.1.5 used the default for a linked `.bugpilot/verification.md`; under P-1 it is now fatal.)* |
+| A corrupt or mismatched identity record | `INVALID_INPUT` on every surface (F2) |
+| An unreadable record (U) | `show`, `bug`, `task-preview` and the MCP prepare tools: `INTERNAL_ERROR`. `set`, `clear` and `reset`: `INVALID_INPUT`, "The text could not be read: <sentence>." (2B-3a's residue wording) |
+| A write or removal I/O failure | `StorageAccessError.during("write"/"remove", <display path>, error)`; the file unchanged |
+| The file's own content (not UTF-8, too large, bad front matter) | non-fatal, as 0.1.5: the problem shown, the default applies |
+| Redaction | display form only. No absolute path or environment value in any message, log, warning or JSON. No settings path in `task.md` (the link race: below) |
+
+**The link-race review (B1, required).** The question: can a link substituted after storage's checks cause an unauthorized read, or put an absolute path into generated task output?
+
+**What is known before B1, from a read-only look at `c0b8ea7`:**
+
+- **Storage checks first.** It refuses a link on the way to the file and at the file, when `settings_file` is called (P-1).
+- **The module reads afterwards.** It reads through `instructions.read_text_document`:
+  - its own `link_problem` check, by `lstat`;
+  - then `exists`, `is_file` and `stat`;
+  - then `path.read_bytes()`, **which follows a link.**
+- **The only no-follow read in the code is private to storage.** It is `storage._read_regular`: `O_NOFOLLOW` where available, then `fstat` compared with what the name held. It is used only for `repository.json`, and no consumer may call it.
+- **The same window exists for 2B-3a's four settings,** which read the same way.
+- **The window's bounds.** It sits inside the user's own data folder, which is `0700`. Only someone who can already write there, the same account, can swap a file in. **This is context for the review, not an acceptance.** A confirmed unsafe read or disclosure is never classified as an acceptable residue because the folder is private.
+- **Absolute paths are not expected.** The problem texts name places only through `display_path`, and a read error by its class or `strerror`.
+
+**What B1 must establish, with focused regression tests in `tests/test_repository_settings_storage.py`:**
+
+1. **The race is simulated.** Between storage's check and the module's read:
+   - `settings/verification.md` and then `ai_behavior.md` are replaced by a link to a sentinel file outside the namespace (a file symlink on POSIX);
+   - and `settings/` by a junction (Windows) or a symbolic link (POSIX) to a folder holding a sentinel file.
+2. **The assertions.** The test checks for an unauthorized read and for disclosure, in:
+   - the generated task output (`task.md`, the task preview);
+   - the context preview;
+   - CLI messages and warnings, in text and JSON;
+   - MCP results;
+   - `bugpilot.log`.
+
+   The sentinel's text must appear in none of them, and no absolute path of the data root, the repository or the sentinel may appear in any of them.
+
+**The outcome decides what happens next:**
+
+- **If both hold with the code as allowlisted,** the tests stay as regression evidence, and the plan records the finding.
+- **If the test shows an unsafe read or a disclosure:**
+  1. **Implementation planning stops at a security decision.** That is the expected result, given `read_bytes`.
+  2. **The failing evidence is preserved:** the failing test, its output and traceback, with no change made to pass it.
+  3. **The narrowest safe remediation is proposed**, for the owner to decide. Its likely shape is a no-follow, identity-checked read of the located file: `O_NOFOLLOW` where available, then the `fstat` of what was opened compared with the `lstat` of the name, as storage's private `_read_regular` does for the record. It would live in one of:
+     - `instructions.read_text_document`, which is outside `instructions.py`'s allowlisted scope;
+     - a public storage read primitive, which changes protected `storage.py`.
+  4. **Nothing is changed without authorization.** No protected storage primitive changes, and the allowlist is never widened silently. The decision also says whether 2B-3a's four settings are fixed with it.
+
+**CLI and MCP contracts:**
+
+- **Codes:** no new public error code, and every code as today.
+- **JSON:**
+  - no new field; `show --json` keys and `source` values unchanged;
+  - only `path`'s value changes, for the two commands (DD-17, DD-18, J-2). It stays non-compliant with §8.10 rows 20 and 21 until the proposed 2B-7.
+- **MCP:**
+  - no tool, argument or result shape changes;
+  - the prepare tools' warnings carry display paths;
+  - errors follow `Could not … [CODE]: <sentence>` as today.
+- **The prepared-context hashes:** `sha256` material unchanged (source, problem, version, text). A prepared context goes stale only when the effective policy itself changes.
+- **Legacy files:** a policy that lives only in `<repository>/.bugpilot/` stops applying, silently. That is US-D9's accepted impact; US-D20 is deferred, and the release notes say it.
+
+**Local verification** (Windows; absolute `PYTHONPATH`; isolated HOME):
+
+1. the whole Python suite, with pass, fail, skip and deselect counts;
+2. the 2B-3b focused files;
+3. the identity and security, MCP, containment and legacy, and inventory and publishability groups;
+4. `python tests/storage_baseline.py --check`;
+5. B2's in-memory golden diff, then `--update` only after approval;
+6. the extension, unchanged, from Git Bash: `npm run typecheck` and `npm test`, with the shell and Node versions reported. The PowerShell `Path` issue stays a separate observation;
+7. publishability, `git diff --check`, and every protected file's hash;
+8. the plan checker.
+
+**Cross-platform CI acceptance:**
+
+- one owner-dispatched run on the exact implementation commit, with all nine jobs successful. A job with no runner is **not verified**, and needs its own authorized re-run;
+- pass, fail, skip and deselect counts reported per job;
+- skip lists compared with run 39675645316, with new skips only from the new platform-gated tests;
+- the new POSIX checks run on Linux and macOS: `0600` for `settings/verification.md` and `settings/ai_behavior.md`, `0700` for `settings/`;
+- T-cases as in 2B-3a.
+
+**Stop conditions:**
+
+- any golden byte outside part 10's six goldens and nine lines, or a diff other than the approved one;
+- a size above a golden's frozen size, or `ai_path_mentions` or `absolute_path_mentions` changed;
+- a record difference beyond DD-13 to DD-26;
+- any change to an approved designed-difference record, or to a protected file;
+- a file outside part 4's allowlist;
+- a test failure other than the approval gate's report of pending approvals in Phases B1 and B2 (the traceback kept);
+- a `<repository>/.bugpilot/` reader, writer or remover left for the two files;
+- an absolute path in a message, or a settings path or obsolete repository-local policy path in AI-facing output;
+- a link-race finding that needs a protected-file or out-of-scope change (part 11);
+- a supersession beyond DD-5 and DD-9; a pair treated as active before its successor is approved; a pending pair the approval gate does not report; or a historical record altered;
+- a frozen baseline, golden or approved record rewritten to make a test pass;
+- an evidence test that takes its expected value from a record instead of the owner's approval;
+- an extension test failure;
+- a red, cancelled or unverified CI job.
+
+**Rollback:** the owner's decision. There is no reset, stash, clean or force-push.
+
+##### Part 12 — Checkpoints and what stays open
+
+**Owner checkpoints, in order:**
+
+1. this record (a documentation commit, separately authorized);
+2. the implementation authorization, naming the phases;
+3. B1's link-race finding. If it needs a fix outside the allowlist, a separate decision;
+4. B1's observed DD-13 to DD-18. Approving DD-13 and DD-15 makes the two pending pairs active;
+5. B2's six exact golden diffs, each by name;
+6. DD-19 to DD-26's observed values;
+7. the commit;
+8. the push;
+9. one CI dispatch.
+
+**Still open, outside 2B-3b:**
+
+- §8.10 rows 18 to 21 (the proposed 2B-7);
+- US-D26's public `STORAGE_UNAVAILABLE` (2B-4, 2B-5);
+- Batch 0B's evidence: P1, P3 and P8 NOT EXECUTED; P2 FAIL;
+- all eight activation blockers;
+- US-D29's open terms. Batches 2 to 4 stay on `verify/0.1.6-storage`, with no partial integration into `main`, no pull request, and the fast-forward only after Batch 4 with the owner's approval;
+- Batch 3's extension fix (E-7);
+- the PowerShell `Path` observation (Batch 3).
+
+**Unchanged:** the version, 0.1.5. Unified Storage is **NOT ACTIVATED**. The register: 24 APPROVED, 5 OPEN, 6 PROPOSED, 4 DEFERRED.
+
+**Batch 2B-3b — NOT STARTED.**
+
+#### Batch 2B-3b — Phase A: baseline neutrality (2026-10-21)
+
+**Status: Batch 2B-3b — Phase A IMPLEMENTED and verified locally on Windows; uncommitted; not CI-verified. Phases B1 and B2 NOT STARTED. NOT ACTIVATED.**
+
+- **Where:** `verify/0.1.6-storage` at `9311892`, local and remote. The work is in the working tree only: nothing is staged, committed or pushed for it.
+- **Authorized scope:** Phase A only, as the decision gate's part 10 describes it, with the owner's Phase A authorization of 2026-10-21.
+- **Unchanged:** no product file, golden, frozen record, approved record, contract fixture, extension file, workflow or version file changed. No DD-13 to DD-26 value exists yet, and none is approved.
+
+**The changed files (the Phase A allowlist exactly):**
+
+| File | Change |
+| --- | --- |
+| `tests/baselines/0.1.6-batch2b3b/designed_differences.json` (new) | <ul><li>the 2B-3b record, in the schema of the 2B-2 and 2B-3a records;</li><li>`base_commit` `9311892`;</li><li>`frozen` the Batch 0A records' four SHA-256s, the same as 2B-3a's;</li><li>`differences` empty</li></ul> |
+| `tests/storage_baseline.py` | <ul><li>`DESIGNED_CHAIN` gains the 2B-3b record, after 2B-3a's;</li><li>`SUPERSEDED` holds the two approved pairs, `DD-5` → `DD-13` and `DD-9` → `DD-15`, each with its historical evidence: `743f542`, CI run 39675645316;</li><li>new: `evidence_exists`, `supersession` (each pair's state, and every problem) and `pending_supersessions`;</li><li>`--check` also prints any supersession problem and lists pending pairs with the values awaiting approval</li></ul> `differences()`, `unapproved()` and `chain_problems()` are unchanged |
+| `tests/test_storage_baseline.py` | <ul><li>the approval gate also requires no pending pair;</li><li>the chain expectations name three records and three base commits;</li><li>the evidence-exists test exempts only an earlier entry of a pending or active pair, and requires no supersession problem;</li><li>new: a test pinning the table, and 16 synthetic supersession tests</li></ul> |
+
+**The supersession states, as implemented** (E-3, part 6 of the gate):
+
+| State | When | The earlier entry's evidence |
+| --- | --- | --- |
+| inactive | the successor is not in the chain | required, and it must exist |
+| pending | a matching successor that is not approved | may be retired; `pending_supersessions` reports the pair, so the approval gate fails while it lasts |
+| active | a matching, approved successor | retired, and it must be absent |
+
+- **"Matching" means:** exactly once in the chain, in a later slice's record, with the same record and pointer, a `from` equal to the earlier `to`, and evidence of its own that exists.
+- **A pair that does not match has no state.** It is a problem, and it exempts nothing.
+- **A pair beyond the two approved ones** is a problem.
+
+**The synthetic tests,** on records built in memory, never on the frozen ones:
+
+- both pairs inactive with an empty successor record;
+- the historical evidence still required while inactive, for one pair and for both;
+- an earlier entry missing from the chain;
+- a duplicated successor;
+- an unapproved successor reported as pending, never as approved;
+- a successor naming another record, or another pointer;
+- a broken `from`/`to` continuity;
+- missing successor evidence, and a successor naming the earlier evidence;
+- a successor in the same record, or in an earlier one;
+- an active pair whose old test is still present, then the same pair valid once it is retired;
+- a third pair, and a pair with the wrong successor.
+
+**Neutrality results** (Windows, Python 3.14, an absolute `PYTHONPATH`):
+
+| Check | Result |
+| --- | --- |
+| `tests/test_storage_baseline.py` | 54 passed: 2B-3a's 37, the table test and 16 synthetic tests |
+| The approval gate | passes: nothing unapproved, nothing pending |
+| The committed chain | entries per record 3, 9, 0. Both pairs **inactive**; no supersession problem. DD-1 to DD-12 still approved, with their dates unchanged |
+| DD-1 to DD-12's evidence tests | 12 passed. `test_dd5_…` and `test_dd9_…` are still required and pass |
+| `python tests/storage_baseline.py --check` | "baselines match", exit 0: the new empty record adds no difference |
+| The goldens, baselines and settings tests (`test_task_golden.py`, `test_storage_baseline.py`, `test_global_config_storage.py`, `test_repository_settings_storage.py`) | 236 passed, 2 macOS-only skips |
+| Integrity | the 17 task goldens, the six frozen Batch 0A records and the approved 2B-2 and 2B-3a records byte-identical; the 11 owner-protected and 214 protected 2B-3a files unchanged |
+
+**Observations for the owner** (no decision changed):
+
+1. **The table in Phase A.** The gate's part 10 says that in Phase A `SUPERSEDED` is empty. The Phase A authorization asked for both pairs declared and inactive, and that is what was done. The behaviour is the same: an inactive pair exempts nothing, and DD-5's and DD-9's evidence stays required.
+2. **When old evidence is retired.**
+   - **The two texts:** the Phase A authorization says "old evidence retired only in the Active state". The gate's part 6 lets the old test be retired in the pending state, while the approval gate reports the pair.
+   - **What was implemented:** the gate. A retirement is accepted, with every check passing, only once the pair is active, because a pending pair always keeps the approval gate failing.
+   - **The question:** this needs the owner's confirmation before B1, which is where the pending state first occurs. It makes no difference in Phase A. *(Confirmed by the owner on 2026-10-21: the gate's interpretation, as implemented; see the gate's part 6.)*
+
+**What remains:**
+
+1. the owner's review of Phase A, and its commit authorization;
+2. the observation above, confirmed before B1; *(done on 2026-10-21)*
+3. Phases B1 and B2, each separately authorized. B1 holds the mandatory link-race review.
+
+**Still unchanged:**
+
+- **Contracts:** J-2's deferred contract work (the proposed 2B-7).
+- **Risks:** the T-15 policy-contamination limitation, and Batch 3's extension compatibility requirement.
+- **Integration and activation:** US-D29's restrictions; all eight activation blockers.
+- **The version:** 0.1.5.
+- **The register:** 24 APPROVED, 5 OPEN, 6 PROPOSED, 4 DEFERRED.
+
+#### Batch 2B-3b — B1-S security review and the Option A candidate (2026-10-21)
+
+**Status: B1-S3 OPTION A CANDIDATE IMPLEMENTED LOCALLY; ADVERSARIAL SECURITY VALIDATION PENDING; NOT COMMITTED; NOT VERIFIED.**
+
+- **The risk is not resolved.** The suspected time-of-check-to-time-of-use (TOCTOU) race is open until the adversarial tests below exist, pass, and run in CI on Linux, macOS and Windows.
+- **Not started:** Phases B1-M and B2. **Not activated:** Unified Storage.
+- **The state of the work:** on `verify/0.1.6-storage` at `d834082`, in the working tree only. Nothing is staged, committed or pushed.
+
+**B1-S: what the code does** (a static analysis of `d834082`; no probe):
+
+- **Validation:** storage validates a settings or configuration path one component at a time, by path (`_existing`, `_file`: `lstat`, never followed), and returns a *path*. It opens nothing.
+- **Reading, before this change:** every reader then opened that path with a call that follows links:
+  - `instructions.read_text_document` (`read_bytes`), for both instruction scopes, the Verification Policy and AI Behavior;
+  - project settings and the Repository Profile (`read_text`);
+  - Fix Modes of both scopes (`glob`, then `read_text`);
+  - `config.toml` (`read_text`).
+- **The only no-follow read:** storage's private `_read_regular`, for `repository.json`: `O_NOFOLLOW` where the system has it, then the opened file's identity compared with the earlier `lstat`. Its folders are checked by path beforehand.
+- **What follows:** a file, or a folder above it, substituted between the validation and the open would be followed. The readers' own `lstat` checks narrow that window; they do not close it.
+- **Messages:** they name places only in display form and errors by class, so no absolute path is expected. The exposure is the substituted file's content, which can reach `task.md`, the previews, `show` and MCP results.
+
+**Dynamic reproduction: none.**
+
+- **Not performed:** no deterministic link-substitution reproduction was performed in this work, on any system. The race is **suspected, from the code; it is not demonstrated.**
+- **Not claimed:** no remediation result below is evidence that it is closed.
+
+**The Option A candidate.** `bugpilot/core/safe_paths.py` gains `read_verified(path, revalidate, limit, *, shown)`, `VerifiedBytes`, `UnsafeReadError` (an `UnsafePathError`) and `decode_text`. The read goes:
+
+1. **Open:** open the file with `O_NOFOLLOW` and `O_NONBLOCK` where the system has them (Linux, macOS), and `O_BINARY` on Windows.
+2. **Identity from the handle** (`fstat`): a regular file with a file index. A file index of 0 is refused.
+3. **Check again:** run the caller's own checked accessor again, which walks the place again and refuses a link. It must name the same path. Then `lstat` the path: a regular file, not a link or name-surrogate reparse point, with the handle's identity.
+4. **Read:** from the handle only, up to the limit.
+
+- **What it establishes:** the bytes come from the file that, when step 3 ran, was the regular file at the path, reached through folders that were not links when they were walked again.
+- **What it does not establish:** the folders are not held open. **It does not prove that no folder changed while it ran**, and it is not a guarantee by construction.
+- **A missing file** is the defaults only where the accessor accepts the place and no dangling link is at the name.
+
+**The readers changed** (each existing pre-check, warning and default kept):
+
+| File | Reader | Checked again through |
+| --- | --- | --- |
+| `instructions.py` | `read_instructions`, both scopes, via the new `read_verified_document` | `repository_settings.settings_file`; `GlobalStorage.user_instructions_file` |
+| `project_settings.py` | `load_project_settings` | `repository_settings.read_bytes` → `settings_file` |
+| `repository_profile.py` | `load_repository_profile` | the same |
+| `fix_mode_store.py` | `_load_file`, both scopes | `scope_dir` |
+| `user_config.py` | `_read_config` (`config.toml`) | `GlobalStorage.config_file` |
+| `repository_settings.py` | the new `read_bytes` helper | — |
+
+**Not changed:**
+
+- **Verification Policy and AI Behavior:** `verification.py` and `ai_behavior.py` still read `<repository>/.bugpilot/` with `read_text_document`, whose behaviour is unchanged. B1-M decides their reader.
+- **Protected modules:** `storage.py`, `errors.py`, `_isolation.py` and every other protected module.
+
+**The error and fallback contract:**
+
+| Situation | Behaviour |
+| --- | --- |
+| A legitimate file | read as before: the same text, the same warnings and parse errors |
+| No file, at a safe place | the defaults; nothing created |
+| A file that is not the checked one; an unknown identity (a file index of 0); a link at the name | `UnsafeReadError`: one sentence, display path only, `INVALID_INPUT` on the CLI (text and JSON) and in MCP. **Never the defaults** |
+| The accessor's own refusal while checking again | as before: `StorageError` (`INVALID_INPUT`) or `StorageAccessError` |
+| A genuine read failure (no permission, in use, a folder at the name) | each reader's existing handling: a non-fatal warning or problem, or `StorageAccessError` for `config.toml` |
+
+**The tests:**
+
+- **New: `tests/test_settings_read_safety.py`, 27 tests, all non-adversarial.**
+  - legitimate reads in every changed reader;
+  - missing files are the defaults and create nothing;
+  - reads write nothing;
+  - limits, line endings and decoding as `Path.read_text` gave;
+  - a stubbed identity mismatch, and a file index of 0, are refused;
+  - a refusal is never the defaults, and names no absolute path;
+  - the open flags.
+- **What the new file does not cover:** it substitutes no link while a read runs.
+- **Two existing tests, adapted with the owner's approval:** only their injection point moved, from `Path.read_bytes`/`read_text` to a narrowly targeted `os.open`. Each now also asserts that its injected failure happened, and every original assertion is unchanged:
+  - `tests/test_global_config_storage.py::test_unreadable_user_instructions_are_left_out_with_a_problem_not_an_error`;
+  - `tests/test_repository_settings_storage.py::test_row10_a_settings_file_that_cannot_be_read_is_a_warning_naming_no_absolute_path`.
+
+**Local results** (Windows 11, NTFS, Python 3.14, an absolute `PYTHONPATH`):
+
+- **The full Windows Python suite:** **3,851 passed, 59 skipped, 0 failed, 0 errors, 0 deselected**, exit 0, in 28 minutes.
+  - Against 2B-3a's fresh run (3,807 passed), 44 more pass: the 17 Phase A baseline tests and the 27 new read-safety tests.
+  - The skips are the same 59 platform skips, none counted as passed.
+- **Focused runs:**
+
+  | Group | Result |
+  | --- | --- |
+  | the new read-safety tests | 27 passed |
+  | the two adapted tests | 2 passed |
+  | the readers' test files and both adapted files | 271 passed, 2 skipped |
+  | storage security and file safety | 568 passed, 57 skipped |
+  | MCP | 100 passed |
+  | the baselines, the approval gate and the goldens | 173 passed |
+  | `python tests/storage_baseline.py --check` | "baselines match" |
+  | inventory, unused symbols, the import boundary and publishability | 37 passed |
+
+- **Not run:** the extension suite, which is unchanged.
+- **What these results show:** every local test passes. They are not evidence about the race.
+
+**Protected files:**
+
+- 11/11 owner-protected files unchanged;
+- 213/213 non-exempt Batch 2B-3a protected files unchanged;
+- `safe_paths.py` changed, under the explicit B1-S3 authorization.
+
+The 17 task goldens, the six frozen Batch 0A records and the approved 2B-2 and 2B-3a records are byte-identical. The 2B-3b record is still empty, and DD-5 and DD-9 are inactive.
+
+**Per-system limits:**
+
+- **Windows:**
+  - there is no `O_NOFOLLOW`. A link at the name is opened, then refused, because its `lstat` is a link with another identity: detection, not prevention;
+  - junctions and symbolic links are judged by the reparse tag (`is_link_stat`);
+  - a data folder on a file system that reports no file index (0) refuses every settings read: fail closed, and a compatibility risk to record.
+- **Linux and macOS:** `O_NOFOLLOW` and `O_NONBLOCK` are in the open flags. **Nothing ran on these systems.** CI is required.
+
+**Still missing before the security gate can close:**
+
+- **Adversarial tests** for each changed reader and each system:
+  - a file replaced by a link after validation;
+  - `settings/` replaced;
+  - an ancestor (the namespace, `repositories/`) replaced;
+  - a replacement undone before the check;
+  - Windows junctions and reparse points.
+
+  Each must show that no sentinel content and no absolute path reaches `task.md`, the previews, the CLI, MCP or `bugpilot.log`.
+- **A CI run:** an owner-dispatched run, 9/9.
+- **The owner's review** of the candidate, and of whether a stronger design (B or C, a change to `storage.py`) is needed.
+
+**Unchanged:** the decision register (24 APPROVED, 5 OPEN, 6 PROPOSED, 4 DEFERRED), every DD approval, US-D29, the eight activation blockers and the version, 0.1.5.
+
+#### Batch 2B-3b — Option C M1: the storage safe-read foundation (2026-10-21)
+
+**Status: OPTION C M1 IMPLEMENTED LOCALLY; CONSUMER MIGRATION PENDING; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED.** *(Later, 2026-10-23: committed in `e789ce2`, corrected for Windows in `14528ff`, and CROSS-PLATFORM CI VERIFIED by run 40039289638 (9/9); M3 still OPEN, the race not resolved; see "Batch 2B-3b — Option C: cross-platform CI verification (2026-10-23)".)*
+
+- **What M1 is:** the storage side of Option C.
+  - The owner chose Option C after the B1-S review (B1-S4).
+  - Its design was gated and probed on Windows (B1-S5), and its first milestone, M1, was authorized (B1-S6).
+  - M1 adds readers to `storage` and nothing else: **no consumer uses them yet**. Every settings reader still reads as the previous section describes.
+- **Not claimed:** the suspected link race is **not resolved**. No adversarial test was written; that suite is the M3 gate.
+- **The state of the work:**
+  - on `verify/0.1.6-storage` at `d834082`, in the working tree only;
+  - beside the uncommitted Option A candidate, which is kept whole;
+  - nothing is staged, committed or pushed.
+
+**Files** (the M1 allowlist):
+
+| File | Change |
+| --- | --- |
+| `bugpilot/core/storage.py` | `SettingsContent`, seven readers, `_held_record_state`; `_record_verdict` factored out of `_record_state`, whose behaviour is unchanged |
+| `bugpilot/core/_held_folders.py` (new) | The held walk: descriptor-relative opens on POSIX, held handles on Windows. It knows nothing of the layout and does not import `storage` |
+| `tests/test_storage_held_read.py` (new) | 73 tests: 72 run on Windows; 1, POSIX-only, skipped |
+
+**The API.** Every reader returns `SettingsContent(state, data)`. The state is `present`, `absent`, `too_large`, `not_a_file` or `link`.
+
+- `RepositoryStorage`: `read_settings(name, *, limit)`, `fix_mode_names()`, `read_fix_mode(file_name, *, limit)`.
+- `GlobalStorage`: `read_user_instructions(*, limit)`, `user_fix_mode_names()`, `read_user_fix_mode(file_name, *, limit)`, `read_config(*, limit=None)`.
+
+**The rules:**
+
+- **The same checks, in the same order and words, as each path accessor:**
+  1. the name;
+  2. containment and the Git working tree;
+  3. every folder on the way;
+  4. then, for a repository, the identity record.
+
+  The tests compare each refusal message with the path accessor's.
+- **`link` is a state only for a Fix Mode file**, as the existing non-fatal issue. A link at any other file is still a `StorageError`, and so is any link or non-folder on the way.
+- **Never `absent` by mistake:**
+  - a component that cannot be opened is judged by what is there, never taken as missing;
+  - a sharing violation is an `OSError`, retried by `_transient`.
+- **The identity record:**
+  - it is opened as itself in the held namespace;
+  - it gets the same verdicts as `_record_state`;
+  - it uses the same request-scope key and signature, so a verdict from either path counts for the other.
+- **A system without the primitives:** refused in one sentence (`StorageError`), and never read the old way.
+- **No path in an error:** an `OSError` from the held walk carries only the system's error number and text.
+- **Fix Mode file names:**
+  - a plain name ending in `.json`, compared with `normcase` as the `*.json` glob was;
+  - refused, and not repeated in the message, if it has a separator, `.` or `..`, a NUL, or (on Windows) `:`.
+
+**POSIX:**
+
+- **The data root** is opened as itself, following a link (owner decision B4-2).
+- **Each component** is opened relative to its parent's descriptor, with `O_NOFOLLOW` and `O_CLOEXEC`, and `O_DIRECTORY` for a folder.
+- **A file** also gets `O_NONBLOCK` and `O_NOCTTY`. It is checked with `fstat` and read from its descriptor.
+- **Listing:** `scandir` on the folder's descriptor.
+
+**Nothing ran on Linux or macOS.**
+
+**Windows** (documented Win32, through `ctypes`):
+
+- **Folders** are opened with `FILE_FLAG_OPEN_REPARSE_POINT`, `FILE_FLAG_BACKUP_SEMANTICS` and list access. They share read and write but not delete, so they cannot be renamed or deleted during the read.
+- **A child:**
+  - opened by a name built from its held parent's `GetFinalPathNameByHandleW` path;
+  - its own final path must equal the parent's plus its name;
+  - otherwise it is refused ("changed while it was being read").
+- **Types** come from the handle (`FileAttributeTagInfo`):
+  - a name-surrogate reparse tag, or no tag, is a link;
+  - any other reparse tag is refused as unsupported.
+- **Files** share read, write and delete, and are read through `msvcrt.open_osfhandle`.
+- **Listing** goes through the held handle (`FileFullDirectoryInfo`).
+- **Auditing:** each native open raises Python's `open` audit event, as `os.open` does.
+
+**What Windows relies on without proof:**
+
+- **Above the data root:** the data root's ancestors are governed by B4-2.
+- **Parent renames:** that a held folder's parent cannot be renamed was observed in B1-S5, not documented. If it ever happens, the final-path check fails closed.
+- **Hard links:** a hard-linked file reports the link it was opened by (observed). Anything else would fail closed.
+- **Untested, local NTFS only:**
+  - network shares;
+  - other file systems;
+  - cloud placeholders;
+  - files that are reparse points without a name-surrogate tag. These are refused.
+
+**A finding: atomic writers on Windows.**
+
+- **What happens:** on NTFS, `os.replace` onto a file a reader holds open is refused, even when delete is shared. `atomic_write_text` then writes in place, which the reader may see.
+- **Not new:** Python's own `open()`, which today's readers use, shares no delete at all.
+- **Not blocking:** the writer still succeeds.
+
+**For the consumer migration to decide** (M1 changes none of these, because no consumer uses the new readers):
+
+- **A data root that is a file:** the new readers refuse it. The path accessors return a path that does not exist.
+- **Folder permissions:** the held walk opens each folder, so it needs read access where the path walk needed only search access.
+- **A file that cannot be opened:** the new readers raise an `OSError` for the consumer to map. Today each consumer maps the error from its own read.
+
+**Local results** (Windows 11, NTFS, Python 3.14.6, an absolute `PYTHONPATH`):
+
+- **The full Windows Python suite:** **3,923 passed, 60 skipped, 0 failed, 0 errors**, exit 0, in 27 minutes.
+  - Against B1-S3's run (3,851 passed, 59 skipped), 72 more pass: the new tests that run on Windows.
+  - The one new skip is the POSIX-only test. The other 59 are the same platform skips, none counted as passed.
+- **Focused runs:**
+
+  | Group | Result |
+  | --- | --- |
+  | the new held-read tests | 72 passed, 1 skipped (POSIX only) |
+  | storage identity, safety, scope, witness, containment, file safety, private folders, the isolation guard, the MCP request scope, both settings-storage files and the B1-S3 read-safety tests | 804 passed, 59 skipped |
+  | the import boundary, unused symbols, the inventory and publishability | 37 passed |
+  | the baselines, the approval gate, the task goldens and the prompt-boundary suites | 392 passed |
+  | `python tests/storage_baseline.py --check` | "baselines match" |
+  | the plan checker | 0 problems |
+  | `git diff --check` | clean |
+
+- **Not run:** the extension suite, which is unchanged.
+- **What these results show:** every local test passes, and the new readers behave as specified on Windows. They are not evidence about the race.
+
+**Protected files and records:**
+
+- **Owner-protected files:** 11/11 unchanged.
+- **The 2B-3a protected set:** 212 of 214 unchanged. `storage.py` changed under the M1 authorization, and `safe_paths.py` under B1-S3's.
+- **The B1-S3 candidate:** its 11 files unchanged.
+- **Goldens and records:** 25 files byte-identical: the 17 task goldens, the six frozen Batch 0A records, and the approved 2B-2 and 2B-3a records.
+- **The 2B-3b record:** unchanged and still empty. DD-5 and DD-9 are still inactive.
+- **`storage_baseline.py --check`:** "baselines match".
+
+**Unchanged:**
+
+- US-D29;
+- the eight activation blockers of this section;
+- J-2 and T-15;
+- the Batch 3 compatibility requirement (E-7);
+- every DD approval;
+- the decision register: 24 APPROVED, 5 OPEN, 6 PROPOSED, 4 DEFERRED;
+- the version, 0.1.5.
+
+**Still to come:**
+
+- **Consumer migration:** moving these readers onto the new API, each on the owner's authorization:
+  - instructions;
+  - project settings;
+  - the Repository Profile;
+  - Fix Modes of both scopes;
+  - `config.toml`.
+- **Removing the Option A candidate**, on the owner's authorization.
+- **The adversarial suite:** the M3 gate.
+- **CI** on Linux, macOS and Windows.
+
+#### Batch 2B-3b — Option C M2: consumer migration (2026-10-22)
+
+**Status: OPTION C M2 IMPLEMENTED LOCALLY; FOCUSED VERIFICATION STOPPED ON ONE EXISTING TEST THAT AWAITS THE OWNER'S APPROVAL; FULL SUITE NOT RUN; DD-27 PROPOSED, NOT APPROVED; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED.** *(Later, 2026-10-23: committed in `e789ce2`, corrected for Windows in `14528ff`, and CROSS-PLATFORM CI VERIFIED by run 40039289638 (9/9); M3 still OPEN, the race not resolved; see "Batch 2B-3b — Option C: cross-platform CI verification (2026-10-23)".)*
+
+- **The suspected link race is not resolved.** Nothing here is adversarial evidence; that is the M3 gate.
+- **The state of the work:** on `verify/0.1.6-storage` at `d834082`, in the working tree only, on top of the uncommitted M1 work. Nothing is staged, committed or pushed.
+- **Unchanged:**
+  - B1-M and B2 are NOT STARTED, and Unified Storage is inactive;
+  - the version is 0.1.5;
+  - the Batch 2B-3b designed-difference record is still empty.
+
+**The M1 compatibility gate (2026-10-22, read-only).** A review of M1 before any consumer used it, with probes on synthetic temporary files only.
+
+- **Windows atomic writes, observed:**
+  - `os.replace` onto a file that any reader holds open fails (WinError 5), whatever the reader shares;
+  - `atomic_write_text` writes in place once a hold lasts past its retries (about 150 ms), identically for the 0.1.5 reader and the M1 reader;
+  - holding only the folders never forces that fallback;
+  - torn reads were observed with the 0.1.5 reader under stress.
+
+  This is pre-existing, documented behaviour (`artifact_io`, T-S8). The zero-torn-write guarantee is POSIX's only. M1 shares delete, which lets a file be deleted, or replaced by a POSIX-semantics rename, while it is read; the latter would be a writer change and needs its own decision.
+- **The consumers' contracts:** measured on the committed tree (`d834082`) for absent, non-regular, oversized, invalid UTF-8, malformed and locked files, for every consumer below.
+- **POSIX:** analysed only. No Linux or macOS ran.
+- **Six decisions requested:** the gate asked the owner for six decisions before M2. The answers are below.
+
+**The owner's decisions (M2 authorization, 2026-10-22):**
+
+| Gate item | Decision |
+| --- | --- |
+| (a) a folder's failure and the file's own failure were one `OSError` | a narrow exception for the final file's own open or read; a folder on the way stays fatal (§4 of the authorization) |
+| (b) the Fix Mode link wording | one safe, sanitized issue for every link entry, never following a link to choose words; a before/after proposal, not approved (5.5) |
+| (c) a data root that is a regular file | fails closed; recorded as a behaviour change (5.1) |
+| (d) POSIX folders need read as well as search permission | accepted and recorded; Linux and macOS verification required, search-only folders included; no path-based fallback (5.2) |
+| (e) non-link reparse points | refused; no cloud placeholder is followed and there is no unverified fallback (5.3) |
+| (f) the test injection points | the two existing permission-error tests may move to the held-folder seam (§7) |
+| also | the data root opened reliably or failing closed (5.4); invalid UTF-8 Fix Modes kept as they are, the defect recorded separately (5.6); the writer and its Windows fallback unchanged (5.7) |
+
+**Changes** (the M2 allowlist; nothing else changed):
+
+| File | Change |
+| --- | --- |
+| `storage.py` | `StorageFileReadError(OSError)`: raised by the held readers only for the final file's own open or read. It carries the original's number, `os.strerror`'s text and the original (`error`), never a path. A file in use is retried as before. The Fix Mode readers' `limit` is typed `int \| None`. No write, identity or cache change |
+| `_held_folders.py` | The data root is opened by its `\\?\` form (the audit event names the plain path) and is absent only for Windows' own not-found codes 2 and 3. A handle query the file system cannot answer (1, 50, 87) is `Unsupported` |
+| `repository_settings.py` | `read_settings`, `fix_mode_names`, `read_fix_mode` through storage's held readers. `guarded()` passes the file's own failure through (`FileReadError`, re-exported for the readers that may not import storage). Option A's `read_bytes` is removed |
+| `instructions.py` | Both scopes read through storage, the user scope wrapped by `guarded()` too; `read_text_document`'s rules applied to the result. `read_text_document` itself is unchanged (the Verification Policy and AI Behavior, not migrated) |
+| `project_settings.py` | One storage read gives the settings, their warnings and the saved state. `is_saved`, whose one caller now uses that read, is removed |
+| `repository_profile.py` | Read through storage, with the same defaults and warnings |
+| `fix_mode_store.py` | Storage-owned scopes are listed and read through storage. A listed file gone before its read keeps "is not a file.", every link entry is one issue, and invalid UTF-8 still stops the catalog. The test-only `home_dir` folder keeps 0.1.5's path read |
+| `user_config.py` | `config.toml` read through storage. A folder at its name keeps its sentence and error class; folder failures are one sentence |
+| `safe_paths.py` | Option A's verified read removed; `decode_text` (decoding and line endings as `Path.read_text` gave them) kept |
+
+**How each reader handles each state:**
+
+| State | Instructions | Project settings | Repository Profile | Fix Mode file | `config.toml` |
+| --- | --- | --- | --- | --- | --- |
+| absent | none | defaults | Auto-detect | (not listed) or "is not a file." | empty |
+| not a regular file | "it is not a regular file." | defaults, silent | Auto-detect, silent | "is not a file." | `StorageAccessError` (PermissionError on Windows, IsADirectoryError on POSIX) |
+| too large | the size problem | warning, defaults | warning, Generic | (no limit) | (no limit) |
+| the file's own `OSError` | "it could not be read (…)" | warning, defaults | warning, Generic | issue | `StorageAccessError` |
+| a folder's `OSError` | `StorageAccessError` | `StorageAccessError` | `StorageAccessError` | `StorageAccessError` | `StorageAccessError` |
+| a refusal | `StorageError` | `StorageError` | `StorageError` | `StorageError` (a link entry: an issue) | `StorageError` |
+| malformed | "not UTF-8" | warning with the parser's message | warning, Generic | "is not valid JSON"; invalid UTF-8 raises, as before | replacement characters |
+
+- **Parity:** a probe ran the same 33 synthetic cases through the committed consumers and the M2 consumers. 32 were byte-identical: wording, error classes, the JSON error positions (CRLF translated), the Windows "Permission denied" text, and the preserved invalid-UTF-8 failure. The one difference is the link issue (DD-27).
+- **Found and fixed during M2:** Python files Windows errors 206 (a name too long), 53 and 67 (an unreachable network path) under `FileNotFoundError`. The data root's own open had caught that class as "absent"; it now goes by Windows' own code, so these fail closed.
+
+**Proposed designed difference DD-27 (NOT APPROVED).** Every link entry among a storage-owned scope's Fix Modes gets one issue, never followed to choose its words. *(Later on 2026-10-22: approved by the owner exactly as worded; §14.3, "Batch 2B-3b — Option C M2: Row 1 repair, DD-27 approval and verification".)*
+
+| Link kind | Committed issue | M2 issue |
+| --- | --- | --- |
+| symbolic link to a regular file | `<name> is a symbolic link. Custom Fix Modes must be real files inside their scope directory.` | `<name> is a symbolic link or junction. Custom Fix Modes must be real files inside their scope directory.` |
+| symbolic link to a folder | `<name> is not a file.` | the same M2 issue |
+| dangling symbolic link | `<name> is not a file.` | the same M2 issue |
+| junction (Windows) | `<name> is not a file.` | the same M2 issue |
+
+- **Surfaces affected:**
+  - the CLI's `fix-mode list` JSON (`issues[].message`);
+  - its text-mode `WARN:` line;
+  - MCP `list_fix_modes` (`issues[].message`);
+  - the extension's Manage Fix Modes, which shows the CLI's issues.
+- **Not affected:**
+  - task goldens and frozen records, none of which holds these messages;
+  - one mode read by its id, which `mode_path`'s unchanged containment check refuses first, as before. *(Correction, 2026-10-22: only for a link that resolves outside the folder. A link to a sibling inside it is read through storage and gets the DD-27 issue; this is not approved; §14.3, "Batch 2B-3b — Option C M2: Row 1 repair, DD-27 approval and verification".)*
+- **Test assertions:** none pins the committed wording for a storage-owned scope. `tests/test_fix_mode_store.py:284` checks the substring "symbolic link" on the test-only `home_dir` path, which is unchanged and passes. The new tests refer to the store's constant, not to the wording.
+- **Supersedes:** no approved designed difference.
+- **Record:** the 2B-3b record stays empty. The proposed identifier follows E-8's DD-13 to DD-26, and its form of record is the owner's to set.
+
+**Pre-existing defect, recorded separately (not fixed, decision 5.6).** A Fix Mode file that is not valid UTF-8 raises an uncaught `UnicodeDecodeError` out of the whole catalog, instead of being one issue. This is so in `d834082` and unchanged by M2.
+
+**Tests** (the M2 allowlist):
+
+- **`tests/test_settings_read_safety.py`:** rewritten from Option A to Option C, 61 tests, all non-adversarial. They cover:
+  - every consumer's legitimate reads, absence and defaults;
+  - final-file failures and folder-chain failures;
+  - refusals (links, unsupported reparse points, a system without the primitives, a record naming another repository);
+  - the CLI (JSON and text) and an MCP tool, with no bare `OSError`;
+  - a Fix Mode listed and gone before its read;
+  - every link kind among the Fix Modes;
+  - the saved state from one read;
+  - JSON error positions, and Windows' exclusive locks.
+- **`tests/test_storage_held_read.py`:** the in-use test now expects `StorageFileReadError`. 12 tests are added (85 in all):
+  - the file's failure told apart from a folder's;
+  - a file in use retried;
+  - the data root's long form and its audit path;
+  - a real data root longer than `MAX_PATH`;
+  - a data-root open failure that is never "absent";
+  - handle queries a file system cannot answer, refused (6 combinations);
+  - any other failed query kept as the system's error.
+- **The two approved moves:**
+  - `tests/test_global_config_storage.py::test_unreadable_user_instructions_are_left_out_with_a_problem_not_an_error`;
+  - `tests/test_repository_settings_storage.py::test_row10_a_settings_file_that_cannot_be_read_is_a_warning_naming_no_absolute_path`.
+
+  Each injection now goes to the held folder's `open_file`. The original assertions are unchanged, and each test proves its injection fired.
+
+**Local results** (Windows 11, NTFS, Python 3.14.6, an absolute `PYTHONPATH`):
+
+| Group | Result |
+| --- | --- |
+| consumers and MCP (Fix Mode suites, instructions, project settings, Repository Profile, both settings-storage files, read safety, three MCP suites) | 679 passed, 2 skipped (macOS only), **1 failed** (below) |
+| storage, identity, containment, file safety, private folders, the isolation guard, held reads, the import boundary, unused symbols, the inventory, publishability | 755 passed, 57 skipped (POSIX only) |
+| the baselines, the approval gate, the task goldens, the prompt-boundary and context-boundary suites | 573 passed |
+| `python tests/storage_baseline.py --check` | "baselines match" |
+| the plan checker | 0 problems |
+| `git diff --check` | clean |
+| the full Windows suite | **not run**: the authorization runs it only after focused verification passes |
+
+- **The skips:** POSIX- and macOS-only tests, none counted as verified.
+- **What these results show:** nothing about the race.
+
+**The one failing test, a stop condition, awaiting the owner:** `tests/test_repository_settings_storage.py::test_row1_an_unreadable_record_is_one_sentence_with_each_surfaces_code`, at its first assertion: `(code, json.loads(out)) == (1, _failure("project-settings", "INTERNAL_ERROR", sentence))`.
+
+- **The cause:** its fixture `unreadable_record` injects the record's failure at `storage._read_regular`, the 0.1.5 path read. The migrated readers check the identity record in the held namespace (`_held_record_state`), so the injection never fires.
+- **It is not a behaviour change:** a scratch run with the same injection at the held seam gave the expected exit 1, `INTERNAL_ERROR`, the same sentence, and the text-mode `ERROR:` line with no traceback.
+- **What is needed:** the owner's approval to move the fixture's injection to the held folder's `open_file` for `repository.json`, with a fired-assertion, the test's assertions unchanged. Only then can the full Windows suite run.
+
+**Protected files and records:**
+
+- **Owner-protected files:** 11/11 unchanged.
+- **The 2B-3a protected set:** 212 of 214 unchanged; `storage.py` (M1, M2) and `safe_paths.py` (B1-S3, M2) changed by authorization.
+- **Goldens and records:** the 17 task goldens, the six frozen Batch 0A records, and the 2B-2 and 2B-3a records are byte-identical.
+- **The 2B-3b record:** unchanged and empty. DD-5 and DD-9 are still inactive.
+- **Changed files:** exactly the nine production and four test files allowed.
+
+**Outstanding before commit:**
+
+- **POSIX, never run:**
+  - descriptor-relative opens;
+  - folders that are search-only (the new read-permission requirement, decision (d)), read-only, and unreadable;
+  - a permission-denied file;
+  - the open-descriptor count;
+  - macOS's error codes for `O_DIRECTORY|O_NOFOLLOW` on a link;
+  - a `config.toml` folder (IsADirectoryError).
+- **Windows compatibility limits:**
+  - **Not exercised:** FAT and exFAT, ReFS, SMB and network shares, and a data root without `LongPathsEnabled` (now opened by its long form).
+  - **Refused:** cloud, deduplicated and compressed files (non-link reparse points). A data root inside OneDrive would stop working.
+  - **The writer:** the atomic writer's Windows in-place fallback is unchanged. No zero-torn-write safety is claimed on Windows.
+- **The adversarial suite (M3), for each migrated reader on each system:**
+  - a file replaced by a link after validation;
+  - `settings/`, `config/` or `fix_modes/` replaced;
+  - an ancestor (the namespace, `repositories/`) replaced;
+  - a replacement undone;
+  - Windows junctions and reparse points.
+
+  Each case must show that no sentinel content and no absolute path reaches `task.md`, the previews, the CLI, MCP or `bugpilot.log`.
+- **CI:** an owner-dispatched run, 9/9.
+- **The owner's decisions:** DD-27, the row-1 injection move, and the commit.
+
+#### Batch 2B-3b — Option C M2: Row 1 repair, DD-27 approval and verification (2026-10-22)
+
+**Status: OPTION C M2 IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; DD-27 APPROVED; A SINGLE-MODE READ FINDING AWAITS THE OWNER; ADVERSARIAL VALIDATION PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED.** *(Later, 2026-10-23: committed in `e789ce2`, corrected for Windows in `14528ff`, and CROSS-PLATFORM CI VERIFIED by run 40039289638 (9/9); M3 still OPEN, the race not resolved; see "Batch 2B-3b — Option C: cross-platform CI verification (2026-10-23)".)*
+
+- **The link-race security gate stays OPEN.** These are non-adversarial Windows tests, and they are no evidence that the race is closed. The adversarial suite (M3) is mandatory.
+- **Pending:** Linux and macOS verification.
+- **Unchanged:**
+  - B1-M and B2 are NOT STARTED, and Unified Storage is inactive;
+  - the version is 0.1.5.
+- **The state of the work:** on `verify/0.1.6-storage` at `d834082`, in the working tree only. Nothing is staged, committed or pushed.
+
+**The owner's authorization (2026-10-22):**
+
+- the repair of the Row 1 test's injection point;
+- the exact designed difference DD-27;
+- the local verification that follows.
+
+No commit, push or CI.
+
+**The Row 1 repair.** The test is `tests/test_repository_settings_storage.py::test_row1_an_unreadable_record_is_one_sentence_with_each_surfaces_code`. Its injection is in that file's fixture `unreadable_record`, which no other test uses.
+
+- **What the fixture does now:** it refuses `repository.json`, and only it, at both of the record's readers:
+  - storage's path read (`_read_regular`), which the writers' checks (`ensure()` through `_record_state`) still use, as before;
+  - the held folder's `open_file`, where the settings readers open it (M2).
+
+  `install()` returns how often each refusal was made, and the test now ends by asserting that both fired. Every earlier assertion is unchanged: the exit codes, the error codes, the one-sentence messages, text mode with no traceback, the MCP sentences, the redaction, and the unchanged tree. `monkeypatch` restores everything.
+- **Why both readers, not the held one alone:** replacing the injection with the held seam alone was tried first, and the test then failed.
+  - `project-settings set --from-file` returned `INTERNAL_ERROR` with the bare sentence, not `INVALID_INPUT` with `--from-file could not be read: …`.
+  - The `set` handlers check the record by its path inside their own error wrapper, and that check then passed. The failure only surfaced later, outside the wrapper.
+  - A record that cannot be read fails both readers, so both are refused.
+- **What did not change:** no production code and no other test function.
+- **Results:** the test passes alone and in its file (41 passed, 2 skipped, macOS only).
+
+**DD-27 — APPROVED by the owner on 2026-10-22, exactly as worded.** An individual Fix Mode entry, in a storage-owned scope, that is a symbolic link, a directory link, a dangling link or a Windows junction gets one issue:
+
+`<name> is a symbolic link or junction. Custom Fix Modes must be real files inside their scope directory.`
+
+| Link kind | Before (`d834082`) | DD-27 |
+| --- | --- | --- |
+| symbolic link to a regular file | `<name> is a symbolic link. Custom Fix Modes must be real files inside their scope directory.` | the DD-27 issue |
+| symbolic link to a folder | `<name> is not a file.` | the DD-27 issue |
+| dangling symbolic link | `<name> is not a file.` | the DD-27 issue |
+| Windows junction | `<name> is not a file.` | the DD-27 issue |
+
+- **Rules:** the link is never followed to classify it. No public error code or JSON field changes.
+- **Approved surfaces:**
+  - `fix-mode list` JSON (`issues[].message`);
+  - `fix-mode list` text-mode `WARN:` lines;
+  - MCP `list_fix_modes`;
+  - the extension's Manage Fix Modes, through the message the CLI returns.
+- **Not approved:** any change to single-mode reads (below).
+- **Evidence:**
+  - `tests/test_settings_read_safety.py::test_every_link_among_the_fix_modes_is_one_issue_and_never_followed` covers a symbolic link to a file, to a folder and dangling, plus a Windows junction. It compares each issue with the store's `_LINK_ISSUE`, whose text was checked to equal the approved wording exactly. Its assertion names the constant rather than the words, so pinning the literal wording is a recommended follow-up, which needs the owner's approval of that test change.
+  - A probe observed the approved text on each surface: the JSON issue (its `scope`, `path` and `message` fields unchanged, exit 0), the `WARN:` line, and MCP `list_fix_modes`.
+- **Relationship to the DD records:**
+  - DD-27 changes no value in any compared baseline record. No record holds a Fix Mode link issue; the baseline scenario lists no link entry.
+  - The 2B-3b record's entries must be exact JSON-pointer `from`/`to` pairs over those records, so under its rules DD-27 has no entry. The record stays empty, and `storage_baseline.py --check` reports "baselines match".
+  - No historical DD record is edited, DD-27 supersedes none, and DD-5 and DD-9 stay inactive.
+- **Pending cross-platform validation:** the symbolic-link kinds on Linux and macOS (only Windows, with symbolic links enabled, ran).
+
+**Finding: single-mode reads of links inside the Fix Mode folder changed. NOT APPROVED; the owner's decision is needed.** *(Later on 2026-10-22: approved as DD-28 for `fix-mode show`, `update` and `delete`. `duplicate`, named below in error, reads no mode by its id and is unchanged; §14.3, "Batch 2B-3b — Option C M2: DD-28 approval and exact-message evidence".)* One mode read by its id (`FixModeStore.read`, through `fix-mode show`, `update`, `delete` and `duplicate`) is still refused first by `mode_path`'s containment check when the link resolves outside the folder. A link to a sibling *inside* the folder passes that check. M2 then reads it through storage, which reports the DD-27 issue.
+
+| In-folder link | Before (`d834082`), observed | M2, observed |
+| --- | --- | --- |
+| to a sibling file | `<name> is a symbolic link. Custom Fix Modes must be real files inside their scope directory.` | the DD-27 issue |
+| to a sibling folder | `<name> is not a file.` | the DD-27 issue |
+| dangling, to a sibling name | `No project Fix Mode '<id>'. Run: bugpilot fix-mode list --all-scopes` (`FixModeNotFoundError`) | the DD-27 issue (`FixModeError`) |
+| a junction to a sibling folder | `<name> is not a file.` | the DD-27 issue |
+
+- **Observed through `fix-mode show <id> --scope project --json`:** exit 1 and `INVALID_INPUT` in both trees. The change is message-only; no error code or JSON field changes.
+- **Why it cannot simply be restored:** the earlier wording came from following the link (`exists()`, `is_file()`), which the approved rule forbids.
+- **The options are the owner's:**
+  - approve it as a further designed difference (proposed DD-28, not approved);
+  - or choose another single-mode behaviour that follows no link.
+- **No production change was made for it.**
+- **Correction:** the M2 section above said single-mode reads were unaffected. That holds only for links that resolve outside the folder.
+
+**Local verification** (Windows 11, NTFS, Python 3.14.6, an absolute `PYTHONPATH`):
+
+| Group | Result |
+| --- | --- |
+| the repaired Row 1 test, alone | 1 passed |
+| its file, `tests/test_repository_settings_storage.py` | 41 passed, 2 skipped (macOS only) |
+| consumers, MCP and the DD-27 evidence (Fix Mode suites, instructions, project settings, Repository Profile, both settings-storage files, read safety, three MCP suites) | 680 passed, 2 skipped (macOS only) |
+| storage security, identity, containment, file safety, private folders, the isolation guard, held reads, the import boundary, unused symbols, the inventory, publishability | 755 passed, 57 skipped (POSIX only) |
+| the baselines and approval gate, the task goldens, the prompt-boundary and context-boundary suites | 573 passed |
+| `python tests/storage_baseline.py --check` | "baselines match" |
+| the plan checker | 0 problems |
+| `git diff --check` | clean |
+| **the full Windows Python suite** | **3,969 passed, 60 skipped, 0 failed, 0 errors, 0 deselected**, exit 0, in 24 minutes. Against M1's run (3,923 passed, 60 skipped), 46 more pass: M2's new tests (34 more in the read-safety file, 12 in the held-read file); the 60 skips are the same platform skips |
+
+- **The skips:** platform skips, none counted as verified.
+- **What these results show:** nothing about the race.
+
+**Integrity:**
+
+- **Owner-protected files:** 11/11 unchanged.
+- **The 2B-3a protected set:** 212 of 214 unchanged. `storage.py` and `safe_paths.py` are the documented, authorized exceptions.
+- **Goldens and records:** the 17 task goldens, the six frozen Batch 0A records, and the 2B-2 and 2B-3a records are byte-identical.
+- **The 2B-3b record:** unchanged and empty, as its rules require for DD-27. DD-5 and DD-9 are inactive.
+- **This step's changes:** one test file, `tests/test_repository_settings_storage.py` (the fixture and the one test), and this plan.
+
+**Still required before commit:**
+
+- the owner's decision on the single-mode read finding;
+- Linux and macOS verification, including search-only folders and the symbolic-link kinds;
+- the adversarial suite (M3);
+- an owner-dispatched CI run, 9/9;
+- the owner's commit authorization.
+
+#### Batch 2B-3b — Option C M2: DD-28 approval and exact-message evidence (2026-10-22)
+
+**Status: OPTION C M2 VERIFIED LOCALLY ON WINDOWS; DD-27 AND DD-28 APPROVED AND EVIDENCED; TOCTOU RISK UNRESOLVED; ADVERSARIAL VALIDATION (M3) PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED.** *(Later, 2026-10-23: committed in `e789ce2`, corrected for Windows in `14528ff`, and CROSS-PLATFORM CI VERIFIED by run 40039289638 (9/9); M3 still OPEN, the race not resolved; see "Batch 2B-3b — Option C: cross-platform CI verification (2026-10-23)".)*
+
+- **The suspected TOCTOU link race is unresolved.** Option C is not adversarially validated, and the adversarial suite (M3) is still required.
+- **Not security-verified:** B1-S3, M1 and M2 are none of them security-verified.
+- **Pending:** Linux and macOS verification.
+- **Unchanged:**
+  - B1-M and B2 are NOT STARTED, and Unified Storage is inactive;
+  - the version is 0.1.5.
+- **The state of the work:** in the working tree only, on `d834082`. Nothing is staged, committed or pushed.
+
+**DD-28 — APPROVED by the owner on 2026-10-22, exactly as worded.** One Fix Mode read by its id, where the entry is a link to a sibling inside the scope's Fix Mode folder, gets:
+
+`<name> is a symbolic link or junction. Custom Fix Modes must be real files inside their scope directory.`
+
+| In-folder link | Before (`d834082`), observed | DD-28 |
+| --- | --- | --- |
+| symbolic link to a sibling regular file | `<name> is a symbolic link. Custom Fix Modes must be real files inside their scope directory.` | the DD-28 issue |
+| symbolic link to a sibling folder | `<name> is not a file.` | the DD-28 issue |
+| dangling symbolic link | `No project Fix Mode '<id>'. Run: bugpilot fix-mode list --all-scopes` | the DD-28 issue |
+| Windows junction to a sibling folder | `<name> is not a file.` | the DD-28 issue |
+
+- **Kept:**
+  - exit 1 and `INVALID_INPUT`;
+  - the JSON envelope (`schema_version`, `ok`, `command`, `error.code`, `error.message`);
+  - the text-mode `ERROR:` line;
+  - every entry that is not a link: a folder at the name stays `<name> is not a file.`, and nothing there stays `No project Fix Mode …`;
+  - the refusal, before anything is read, of a link that resolves outside the folder (`mode_path`'s containment check);
+  - nothing is written or deleted.
+- **The link is never followed to classify it.**
+- **The commands the owner listed, and what was observed:**
+  - `fix-mode show`, `update` and `delete` read one mode by its id. They have the DD-28 difference, and nothing else changed.
+  - `fix-mode duplicate` reads no mode by its id. A link given as the source is unknown to the catalog (`Unknown Fix Mode '<id>'. Available modes: …`). A link given as the copy's id is refused by the writer's own checks: `already exists`, or, for a dangling link, `<name> is a symbolic link. BugPilot will not write through it.`. Both are exactly as in `d834082`.
+  - So DD-28 has nothing to change in `duplicate`, and it is not expanded to it.
+  - The previous section's list of these commands named `duplicate` among them in error.
+- **MCP:** it reads no mode by its id (`show_fix_mode` resolves through the catalog), so DD-28 has no MCP surface. The extension shows the CLI's message.
+- **Relationship to DD-27:** DD-28 uses the same text as DD-27 but is a separate approved decision. DD-27 covers the catalog's list surfaces (`fix-mode list` JSON and `WARN:` lines, MCP `list_fix_modes`); DD-28 covers one mode read by its id. Neither changes the other, and no historical DD approval is changed.
+- **The 2B-3b record stays empty:** no compared baseline record holds either message, and no baseline difference is invented. `storage_baseline.py --check` reports "baselines match". DD-5 and DD-9 stay inactive.
+
+**Exact-message evidence** (`tests/test_settings_read_safety.py`). The approved text is written out in the test (`APPROVED_LINK_ISSUE`), never imported from the code, so a change of wording fails these tests. No production code changed: no mismatch was found.
+
+- **DD-27:**
+  - `test_dd27_every_list_surface_shows_the_approved_issue`: the in-folder link kinds, plus a link to outside the folder. It checks `fix-mode list --json` (the issue's `scope`, `path` and `message`), the text-mode `WARN:` line, and MCP `list_fix_modes` (`scope` and `message`).
+  - `test_every_link_among_the_fix_modes_is_one_issue_and_never_followed`: strengthened with an assertion against the literal; its earlier assertions are kept.
+- **DD-28:**
+  - `test_dd28_one_mode_read_by_its_id_gives_the_approved_issue`: `show`, `update` and `delete` × each in-folder link kind. It checks the whole JSON envelope, the text-mode `ERROR:` line, `FixModeStore.read`, and the folder unchanged.
+  - `test_dd28_holds_in_the_user_scope_too`.
+- **DD-28's boundaries:**
+  - `test_dd28_leaves_duplicate_as_it_was`;
+  - `test_dd28_leaves_entries_that_are_not_links_as_they_were`: a folder at the name, and nothing there, for each of the three commands.
+- **Count:** 33 evidence tests on Windows; the junction cases are Windows' own.
+
+**Row 1:** the approved two-hook fixture is kept, both `storage._read_regular` and the held folder's `open_file`. The test now ends with two explicit assertions, one per hook, each with its own message. Nothing else in Row 1 changed.
+
+**Local verification** (Windows 11, NTFS, Python 3.14.6, an absolute `PYTHONPATH`):
+
+| Group | Result |
+| --- | --- |
+| the DD-27 and DD-28 evidence tests | 33 passed |
+| the Row 1 test, alone | 1 passed |
+| the four approved test files | 239 passed, 3 skipped (POSIX or macOS only) |
+| consumers and MCP (Fix Mode suites, instructions, project settings, Repository Profile, both settings-storage files, read safety, three MCP suites) | 711 passed, 2 skipped (macOS only) |
+| storage security, identity, containment, file safety, private folders, the isolation guard, held reads, the import boundary, unused symbols, the inventory, publishability | 755 passed, 57 skipped (POSIX only) |
+| the baselines and approval gate, the task goldens, the prompt-boundary and context-boundary suites | 573 passed |
+| `python tests/storage_baseline.py --check` | "baselines match" |
+| the plan checker | 0 problems |
+| `git diff --check` | clean |
+| **the full Windows Python suite** | **4,000 passed, 60 skipped, 0 failed, 0 errors, 0 deselected**, exit 0, in 21 minutes; against the previous run (3,969 passed), 31 more pass: the new evidence tests; the 60 skips are the same platform skips |
+
+- **The skips:** platform skips, none counted as verified.
+- **What these results show:** nothing about the race.
+
+**Integrity:**
+
+- **Owner-protected files:** 11/11 unchanged.
+- **The 2B-3a protected set:** 212 of 214 unchanged. `storage.py` and `safe_paths.py` are the documented, authorized exceptions, and neither changed in this step.
+- **Goldens and records:** the 17 task goldens, the six frozen Batch 0A records, and the 2B-2 and 2B-3a records are byte-identical.
+- **The 2B-3b record:** unchanged and empty.
+- **This step's changes:** two approved test files (`tests/test_settings_read_safety.py` and `tests/test_repository_settings_storage.py`) and this plan.
+
+**Still required before commit:**
+
+- Linux and macOS verification, including search-only folders and the symbolic-link kinds;
+- the adversarial suite (M3);
+- an owner-dispatched CI run, 9/9;
+- the owner's commit authorization.
+
+#### Batch 2B-3b — Option C M2: POSIX Case B fix and CI coverage (2026-10-22)
+
+**Status: OPTION C M2 WITH THE CASE B FIX VERIFIED LOCALLY ON WINDOWS; THE POSIX PERMISSION TESTS NOT YET RUN (POSIX ONLY); PYTHON 3.10 CI COVERAGE ADDED, NOT YET RUN; TOCTOU RISK UNRESOLVED; M3 PENDING; NOT COMMITTED.** *(Later, 2026-10-22 and 2026-10-23: committed as `e789ce2` and pushed; CI run 39892585420 failed 7/9 on two Windows tests; see "Batch 2B-3b — Option C: Windows exclusive-file read correction (2026-10-23)".)* *(Then: the correction committed as `14528ff` and CROSS-PLATFORM CI VERIFIED by run 40039289638 (9/9); M3 still OPEN; see "Batch 2B-3b — Option C: cross-platform CI verification (2026-10-23)".)*
+
+- **The TOCTOU link race is unresolved.** The M3 adversarial gate stays OPEN.
+- **Not yet run:** the POSIX permission tests below have not run anywhere; they skip on Windows.
+- **Unchanged:**
+  - B1-M and B2 are NOT STARTED, and Unified Storage is inactive;
+  - the version is 0.1.5.
+- **The state of the work:** in the working tree only, on `d834082`. Nothing is staged, committed or pushed.
+
+**Case B: the root cause, found by reading the code during the CI-readiness review.** On POSIX, consider a folder on the way with read permission but no search permission.
+
+- **What happened:**
+  - The held reader opens the folder, because only read permission is needed for that.
+  - Opening a file inside it then fails. The follow-up look at the entry (a no-follow `fstatat` relative to the folder) fails too, because both need search permission on the folder.
+  - `open_file` raised that failure as the file's own, and storage wrapped it as `StorageFileReadError`.
+  - The instructions, project settings and Repository Profile readers then fell back to defaults with a warning. The Fix Modes got a non-fatal issue.
+- **The contract it broke:** M2's approved contract keeps directory-chain failures fatal, and the committed path accessor was fatal here for the settings files.
+
+**The owner's decision (2026-10-22): option (a), APPROVED.** A folder that denies looking up its entries is a folder-access failure:
+
+- fatal at the consumer boundary (`StorageAccessError`), with no fallback to defaults and no non-fatal Fix Mode issue;
+- no change to public error codes or JSON shapes;
+- no change to identity, the writers or the record cache;
+- no path-based read and no link followed.
+
+No designed difference is created for the rejected behaviour (the defaults).
+
+**The fix** (production: `bugpilot/core/_held_folders.py`, `bugpilot/core/storage.py`):
+
+- **The marker:** `_held_folders.FolderDenied(PermissionError)`. The POSIX `open_file` raises it only when the open fails *and* the look at the entry is refused with a `PermissionError`.
+- **Why that look decides it:** the look needs search permission on the folder and none on the entry.
+  - If it is refused, it is the folder that cannot be searched: Case B.
+  - If it succeeds, the entry is there and it is the file that cannot be read: Case C, the file's failure as before.
+  - Any other failed look keeps its earlier classification, so not every final-file `EACCES` becomes a folder error.
+- **What storage does with it:** `storage._content` re-raises it as the plain, pathless `PermissionError` every other folder failure is. Consumers' `guarded()` turns it into the usual `StorageAccessError` sentence.
+- **The identity record is unchanged:** `FolderDenied` is a `PermissionError`, so `_held_record_state` still reports "cannot read … right now".
+- **Not changed:** Windows, which has no equivalent; the writers; and identity.
+
+**Behaviour by case** (POSIX, an unprivileged account), compared with `d834082`:
+
+| Case | `d834082` | Now |
+| --- | --- | --- |
+| A. a search-only folder (search, no read) | the read succeeded | fatal `StorageAccessError` for every reader. Opening a folder takes read permission: decision 5.2's recorded limitation, never "absent" |
+| B. a readable folder that cannot be searched | settings readers: fatal `StorageAccessError`. Fix Modes: the non-fatal issue `<name> is not a file.` (the old `isfile()` was false) | fatal `StorageAccessError` for every reader, the Fix Mode catalog included: no defaults, no issue (this decision) |
+| C. a file that cannot be read, in a searchable folder | settings readers: a warning and the defaults. Fix Modes: an issue. `config.toml`: fatal | the same, with the same words |
+
+**The tests added** (`tests/test_storage_held_read.py`, POSIX only):
+
+- `test_posix_a_search_only_folder_fails_every_read_never_the_defaults` (Case A);
+- `test_posix_a_folder_that_can_be_read_but_not_searched_fails_every_reader` (Case B: `settings/` for instructions, project settings and the Repository Profile; `fix_modes/` for the catalog; `config/` for the user instructions and `config.toml`);
+- `test_posix_a_file_that_cannot_be_read_keeps_each_readers_handling` (Case C).
+
+How they run:
+
+- **Gated:** they skip off POSIX and for a privileged account (root), and skip at run time if the bits just set do not deny access.
+- **Permissions are restored** before cleanup.
+- **Platform-neutral wording:** the expected words come from the error's own number (`os.strerror`), never a platform's list of numbers.
+- **What they assert:** the consumer boundary (the error class, the one sentence in display form, no defaults, no issue), not only the lowest-level exception.
+- **Status:** they skip on Windows and are no evidence there. A scratch check with stubbed errors confirmed only the classification logic: B gives `FolderDenied`, then a plain `PermissionError`, then fatal; C gives the file's own error, then `StorageFileReadError`. Real POSIX behaviour awaits CI.
+
+**Python 3.10 CI coverage** (`.github/workflows/ci.yml`):
+
+- **The change:** four files appended to the `safety-and-baselines` job's explicit file list: `tests/test_storage_held_read.py`, `tests/test_settings_read_safety.py`, `tests/test_global_config_storage.py` and `tests/test_repository_settings_storage.py`.
+- **Where they now run:** in that job's four matrix entries, including Ubuntu with Python 3.10.
+- **Kept:** every existing entry, the nine jobs, the system matrix, the Python versions, the triggers (`workflow_dispatch` included), the permissions, the concurrency, the deselection, the isolated test home and the publishing restrictions.
+- **3.10 evidence so far:** a static check found no syntax or API newer than 3.10 in these files or the M1/M2 modules. No 3.10 run has happened.
+
+**Local verification** (Windows 11, NTFS, Python 3.14.6):
+
+| Group | Result |
+| --- | --- |
+| `tests/test_storage_held_read.py` | 84 passed, 4 skipped (POSIX only: the three new tests and the descriptor-relative test) |
+| consumers and MCP | 711 passed, 2 skipped (macOS only) |
+| storage security, identity, containment, file safety, held reads, the import boundary, unused symbols, the inventory, publishability, the CI and release workflow structure | 835 passed, 60 skipped (POSIX only, the three new tests among them) |
+| the baselines and approval gate, the task goldens, the prompt-boundary and context-boundary suites | 573 passed |
+| `python tests/storage_baseline.py --check` | "baselines match" |
+| the plan checker | 0 problems |
+| `git diff --check` | clean |
+| **the full Windows Python suite** | **4,000 passed, 63 skipped, 0 failed, 0 errors, 0 deselected**, exit 0, in 21 minutes; the same 4,000 as before the fix, and 3 more skips: the new POSIX-only permission tests |
+
+No skipped test is counted as passed.
+
+**Integrity:**
+
+- **Owner-protected files:** 11/11 unchanged.
+- **The 2B-3a protected set:** 212 of 214 unchanged, with `storage.py` and `safe_paths.py` the documented exceptions.
+- **Goldens and records:** the 17 task goldens and the frozen records are byte-identical.
+- **The 2B-3b record:** unchanged and empty.
+- **Unchanged decisions:** DD-27, DD-28, US-D29 and the eight activation blockers.
+- **This step's changes:** exactly the five files allowed.
+
+**Still required before commit:**
+
+- the first Linux and macOS run, including Cases A, B and C, and the first Python 3.10 run of the M1/M2 tests, both in an owner-dispatched CI run (9/9); *(Done: first in run 39892585420 (7/9, two Windows failures), then run 40039289638, SUCCESS 9/9 on `14528ff`. Cases A, B and C are shown to have run on macOS; the Ubuntu jobs' public skip lists are cut, so their run there is not shown. See "Batch 2B-3b — Option C: cross-platform CI verification (2026-10-23)".)*
+- the adversarial suite (M3); *(Still OPEN on 2026-10-23.)*
+- the owner's commit authorization. *(Given: `e789ce2`.)*
+
+#### Batch 2B-3b — Option C: Windows exclusive-file read correction (2026-10-23)
+
+**Status: THE WINDOWS EXCLUSIVE-FILE READ CORRECTION IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; WINDOWS CI REVALIDATION PENDING; TOCTOU RISK UNRESOLVED; M3 OPEN.** *(Later on 2026-10-23: committed as `14528ff` (owner-authorized), pushed by fast-forward (`c795db4..14528ff`), and WINDOWS CI REVALIDATED by run 40039289638, SUCCESS 9/9; M3 still OPEN; see "Batch 2B-3b — Option C: cross-platform CI verification (2026-10-23)".)*
+
+- **M3 stays OPEN.** The TOCTOU link race is unresolved, and nothing here is adversarial validation.
+- **Not yet shown:** that the correction passes on a Windows runner. Only a new CI run can show that; the local account cannot reproduce the runner's behaviour (below). *(Shown on 2026-10-23: run 40039289638, SUCCESS 9/9.)*
+- **Unchanged:**
+  - B1-M and B2 are NOT STARTED, and Unified Storage is inactive;
+  - the version is 0.1.5, and `main` is `ea9659c`.
+- **The state of the work:** in the working tree only, on `c795db4`. Nothing is staged, committed or pushed, and no CI run was dispatched. *(Later: committed as `14528ff` and pushed, `c795db4..14528ff`.)*
+
+**What came before (2026-10-22 and 2026-10-23):**
+
+- **The commit:** Option C M1/M2 with the Case B fix was committed as `e789ce2` (`fix(storage): add held-handle safe reads for unified settings`, parent `d834082`, 15 files) and pushed by fast-forward, owner-authorized.
+- **CI run 39892585420 on `e789ce2`** (`workflow_dispatch`, owner-dispatched): **failure, 7/9.**
+  - **Succeeded:** Linux and macOS, including the POSIX permission Cases A, B and C, and Ubuntu with Python 3.10, which ran the four M1/M2 test files.
+  - **Failed:** both Windows jobs, on the same two tests: `tests/test_storage_held_read.py::test_a_file_in_use_is_a_failure_naming_no_path_never_absent` and `tests/test_settings_read_safety.py::test_a_file_another_program_holds_exclusively_reads_as_permission_denied`.
+  - **What was known:** a file another handle held with no sharing was not refused by the held reader on the runner. Locally (Windows 11, NTFS, Python 3.14) it is refused. The job logs need repository admin rights, so only the public annotations were read.
+- **The diagnostic commit:** `c795db4` (`test(storage): diagnose Windows exclusive-handle reads in CI`, parent `e789ce2`, the two test files only), owner-authorized and pushed by fast-forward.
+  - Both tests keep every assertion.
+  - While the lock is held, they record whether an ordinary `open()` is refused, and what the reader's own `CreateFileW` gets with and without `FILE_FLAG_BACKUP_SEMANTICS`.
+  - They also record the read's state and size, never its bytes.
+
+**CI run 39989051086 on `c795db4`** (`workflow_dispatch`, owner-dispatched, attempt 1): **failure, 7/9**, the evidence the run was dispatched for.
+
+| Job | Result |
+| --- | --- |
+| Safety and baselines, macOS, Python 3.13 | success: 1,986 passed, 68 skipped, 1 deselected |
+| Safety and baselines, Ubuntu, Python 3.13 | success: 1,982 passed, 72 skipped, 1 deselected |
+| Safety and baselines, Ubuntu, Python 3.10 | success: 1,982 passed, 72 skipped, 1 deselected |
+| Full Python suite, macOS | success: 3,939 passed, 74 skipped, 1 deselected |
+| Full Python suite, Ubuntu | success: 3,935 passed, 78 skipped, 1 deselected |
+| Extension evidence boundary, Ubuntu | success |
+| Extension unit tests, Ubuntu | success |
+| Safety and baselines, Windows, Python 3.13 | **failure:** 2 failed, 2,036 passed, 65 skipped, 1 deselected |
+| Full Python suite, Windows | **failure:** 2 failed, 3,995 passed, 65 skipped, 1 deselected |
+
+The same two tests failed in both Windows jobs, with the same evidence. These are the public annotations' words:
+
+- `open() refused (PermissionError)`: the lock held, so the setup was valid.
+- `CreateFileW reader flags opened`: the reader's data open succeeded on the locked file. That open uses `GENERIC_READ`, shares read, write and delete, and passes `FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT`.
+- `without backup semantics refused (winerror 32)`: the same open without `FILE_FLAG_BACKUP_SEMANTICS` got `ERROR_SHARING_VIOLATION`.
+- **The reader read the locked file's bytes:**
+  - the storage test: `read returned present (7 bytes; matches the fixture)`;
+  - the consumer test: `0 warning(s); storage read returned present (2 bytes; matches the fixture)`.
+- `python 3.13.16; Windows-2025Server-10.0.26100-SP0; file system NTFS`.
+
+**Reading of the evidence:**
+
+- **The cause:** `FILE_FLAG_BACKUP_SEMANTICS` on a file's data open let the runner's process open a file another program held exclusively.
+- **The likely reason:** this is consistent with the runner's account holding the backup privilege, which an unelevated local account does not. The privilege itself was not inspected.
+- **What did not go wrong:** nothing was taken as "absent" and no link was followed. The read returned the file's own bytes.
+- **What did go wrong:** the reader did not respect another program's exclusive hold. Its contract makes a file in use a failure, never a read.
+
+**The owner's decision (2026-10-23): the narrow correction, APPROVED.**
+
+- Open a regular file's data without `FILE_FLAG_BACKUP_SEMANTICS`.
+- Keep `FILE_FLAG_OPEN_REPARSE_POINT`.
+- Keep every folder open as it is.
+- **Allowed files:** `bugpilot/core/_held_folders.py`, the two test files and this plan.
+
+**What the literal correction alone broke** (measured, then not kept):
+
+- **The measurement:** removing the flag from `open_file` and changing nothing else failed 28 of the 176 tests in the two Option C test files.
+- **The cause:** Windows opens a folder only with `FILE_FLAG_BACKUP_SEMANTICS`. Without it, a folder, a junction or a directory symbolic link at a file's name fails with `ERROR_ACCESS_DENIED`.
+- **What that turned into "Permission denied"** (a `StorageFileReadError`):
+  - the `not_a_file` state;
+  - the link refusals at settings and user files;
+  - the Fix Mode `link` entries;
+  - DD-27's and DD-28's approved message;
+  - DD-28's unchanged `<name> is not a file.`
+- **The identity record (by reading the code; no test covers it):** a folder at `repository.json` would also go from "corrupt" to the fatal "cannot read … right now".
+
+**The correction** (`bugpilot/core/_held_folders.py`, Windows only):
+
+- **`_WindowsFolder._open`** now takes the `CreateFileW` flags from its caller. It used to pass `FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT` for every open. Its name check, final-path check, "moved" check and not-found handling are unchanged.
+- **Folders, unchanged:**
+  - `child()`, a held folder, passes `FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT` as before, with the same access and the same sharing (read and write, never delete);
+  - the data root's own open (`_hold_windows`) is not touched.
+- **`open_file()`** opens the data with `FILE_FLAG_OPEN_REPARSE_POINT` only. Its access (`GENERIC_READ`) and sharing (read, write and delete) are as before.
+- **When that open fails** with anything but "not found", the new `_WindowsFolder._kind` looks at the entry:
+  - **How it looks:** it opens the entry for its attributes only (`FILE_READ_ATTRIBUTES | SYNCHRONIZE`, sharing read, write and delete, `FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT`), through the same `_open` and its final-path check. It reads the reparse tag from that handle and closes the handle at once.
+  - **What it reports:** a folder, a link or another reparse point is reported as itself, as before.
+  - **Everything else keeps the data open's own error:** a regular file, nothing there, or a look that fails. So a file in use is never "absent".
+  - **Precedent:** this is the POSIX reader's existing rule, which judges a failed open by a no-follow look.
+- **Why the look keeps the flag:** it is the only way Windows opens a folder or a junction as itself. The handle asks for no data access, so no file's contents are read through it.
+
+**Kept unchanged:**
+
+- folder pinning: the folder flags, and folder sharing without delete;
+- the refusal of reparse points and junctions, and the final-path check;
+- the `\\?\` long form for the data root;
+- handle ownership: the descriptor owns the data handle, and every look handle is closed;
+- error classification:
+  - a `StorageFileReadError` for the file's own failure;
+  - the retry of a file in use;
+  - "absent" only for `ERROR_FILE_NOT_FOUND` and `ERROR_PATH_NOT_FOUND`;
+  - `Unsupported` for a query the file system cannot answer;
+- the atomic writer: the data handle still shares delete;
+- the POSIX code, `storage.py` and every consumer.
+
+**One further effect:** a process whose backup privilege is in effect no longer opens a file's data with backup semantics. Its reads now meet the same sharing and access checks as an ordinary account's. No test covers a file whose access-control list denies reading.
+
+**Tests** (`tests/test_storage_held_read.py`, Windows only). Both diagnostic tests are kept, with every assertion.
+
+- **`test_a_files_data_is_opened_without_backup_semantics_and_every_folder_keeps_them`** records every `CreateFileW` call while it reads one present file and one folder at a file's name. It checks that:
+  - every data open (the file, the folder at the name, and `repository.json`) passes `FILE_FLAG_OPEN_REPARSE_POINT` alone and shares read, write and delete;
+  - every folder open keeps `FILE_FLAG_BACKUP_SEMANTICS` and does not share delete;
+  - the only look is at the folder at the file's name, after its data open failed, and asks for attributes only.
+- **`test_a_file_in_use_stays_the_opens_own_failure_whatever_the_look_at_it_gives`** (cases `finds nothing` and `fails`): a file is held with no sharing, and the look is made to report "not found" or "access denied". The read is still the open's own `StorageFileReadError` (`PermissionError`, winerror 32), never "absent".
+- **Shown to detect the defect:** both fail (3 of 3 cases) against `_held_folders.py` as committed in `c795db4`, and pass with the correction.
+- **What stands in for the runner:** the local account does not hold the backup privilege, so here the original flags are refused too. The flag assertions are the regression check; only a Windows CI run shows the runner's behaviour.
+
+**Local verification** (Windows 11 Enterprise 10.0.26300, NTFS, Python 3.14.6, unelevated):
+
+| Group | Result |
+| --- | --- |
+| the literal correction alone (measured, not kept), the two Option C test files | 28 failed, 148 passed, 4 skipped |
+| the two new regression tests against `_held_folders.py` as committed in `c795db4` | 3 of 3 cases fail, as they must |
+| `tests/test_storage_held_read.py` and `tests/test_settings_read_safety.py` | 179 passed, 4 skipped (POSIX only) |
+| 25 related files: held reads and settings read safety; global and repository settings, project settings, the Repository Profile, instructions, the Verification Policy and AI Behavior; the Fix Mode store, custom modes, selection and catalogue; storage safety, identity, scope, the API boundary, the inventory and the witness; the MCP request scope; file safety, write boundaries, cleanup safety and the private folder | 1,231 passed, 62 skipped |
+| the approval gate, baselines and goldens (`test_storage_baseline`, `test_task_golden`, `test_prompt_boundary_golden`, `test_prompt_boundary_baseline`, `test_file_safety_baseline`) | 308 passed, 17 skipped |
+| `python tests/storage_baseline.py --check` | "baselines match" |
+| publishability (`tests/test_publishable.py`) | 20 passed |
+| the plan checker | 0 problems; the decision and batch statuses unchanged |
+| `git diff --check` | clean |
+| **the full Windows Python suite** | **4,003 passed, 63 skipped, 0 failed, 0 errors, 0 deselected**, exit 0, in 20 minutes. That is the 4,000 of `c795db4` plus the 3 new cases. The 63 skips are the same as before (POSIX- and macOS-only cases, and four recorded Windows limitations); only line numbers moved |
+
+No skipped test is counted as passed.
+
+**Integrity:**
+
+- **Owner-protected files:** 11/11 unchanged.
+- **Goldens and frozen records:** 25/25 unchanged. The 2B-3b designed-difference record is unchanged and empty.
+- **Unchanged decisions:** DD-27, DD-28, US-D29 and the eight activation blockers.
+- **This step's changes:** three of the four allowed files: `bugpilot/core/_held_folders.py`, `tests/test_storage_held_read.py` and this plan. `tests/test_settings_read_safety.py` needed no change.
+
+**Still required:**
+
+- the owner's commit authorization; *(Given: `14528ff`.)*
+- a push, and an owner-dispatched CI run with both Windows jobs successful (9/9). Until then, the Windows result is not verified; *(Done: `c795db4..14528ff`; run 40039289638, SUCCESS 9/9.)*
+- the adversarial suite (M3), which stays OPEN.
+
+#### Batch 2B-3b — Option C: cross-platform CI verification (2026-10-23)
+
+**Status: OPTION C M1/M2 — CROSS-PLATFORM FUNCTIONAL AND COMPATIBILITY CI VERIFICATION PASSED (run 40039289638, 9/9, on `14528ff`); ADVERSARIAL SECURITY VALIDATION (M3) OPEN; TOCTOU RISK UNRESOLVED; BATCH 2B-3b NOT COMPLETE; NOT ACTIVATED.** *(Later on 2026-10-23: the M3-R1 review's F1 and F2 hardened locally (M3-R2A), uncommitted; the run above does not cover those changes; see "Batch 2B-3b — Option C: M3-R2A Windows held-folder hardening (2026-10-23)".)*
+
+- **What passed:** Option C M1/M2's functional and compatibility tests:
+  - on Linux, macOS and Windows;
+  - on Python 3.13 on all three, and on Python 3.10 on Ubuntu;
+  - with the extension's two jobs.
+- **What CI does not show:** that the suspected link-substitution race is closed.
+  - CI runs no adversarial test.
+  - The race is **NOT resolved** because CI passed, and M3 stays **OPEN**.
+- **Security acceptance of Batch 2B-3b is incomplete.** Still to come: M3, then B1-M, B2 and Phase C, each on the owner's authorization.
+- **Unchanged:**
+  - B1-M and B2 are NOT STARTED, and Unified Storage is inactive;
+  - the version is 0.1.5, and `main` is `ea9659c`;
+  - DD-27 and DD-28, US-D29 and the eight activation blockers;
+  - Batch 3's extension requirements, every earlier approval, and the frozen baseline records.
+- **This record:** documentation only, made from the public run data on 2026-10-23.
+
+**The chain of commits and runs.** All are on `verify/0.1.6-storage`; each push was a fast-forward the owner authorized, and each run was one the owner dispatched.
+
+| Step | Commit | CI run | Result |
+| --- | --- | --- | --- |
+| Option C M1/M2, the first candidate: `fix(storage): add held-handle safe reads for unified settings`, 15 files | `e789ce2` (parent `d834082`) | 39892585420 | failure, 7/9. Both Windows jobs failed the same two exclusive-file tests; Linux, macOS and Python 3.10 succeeded |
+| Diagnostics for those two tests: `test(storage): diagnose Windows exclusive-handle reads in CI`, 2 test files | `c795db4` (parent `e789ce2`) | 39989051086 | failure, 7/9, as intended: the same two tests, now reporting the cause |
+| The Windows compatibility correction: `fix(storage): preserve Windows file sharing and entry classification`, 3 files | `14528ff` (parent `c795db4`) | 40039289638 | **success, 9/9** |
+
+**The diagnosis** (run 39989051086; detailed in "Batch 2B-3b — Option C: Windows exclusive-file read correction (2026-10-23)"):
+
+- **The runners:** Python 3.13.16, Windows Server 2025 10.0.26100, NTFS.
+- **What happened:** an ordinary `open()` of a file held with no sharing was refused. The reader's own data open, made with `FILE_FLAG_BACKUP_SEMANTICS`, opened it and returned its bytes.
+- **Without the flag:** the same open got `ERROR_SHARING_VIOLATION` (32).
+
+**The correction** (`14528ff`; production change in `bugpilot/core/_held_folders.py` only, Windows only):
+
+- **File-data opens omit `FILE_FLAG_BACKUP_SEMANTICS`.** They keep `FILE_FLAG_OPEN_REPARSE_POINT`, `GENERIC_READ`, and sharing of read, write and delete.
+- **Folder opens keep `FILE_FLAG_BACKUP_SEMANTICS`,** unchanged: the data root and every held folder.
+- **An attributes-only look after a failed data open** keeps the classification of a folder, a link or junction, or another reparse point at a file's name, exactly as before.
+- **A sharing violation stays the file's own read failure:** a `StorageFileReadError` carrying the original error, never "absent".
+
+**CI run 40039289638** (verified from the public API on 2026-10-23):
+
+- **The run:** workflow `CI` (`.github/workflows/ci.yml`), event `workflow_dispatch`, attempt 1.
+- **The head:** `14528ffbeb2af36366f119a5e69eb4da17329e02`, on `verify/0.1.6-storage`.
+- **The result:** conclusion success. All nine jobs ran on that head, in attempt 1, and succeeded.
+- **The time:** from 23:22:20 to 23:34:36 UTC.
+
+| Job | Conclusion | Tests (the public annotations) |
+| --- | --- | --- |
+| Safety and baselines, Windows, Python 3.13.16 | success | 2,041 passed, 65 skipped, 1 deselected |
+| Safety and baselines, Ubuntu, Python 3.13.16 | success | 1,982 passed, 75 skipped, 1 deselected |
+| Safety and baselines, Ubuntu, Python 3.10.22 | success | 1,982 passed, 75 skipped, 1 deselected |
+| Safety and baselines, macOS, Python 3.13.16 | success | 1,986 passed, 71 skipped, 1 deselected |
+| Full Python suite, Windows | success | 4,000 passed, 65 skipped, 1 deselected |
+| Full Python suite, Ubuntu | success | 3,935 passed, 81 skipped, 1 deselected |
+| Full Python suite, macOS | success | 3,939 passed, 77 skipped, 1 deselected |
+| Extension evidence boundary, Ubuntu | success | `node --test`: 27 tests, 27 passed |
+| Extension unit tests, Ubuntu | success | `node --test`: 2,350 tests, 2,348 passed, 2 skipped, 0 failed |
+
+The Python versions come from the safety jobs' observation notices. The full-suite jobs publish none, so their versions are not recorded here.
+
+**Compared with run 39989051086:**
+
+- **Windows:** each job gained exactly five passes, with the same 65 skips and no failure. The five are the two exclusive-file tests and the three new regression cases. Those tests can only be skipped off Windows, so they ran and passed.
+- **Linux and macOS:** the same passed counts, and three more skips each: the three new Windows-only cases.
+- **Against the local run:** the Windows full suite has the same 4,066 tests as the local Windows run (4,003 passed, 63 skipped), split differently between passed, skipped and deselected.
+
+**Platform-specific skips,** from the public skip annotations. The CI report cuts each annotation at 3,500 characters, so a list is complete only where its counts add up to the job's skip total.
+
+- **On Linux and macOS:** each Python job skipped the 24 Windows-only Option C cases: 23 in `tests/test_storage_held_read.py` and 1 in `tests/test_settings_read_safety.py`, the three new ones included.
+- **On Windows:** the full suite skipped the four POSIX-only Option C tests: the descriptor-relative open and the permission Cases A, B and C.
+- **Cases A, B and C ran on macOS:** the macOS safety job's list is complete (71 of 71 skips) and does not include them.
+- **On Ubuntu, not shown:** the Ubuntu lists are cut, so whether Cases A, B and C ran there is not shown. The jobs succeeded either way.
+- **Not read:** the job logs need repository admin rights. Nothing here comes from them.
+
+**Cross-platform verification: PASSED** for Option C M1/M2, as functional and compatibility evidence. This answers the CI items left open by the M1 and M2 sections and by "Batch 2B-3b — Option C M2: POSIX Case B fix and CI coverage". It is no evidence about the link race.
+
+**Still required before Batch 2B-3b's security acceptance:**
+
+- **M3, the adversarial suite, OPEN:** every case listed in "Batch 2B-3b — Option C M2: consumer migration", under "The adversarial suite (M3), for each migrated reader on each system", on every system. Each case must show that no sentinel content and no absolute path reaches any of the surfaces listed there.
+- **Then:** B1-M, B2 and Phase C, each on the owner's authorization.
+- **Activation:** still blocked by the eight activation blockers.
+
+#### Batch 2B-3b — Option C: M3-R2A Windows held-folder hardening (2026-10-23)
+
+**Status: M3-R2A (F1, F2) IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; LINUX AND MACOS CI PENDING FOR THESE CHANGES; F1'S ANCESTOR-RACE PROOF PENDING; R3 NOT COMPLETE; M3 OPEN.** *(Later: committed as `aadeefa` (owner-authorized, with A, B and C approved), pushed, and CROSS-PLATFORM CI VERIFIED by run 40060798081 (9/9) as functional and regression evidence; F1's proof pending; M3 still OPEN; see "Batch 2B-3b — Option C: M3-R2A cross-platform CI verification (2026-10-24)".)*
+
+- **M3 stays OPEN.**
+  - This is hardening, not adversarial validation.
+  - The link race is **not resolved**, and R3 is not complete.
+- **Unchanged:**
+  - B1-M and B2 are NOT STARTED, and Unified Storage is inactive;
+  - the version is 0.1.5, and `main` is `ea9659c`;
+  - DD-27 and DD-28 (wording and behaviour), US-D29 and the eight activation blockers;
+  - the Fix Mode selection policy.
+- **The state of the work:** in the working tree only, on `b472ed6`. Nothing is staged, committed or pushed, and no CI run was dispatched.
+
+**The M3-R1 review (2026-10-23).** A static, read-only security review of the held-folder readers on `b472ed6` (code as of `14528ff`). It found no demonstrated vulnerability and claims none. Its two findings acted on here:
+
+- **F1 (Medium, hypothetical): the Windows final-path check was a conditional backstop.**
+  - **How the open works:** `_WindowsFolder._open` opens `<parent's final path>\<name>` by path. Windows resolves that string from the volume root by name; the held handles take no part in it.
+  - **What holding guarantees:** sharing without delete stops a held folder itself from being renamed or deleted (documented sharing rules, tested). That the *ancestors* of a held folder cannot be renamed was only observed (B1-S5).
+  - **The old check** compared the entry's final path with the parent's, read afterwards, both folded by `ntpath.normcase`. That is two paths read at different moments, compared without case.
+  - **Why that matters:** if an ancestor could be renamed, it is no proof of containment. Folded, two different folders that differ only in case (a case-sensitive directory) also count as one.
+  - **What was not established:** this Python's `normcase` (`LCMapStringEx`, invariant lowercase) was not shown to disagree with NTFS's own comparison anywhere. The Kelvin sign is folded differently from `k`.
+  - **Untested until now:** no test produced the "moved" refusal.
+- **F2 (Low, code path confirmed, trigger hypothetical): a held folder's own failure was taken for the file's.**
+  - **What happened:** a failed `GetFinalPathNameByHandleW` on the *held folder's* handle inside `open_file` (any code but 1, 50 and 87) reached `storage._content` as an `OSError`.
+  - **How it was classified:** as the file's own failure (`StorageFileReadError`).
+  - **What readers did:**
+    - instructions: a problem;
+    - project settings and the Repository Profile: a warning and the defaults;
+    - Fix Modes: an issue.
+  - **What was broken:** that contradicts M2 decision (a), under which a folder on the way is fatal.
+  - **The same failure while opening `repository.json`** was reported as a "corrupt" record (`StorageIdentityError`).
+- **The review's other findings, recorded only** (no change and no decision taken):
+
+  | Finding | Severity | Summary |
+  | --- | --- | --- |
+  | F3 | Low | An explicit `--fix-mode` selection falls back silently from project to user scope when the project file is refused or unreadable. A persisted selection warns *(Decided on 2026-10-24: F3-A; see "Batch 2B-3b — M3-R2B: F3 Fix Mode fail-closed selection (2026-10-24)".)* |
+  | F4 | Low | The Windows record-cache signature leaves out the change time, so an in-place rewrite of `repository.json` within one command, with size and `mtime` kept, is not re-verified *(Decided on 2026-10-24: Option A; see "Batch 2B-3b — M3-R2C: F4 repository identity revalidation (2026-10-24)".)* |
+  | F5 | Low/Info | Hard links (both systems) and POSIX mount points are not links, so their content is read |
+  | F6 | Low | Fix Mode and `config.toml` reads have no size limit |
+  | F7 | Info | The containment, Git and `mode_path` checks are path-based and scope-cached; the data root is followed (B4-2) |
+  | F8 | Info | `request_scope`'s docstring still says the CLI and MCP do not open scopes; they do |
+
+**The owner's authorization (M3-R2A, 2026-10-23):**
+
+- **The task:** fix F1 and F2 narrowly. This is not M3 acceptance.
+- **The allowlist:** `bugpilot/core/_held_folders.py`, `bugpilot/core/storage.py` (only where needed to keep folder failures fatal), `tests/test_storage_held_read.py`, `tests/test_settings_read_safety.py` (only if needed for consumer evidence), and this plan.
+- **Excluded:**
+  - undocumented Win32 relative-open APIs;
+  - any change to Fix Mode selection.
+
+**F1: the change** (`_held_folders.py`):
+
+- **The new helper, `_directly_inside(child, parent, name)`:**
+  - the entry's final path must start with the held folder's final path *exactly* (an ordinal comparison, as the system spelled both);
+  - after that must come one component, which is folded (`normcase`) against the name asked for, as before, since the entry is opened by that name in whatever case it has on disk.
+- **`_WindowsFolder._open`:**
+  - the held folder's final path is read once before the open (`base`) and once after it;
+  - both readings must equal `base` exactly, and the entry's final path must be directly inside `base`;
+  - otherwise the handle is closed and the open is `Refused("moved")`.
+- **The not-found branch** compares the folder's final path with `base` exactly too.
+- **Kept:**
+  - the held handles and their sharing without delete;
+  - `FILE_FLAG_OPEN_REPARSE_POINT`, the `\\?\` long form, link, junction and unsupported-reparse refusal;
+  - handle ownership;
+  - the "moved" refusal and its words.
+- **The module docstring** no longer says that a rename "fails the final-path check, it cannot pass it".
+- **What it does not establish:** an exact comparison of paths read at different moments is not containment by construction.
+  - **What it narrows:** a rename could pass only by putting another folder at the held folder's exact final path while the entry's path is read, with the held folder's own path reading `base` before and after.
+  - **What it removes:** acceptance of a folder that differs only in case.
+  - **What still rests on observation:** that the ancestors of a held folder cannot be renamed. **F1's proof is still pending:** dynamic evidence in M3, or a later decision on relative opens.
+
+**F2: the change:**
+
+- **`_held_folders.FolderFailed(OSError)`,** new: a held folder's own handle query failed. It carries the original `error`, without a path.
+- **Where it is raised:** `_WindowsFolder._own_path()` raises it for every query of the folder's own handle in `_open`; `Unsupported` (codes 1, 50 and 87) is unchanged.
+- **How each method handles it:**
+  - **`open_file` and the attributes-only look (`_kind`):** re-raise it at once. A folder failure is never judged as the entry's, and never makes the look run.
+  - **`child`:** raises the original error, exactly as before. On the way, every failure was already the folder's.
+- **`storage._content`** treats `FolderFailed` like POSIX's `FolderDenied`: it re-raises the bare error, so consumers give the usual fatal `StorageAccessError` sentence.
+- **`storage._held_record_state`** does the same for the namespace's own failure while opening `repository.json`, instead of reporting a "corrupt" record.
+- **Not reclassified:** a failed query of the *entry's* handle, or a failed open of the entry (a sharing violation, no permission), stays the file's own `StorageFileReadError`. "Absent" is still only Windows errors 2 and 3 with the folder unmoved.
+
+**Behavioural differences:**
+
+| Situation | Before | Now |
+| --- | --- | --- |
+| A held folder's final path reads differently only in case during an open (a rename during the read) | accepted | refused: "changed while it was being read" (`StorageError`) |
+| The held folder's own query fails while a file in it is opened | the file's own failure: a problem, a warning with the defaults, or a Fix Mode issue; fatal only for `config.toml` | fatal `StorageAccessError` for every reader: `BugPilot could not read <folder> (<class>). …` |
+| The namespace's own query fails while `repository.json` is opened | a "corrupt" record (`StorageIdentityError`); for a `PermissionError`, "cannot read … right now" | the folder's failure: fatal `StorageAccessError`, `BugPilot could not read <folder> (<class>). …` |
+| A folder on the way fails (`child`) | fatal | unchanged |
+
+**For the owner to acknowledge:** *(Approved by the owner on 2026-10-23: A, the first row; B, the second; C, the third. The approvals cover only errors that originate from the held folder itself: a genuine final-file error keeps its approved handling, and DD-27 and DD-28 are unchanged.)*
+
+- the last two rows change the class or the words of a fatal error, in a path no test reached before;
+- the first row refuses a case-only rename that happens during a read.
+
+**Tests** (`tests/test_storage_held_read.py`, 24 cases; `tests/test_settings_read_safety.py` unchanged):
+
+- **The comparison** (9 cases, every system, pure string logic): exact parent and name; the name in another case; the *folder* in another case (what folding the whole path accepted); a sibling sharing the prefix; a nested entry; another name; another volume; the folder itself; a folder at a volume's root.
+- **"moved" at the held-folder level** (Windows, controlled `_final_path`):
+  - an entry whose final path names another folder, or this folder's name in another case: refused, and its handle closed (2 cases);
+  - the held folder's own final path reading differently after an open that found the entry, and after one that found nothing: refused, never "absent" (2 cases).
+- **"moved" at the consumer level** (Windows, 1 case): settings files reported in a sibling folder. `read_settings`, project instructions, project settings and the Repository Profile each fail with the refusal, never the defaults, and name no absolute path.
+- **F2 at the storage level** (Windows, injected `ctypes.WinError` at `_final_path` for the folder holding the file):
+  - for codes 5 and 1117, the read raises the query's own error, not `StorageFileReadError` and not `FolderFailed` (2 cases);
+  - for the namespace while `repository.json` is opened, the folder's error, not a `StorageError` (1 case).
+- **F2 at the consumer level** (Windows, 6 cases): project and user instructions, project settings, the Repository Profile, the Fix Mode catalog and `config.toml`. Each raises `StorageAccessError`, `BugPilot could not read … (OSError)`, naming no absolute path.
+- **F2's bound** (Windows, 1 case): a failed query of the *entry's* handle stays `StorageFileReadError`, and project instructions keep their problem ("it could not be read (…)").
+- **Shown to detect both defects:** run against `HEAD`'s `_held_folders.py` and `storage.py`, 20 of the 24 cases fail. The 4 that pass are expected to:
+  - an entry reported in a different folder (2 cases, held-folder and consumer level): the folded comparison refused that too. These are the first tests ever to reach the "moved" refusal;
+  - `config.toml`: a file failure there was already fatal;
+  - F2's bound.
+
+**Local verification** (Windows 11 Enterprise 10.0.26300, NTFS, Python 3.14.6, unelevated):
+
+| Group | Result |
+| --- | --- |
+| the 24 new cases | 24 passed |
+| `tests/test_storage_held_read.py` and `tests/test_settings_read_safety.py` before the new tests, with the production change | 179 passed, 4 skipped (POSIX only) |
+| 27 related files: held reads, read safety, global and repository settings, project settings, the Repository Profile, instructions, the Verification Policy, AI Behavior, the Fix Mode store, custom modes, selection and catalogue, storage safety, identity, scope, the API boundary, the inventory, the witness, the MCP request scope, file safety, write boundaries, cleanup, private folders, unused symbols and the isolation guard | 1,283 passed, 62 skipped |
+| **the full Windows Python suite** | **4,027 passed, 63 skipped, 0 failed, 0 errors, 0 deselected**, exit 0, in 26 minutes: the 4,003 before plus the 24 new cases. The 63 skips are identical (POSIX- and macOS-only cases, and four recorded Windows limitations) |
+| the approval gate, baselines and goldens | 308 passed, 17 skipped |
+| `python tests/storage_baseline.py --check` | "baselines match" |
+| the inventory, the import boundary and unused symbols | 17 passed |
+| the plan checker | 0 problems; the decision and batch statuses unchanged |
+| plan parsing (`test_storage_identity.py`) and publishability | 150 passed, 3 skipped |
+| `git diff --check` | clean |
+
+No skipped test is counted as passed.
+
+**Integrity:**
+
+- **Owner-protected files:** 11/11 unchanged.
+- **Goldens and records:** the 17 task goldens and 8 frozen records are unchanged; the 2B-3b record is unchanged and empty.
+- **The baseline-tool scripts:** both match `HEAD`.
+- **This step's changes:** four of the five allowed files: `_held_folders.py`, `storage.py`, `tests/test_storage_held_read.py` and this plan.
+
+**Still required:**
+
+- the owner's review of this slice and its behavioural differences, then the commit authorization; *(Given on 2026-10-23: A, B and C approved, and one local commit authorized; no push and no CI.)*
+- a push, and an owner-dispatched CI run with all 9 jobs passing. On Linux and macOS only the comparison cases run; the rest are Windows-only; *(Done: `b472ed6..aadeefa`; run 40060798081, SUCCESS 9/9.)*
+- **F1's proof:** dynamic evidence that the ancestors of held folders cannot be renamed on supported Windows and NTFS, or a later owner decision on relative opens;
+- M3, the adversarial suite, which stays OPEN;
+- the owner's decisions on F3 to F8. *(F3 decided on 2026-10-24: F3-A; see "Batch 2B-3b — M3-R2B: F3 Fix Mode fail-closed selection (2026-10-24)".)*
+
+#### Batch 2B-3b — Option C: M3-R2A cross-platform CI verification (2026-10-24)
+
+**Status: M3-R2A — CROSS-PLATFORM FUNCTIONAL AND REGRESSION CI VERIFICATION PASSED (run 40060798081, 9/9, on `aadeefa`); F2'S FOLDER-FAILURE CLASSIFICATION FUNCTIONALLY VERIFIED; F1'S COMPARISON HARDENING PASSED REGRESSION TESTING; F1'S ANCESTOR-RACE PROOF PENDING; R3 NOT COMPLETE; ADVERSARIAL SECURITY VALIDATION (M3) OPEN; BATCH 2B-3b NOT COMPLETE; NOT ACTIVATED.**
+
+- **Functional, not adversarial.**
+  - What passed is functional and regression evidence: the tests run as written, with injected failures and controlled final paths. No test substitutes anything during a read.
+  - The suspected link race is **NOT resolved** because CI passed, and M3 stays **OPEN**.
+  - F1's exact comparison of two final paths read at different moments is still not containment by construction. That the ancestors of a held folder cannot be renamed is still only observed. **F1's ancestor race is not proven safe.**
+- **Unchanged:**
+  - the three owner-approved behaviour changes, A, B and C, exactly as approved: they cover only errors from the held folder itself, and genuine final-file errors keep their approved handling;
+  - DD-27 and DD-28, US-D29 and the eight activation blockers;
+  - F3 to F8: recorded only, with no decision taken;
+  - B1-M, B2 and Phase C NOT STARTED; Unified Storage inactive; the version 0.1.5; `main` at `ea9659c`.
+- **This record:** documentation only, made from the public run data.
+
+**The commit:**
+
+- `aadeefa51162e9152c175aa65926987f00908d23`, `fix(storage): harden Windows held-folder validation and failures`.
+- Parent `b472ed6`; 4 files: `_held_folders.py`, `storage.py`, `tests/test_storage_held_read.py` and this plan.
+- Pushed by fast-forward (`b472ed6..aadeefa`), owner-authorized.
+
+**CI run 40060798081** (verified from the public API on 2026-10-24):
+
+- **The run:** workflow `CI` (`.github/workflows/ci.yml`), event `workflow_dispatch`, attempt 1.
+- **The head:** `aadeefa51162e9152c175aa65926987f00908d23`, on `verify/0.1.6-storage`.
+- **The result:** conclusion success. All nine jobs ran on that head, in attempt 1, and succeeded.
+- **The time:** from 04:03:07 to 04:20:52 UTC on 2026-10-24.
+
+| Job | Conclusion | Tests (the public annotations) |
+| --- | --- | --- |
+| Safety and baselines, Windows, Python 3.13.16 | success | 2,065 passed, 65 skipped, 1 deselected |
+| Safety and baselines, Ubuntu, Python 3.13.16 | success | 1,991 passed, 90 skipped, 1 deselected |
+| Safety and baselines, Ubuntu, Python 3.10.22 | success | 1,991 passed, 90 skipped, 1 deselected |
+| Safety and baselines, macOS, Python 3.13.16 | success | 1,995 passed, 86 skipped, 1 deselected |
+| Full Python suite, Windows | success | 4,024 passed, 65 skipped, 1 deselected |
+| Full Python suite, Ubuntu | success | 3,944 passed, 96 skipped, 1 deselected |
+| Full Python suite, macOS | success | 3,948 passed, 92 skipped, 1 deselected |
+| Extension evidence boundary, Ubuntu | success | `node --test`: 27 tests, 27 passed |
+| Extension unit tests, Ubuntu | success | `node --test`: 2,350 tests, 2,348 passed, 2 skipped, 0 failed |
+
+- **Failure annotations:** none in any job.
+- **Python versions:** from the safety jobs' observation notices. The full-suite jobs publish none, so their versions are not recorded.
+
+**Compared with run 40039289638** (on `14528ff`). The public annotations give counts, not the names of the tests that passed, so the attributions below are by arithmetic.
+
+- **Windows:** both jobs gained exactly 24 passes, with the same 65 skips and no failure. That is consistent with all 24 new cases running and passing; every one of them runs on Windows.
+- **Linux and macOS:** every Python job gained 9 passes and 15 skips. That is consistent with the 9 comparison cases running everywhere and the 15 Windows-only cases skipping.
+- **Against the local run:** the Windows full suite has the same 4,090 tests as the local Windows run (4,027 passed, 63 skipped), split differently between passed, skipped and deselected.
+- **The extension jobs:** unchanged.
+
+**Evidence limits:**
+
+- **Every skip list is cut this time.** The CI report cuts each annotation at 3,500 characters, and in this run every Python job's skip list is cut, the macOS safety job's included (75 of its 86 skips listed). So this run's public evidence **does not show** whether the POSIX permission Cases A, B and C ran on Linux or macOS.
+  - Run 40039289638 showed them running on macOS, and this commit changes no POSIX code. That is context, not evidence from this run.
+- **On Windows:** the full suite's list shows the four POSIX-only Option C tests skipped.
+- **Not read:** the job logs need repository admin rights. Nothing here comes from them.
+
+**What this verifies:**
+
+- **F2:** the folder-level failure classification is **functionally verified on Windows**, the only system where `FolderFailed` arises. Its storage-level, record-path and consumer-level tests passed there.
+- **F1:** the exact comparison and the before-and-after check of the folder's own path **passed regression testing**:
+  - on Windows: the "moved" tests and every existing held-read, junction, reparse-point, long-path and sharing test;
+  - on all three systems: the comparison cases.
+- **Neither is adversarial validation.**
+
+**Still required:**
+
+- **F1's proof:** dynamic evidence that the ancestors of held folders cannot be renamed on supported Windows and NTFS, or a later owner decision on relative opens;
+- **M3**, the adversarial suite, which stays OPEN; R3 is not complete;
+- the owner's decisions on F3 to F8; *(F3 decided on 2026-10-24: F3-A; see "Batch 2B-3b — M3-R2B: F3 Fix Mode fail-closed selection (2026-10-24)".)*
+- B1-M, B2 and Phase C, each on the owner's authorization;
+- the eight activation blockers.
+
+#### Batch 2B-3b — M3-R2B: F3 Fix Mode fail-closed selection (2026-10-24)
+
+**Status: M3-R2B (F3-A) IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; CROSS-PLATFORM CI PENDING; R3 NOT COMPLETE; M3 OPEN.** *(Later on 2026-10-24: committed as `3863488` (owner-authorized, with the `duplicate` exception), pushed, and CROSS-PLATFORM CI VERIFIED by run 40107435984 (9/9); F1's proof pending; M3 still OPEN; see "Batch 2B-3b — M3-R2B: F3-A cross-platform CI verification (2026-10-24)".)*
+
+- **What this is:** an owner-approved behaviour correction. It is not adversarial validation, and it does not change M3 or R3.
+- **Unchanged:**
+  - B1-M, B2 and Phase C are NOT STARTED, and Unified Storage is inactive;
+  - the version is 0.1.5, and `main` is `ea9659c`;
+  - DD-27 and DD-28 (their messages, listings and reads by id), M3-R2A's approved changes A, B and C, US-D29 and the eight activation blockers;
+  - F1's proof is pending; F4 to F8 have no decision.
+- **The state of the work:** in the working tree only, on `08a6c37`. Nothing is staged, committed or pushed, and no CI run was dispatched.
+
+**The root cause** (M3-R1's F3, confirmed by the M3-R2B read-only review on `08a6c37`):
+
+- **What happens to a failed file:** `FixModeStore._load_scope` turns each custom file that cannot be loaded into a `FixModeIssue` and leaves it out. That covers a link (DD-27's issue), a read failure, invalid JSON, a schema failure, and an id that does not match the file's name.
+- **How precedence works:** `FixModeCatalog.effective_modes` lets the project scope beat the user scope only among the modes that loaded.
+- **Where the issues are lost:** `fix_mode_state.fix_mode_registry` keeps only the catalog's registry. Every resolution of an id goes through it, and none of them saw the issues:
+  - explicit selection, persisted selection and the regeneration paths;
+  - the task preview;
+  - MCP's prepare tools and `show_fix_mode`;
+  - `fix-mode show` without a scope.
+- **Observed** (an isolated scratch probe, Windows, Python 3.14.6):
+  - an explicit `--fix-mode my-safe` whose project definition was a junction, held exclusively by another program, invalid JSON or invalid by schema ran the user's `my-safe` **with no warning**;
+  - a persisted project selection gave the same drift warning (`source: project -> user`) whether the project file was broken or deleted;
+  - with no user definition, a broken project definition was `Unknown Fix Mode`.
+
+**The owner's decisions (2026-10-24):**
+
+- **F3-A, APPROVED.** When a selected id's *project* definition is on disk but cannot be loaded, the id is not resolved to the user's definition. An existing-category error is raised instead. It applies to:
+  - explicit and persisted selection, and the resume and regeneration paths;
+  - MCP selection;
+  - the task preview. The context preview resolves no Fix Mode.
+  - unqualified lookup, where applicable.
+- **Absent versus broken:** a project definition that is genuinely absent keeps today's behaviour. The user's definition applies, with the drift warning for a persisted selection. A file listed but gone by its read is absence.
+- **A2, DEFERRED:** the listing, the effective-mode output and the picker are unchanged. A blocked id can still be offered, and is refused when it runs.
+- **Defect 5.6 (invalid UTF-8), DEFERRED.**
+- **A separate decision:** this is kept apart from DD-27 and DD-28. The new error quotes an existing issue message without changing it.
+
+**The change** (`bugpilot/core/fix_mode_store.py` only; `fix_mode_state.py`, `fix_modes.py`, the CLI and MCP unchanged):
+
+- **`FixModeIssue.file_name`** (new, default `""`): the file that is on disk but could not be loaded.
+  - It is empty for an issue about a whole scope, and for a file listed but gone by its read (`_ListedAndGone`, which keeps the issue "is not a file." exactly).
+  - The CLI and MCP listings still show only the scope, the path and the message.
+- **`FixModeCatalog.blocked_by(mode_id)`:** the project issue whose file names `mode_id`.
+  - File names are compared with `os.path.normcase`, so without case on Windows.
+  - Nothing blocks when the project's definition loaded, when there is none, or for a built-in id.
+  - A broken *user* file never blocks.
+- **`FixModeCatalog.effective_registry()`** returns `_CatalogRegistry`. Its `resolve(mode_id)` raises the new error for a blocked id; the default (`None`) is never blocked.
+- **`FixModeUnloadableError(FixModeError)`** (new): a `ValueError`, so it gives `INVALID_INPUT` everywhere, with no new code. It is deliberately not a `FixModeNotFoundError`, whose persisted-selection wording would hide the reason. Its message is:
+
+  `Fix Mode '<id>' cannot be used: its project definition, <display path>, could not be loaded. <the issue's own message> BugPilot will not use another scope's definition of '<id>' instead. Repair or remove that file, or choose another Fix Mode.`
+
+  The path is in display form (`~/.bugpilot/…` or `BUGPILOT_HOME/…`), never an absolute path.
+- **`FixModeStore.duplicate`** resolves its source without the refusal, as before. *(Approved by the owner on 2026-10-24 as an intentional compatibility boundary: `duplicate` keeps DD-28's behaviour and exact wording, and DD-28's tests are unchanged. Extending F3-A to `duplicate` needs a separate owner decision.)*
+  - **Why:** DD-28's evidence `test_dd28_leaves_duplicate_as_it_was` pins that `duplicate` reads no mode by its id. It gets `Unknown Fix Mode '<id>'` for an in-folder link's id.
+  - **What was found:** applying F3-A to `duplicate` failed that test (4 cases), so DD-28 governs. Including `duplicate` would need an owner decision and a DD-28 evidence update.
+- **How the error reaches each interface,** with no CLI or MCP change:
+  - **`bug`:** text gives `ERROR: …` and `Run: bugpilot fix-mode list`; JSON gives `INVALID_INPUT`.
+  - **Regeneration paths:** `_report_fix_mode_failure`.
+  - **`task-preview`:** `INVALID_INPUT`.
+  - **`fix-mode show <id>`:** `INVALID_INPUT`. With `--scope` it reads that scope as before.
+  - **MCP prepare:** `Could not prepare … [INVALID_INPUT]: …`.
+  - **MCP `show_fix_mode`:** a `ToolError` with the message.
+
+**Behaviour, before and now:**
+
+| Situation | Before | Now |
+| --- | --- | --- |
+| Project and user both valid | project | unchanged |
+| Project absent, user valid | user | unchanged |
+| Project a link or junction, held exclusively, unreadable, invalid JSON, invalid by schema, or an id not matching its file's name; user valid | **the user's, with no warning** | **refused**: `INVALID_INPUT`, exit 1, no task written |
+| Only a broken project definition | `Unknown Fix Mode` | refused, with the reason |
+| Persisted project selection, project now broken, user valid | the user's, with the drift warning | refused; the prepared task is left as it was |
+| Persisted project selection, project file removed, user valid | the user's, with the drift warning | unchanged |
+| A broken user file, valid project | project | unchanged |
+| An unrelated broken file | no effect | unchanged; its own id is refused |
+| A custom file claiming a built-in id | an issue; the built-in runs | unchanged |
+| An unknown id | `Unknown Fix Mode` | unchanged |
+| The default selection | Standard Fix | unchanged |
+| A case-variant project file name (`My-Safe.json`) | ignored for `my-safe` | Windows: refuses `my-safe`; POSIX: unchanged |
+
+**Intentional compatibility differences:**
+
+- **Success to error:** rows 3 and 5 of the table (an explicit or persisted selection of a broken project definition, with a valid user definition).
+- **New wording:** rows 4 and 5 give a new message (`Unknown Fix Mode` and `Stored Fix Mode … cannot be resolved` before).
+- **Not changed:** the error codes, the exit codes, the listings, the effective-mode output and the picker; no task golden or frozen record (all 17 goldens use built-in modes).
+- **A known gap:** a case-insensitive macOS volume compares names as POSIX does, so a case-variant project file does not block there, as before.
+- **Published behaviour:** 0.1.5 had the same silent fallback. This changes it, in an error path only.
+
+**Tests** (23 cases):
+
+- **`tests/test_fix_mode_store.py`** (16):
+  - a broken project definition refused with the user's valid: invalid JSON, schema, id mismatch, symlink, and a junction on Windows;
+  - a read failure injected at the held reader;
+  - an exclusive hold, on Windows, refused until it is released;
+  - both definitions valid; project absent; broken without a user definition; a broken user file never blocking; an unrelated broken file blocking no other id or the default;
+  - an unknown id; a built-in id never blocked; listed-but-gone as absence; the case-variant name, by platform;
+  - with no absolute path, and with the listing unchanged.
+- **`tests/test_fix_mode_custom.py`** (6):
+  - `bug --fix-mode` in text and in JSON, with no task written;
+  - a persisted selection refused, its task untouched, and its work item's preview refused;
+  - a persisted selection after the file was removed still warns and runs;
+  - the template preview refused;
+  - `fix-mode show` refused without a scope and working with one, with the listing unchanged.
+- **`tests/test_mcp_server.py`** (1): prepare and `show_fix_mode` refused, no task written, no absolute path, and `list_fix_modes` unchanged.
+- **Shown to detect the defect:** against `HEAD`'s behaviour, 18 of the 23 fail. The 5 that pass are the cases that must not change: both valid, absent, a broken user file, an unknown id, and a file removed outside BugPilot.
+- **DD-27 and DD-28:** their tests in `tests/test_settings_read_safety.py` pass, unchanged.
+
+**Local verification** (Windows 11 Enterprise 10.0.26300, NTFS, Python 3.14.6, unelevated):
+
+| Group | Result |
+| --- | --- |
+| the 23 new cases | 23 passed; 18 of them fail against `HEAD`'s behaviour |
+| the existing Fix Mode, MCP and read-safety tests after the change (DD-27 and DD-28 included) | 525 passed |
+| 21 related files: Fix Mode store, custom modes, selection, prompts and catalogue; MCP server, stdio and request scope; the CLI JSON and phase-2 suites; the task and context previews; the agent runner; handoff; read safety, held reads, global and repository settings; the inventory, the import boundary and unused symbols | 940 passed, 6 skipped |
+| **the full Windows Python suite** | **4,050 passed, 63 skipped, 0 failed, 0 errors, 0 deselected**, exit 0, in 26 minutes: the 4,027 before plus the 23 new cases. The 63 skips are identical (POSIX- and macOS-only cases, and four recorded Windows limitations) |
+| the approval gate, baselines and task goldens | 308 passed, 17 skipped |
+| `python tests/storage_baseline.py --check` | "baselines match" |
+| the inventory, the import boundary and unused symbols | 17 passed |
+| the plan checker | 0 problems; the decision and batch statuses unchanged |
+| plan parsing (`test_storage_identity.py`) and publishability | 150 passed, 3 skipped |
+| `git diff --check` | clean |
+
+No skipped test is counted as passed. The skips are platform skips; none was added.
+
+**Still required:**
+
+- the owner's review, then the commit authorization; *(Given on 2026-10-24: F3-A as implemented approved, with the `duplicate` exception; `INVALID_INPUT` kept; one local commit authorized; no push and no CI.)*
+- a push, and an owner-dispatched CI run with all 9 jobs passing; *(Done: `08a6c37..3863488`; run 40107435984, SUCCESS 9/9.)*
+- **owner decisions:** A2; defect 5.6; whether `duplicate` should follow F3-A (it would need a DD-28 evidence update); F4 to F8; *(On 2026-10-24 the owner kept A2, defect 5.6 and the macOS case-insensitive volume behaviour as separate follow-up items, with any extension of F3-A to `duplicate`.)*
+- F1's proof, and M3, which stays OPEN.
+
+#### Batch 2B-3b — M3-R2B: F3-A cross-platform CI verification (2026-10-24)
+
+**Status: M3-R2B (F3-A) — CROSS-PLATFORM FUNCTIONAL AND COMPATIBILITY CI VERIFICATION PASSED (run 40107435984, 9/9, on `3863488`); F1'S ANCESTOR-RACE PROOF PENDING; R3 NOT COMPLETE; ADVERSARIAL SECURITY VALIDATION (M3) OPEN; BATCH 2B-3b NOT COMPLETE; NOT ACTIVATED.**
+
+- **What passed:** F3-A's fail-closed Fix Mode selection, as functional and compatibility evidence on Linux, macOS and Windows. A selected id whose project definition is on disk but cannot be loaded is refused with `INVALID_INPUT`, never resolved to the user's definition.
+- **Unchanged and still in force:**
+  - **the genuine-absence fallback:** a project definition that is not there still lets the user's apply, with the drift warning for a persisted selection;
+  - **the `duplicate` boundary (owner-approved):** `fix-mode duplicate` keeps DD-28's behaviour and exact wording, and DD-28's tests are unchanged;
+  - **DD-27 and DD-28:** their exact wording;
+  - **follow-ups:** A2 (picker consistency) deferred, defect 5.6 (invalid UTF-8) deferred, and the macOS case-insensitive volume behaviour;
+  - **F4 to F8:** their statuses as recorded, with no decision;
+  - US-D29's integration restrictions and the eight activation blockers.
+- **Not affected by this run:** F1's Windows ancestor race is not proven safe. R3 and M3 stay OPEN; nothing here is adversarial validation.
+- **Not started:** B1-M, B2 and Phase C. Unified Storage is inactive; the version is 0.1.5, and `main` is `ea9659c`.
+- **This record:** documentation only, made from the public run data.
+
+**The commit:**
+
+- `3863488ef5a929dde597ac00346a7ada386ac956`, `fix(fix-modes): prevent silent cross-scope fallback`.
+- Parent `08a6c37`; 5 files: `fix_mode_store.py`, three test files and this plan.
+- Pushed by fast-forward (`08a6c37..3863488`), owner-authorized.
+
+**CI run 40107435984** (verified from the public API on 2026-10-24):
+
+- **The run:** workflow `CI` (`.github/workflows/ci.yml`), event `workflow_dispatch`, attempt 1.
+- **The head:** `3863488ef5a929dde597ac00346a7ada386ac956`, on `verify/0.1.6-storage`.
+- **The result:** conclusion success. All nine jobs ran on that head, in attempt 1, and succeeded.
+- **The time:** from 15:32:22 to 15:51:04 UTC.
+
+| Job | Conclusion | Tests (the public annotations) |
+| --- | --- | --- |
+| Safety and baselines, Windows, Python 3.13.16 | success | 2,065 passed, 65 skipped, 1 deselected |
+| Safety and baselines, Ubuntu, Python 3.13.16 | success | 1,991 passed, 90 skipped, 1 deselected |
+| Safety and baselines, Ubuntu, Python 3.10.22 | success | 1,991 passed, 90 skipped, 1 deselected |
+| Safety and baselines, macOS, Python 3.13.16 | success | 1,995 passed, 86 skipped, 1 deselected |
+| Full Python suite, Windows | success | 4,047 passed, 65 skipped, 1 deselected |
+| Full Python suite, Ubuntu | success | 3,965 passed, 97 skipped, 1 deselected |
+| Full Python suite, macOS | success | 3,969 passed, 93 skipped, 1 deselected |
+| Extension evidence boundary, Ubuntu | success | `node --test`: 27 tests, 27 passed |
+| Extension unit tests, Ubuntu | success | `node --test`: 2,350 tests, 2,348 passed, 2 skipped, 0 failed |
+
+- **Failure annotations:** none in any job.
+- **Python versions:** from the safety jobs' observation notices. The full-suite jobs publish none.
+
+**Compared with run 40060798081** (on `aadeefa`). The public annotations give counts, not the names of the tests that passed, so the attributions below are by arithmetic.
+
+- **Windows full suite:** 23 more passes, the same 65 skips, and no failure. That is consistent with all 23 F3-A cases running and passing there, the junction and exclusive-hold cases included.
+- **Ubuntu and macOS full suites:** 21 more passes and 1 more skip each.
+  - **The skip:** `tests/test_fix_mode_store.py`'s exclusive-hold test ("share modes are Windows'"), listed in both jobs' skip annotations.
+  - **The junction case:** not generated off Windows, so it is absent rather than skipped.
+  - **The symlink case:** 21 is consistent with it running on both. Had it skipped, the counts would be 20 and 2.
+- **The four safety jobs:** unchanged. Their file list does not include the Fix Mode and MCP test files.
+- **The extension jobs:** unchanged.
+- **Against the local run:** the Windows full suite has the same 4,113 tests as the local Windows run (4,050 passed, 63 skipped), split differently between passed, skipped and deselected.
+
+**Evidence limits:**
+
+- **Every skip list is cut.** The CI report cuts each skip annotation at 3,500 characters, and every Python job's skip list in this run is cut. So the POSIX permission Cases A, B and C are not shown to have run in this run.
+- **Not read:** the job logs need repository admin rights. Nothing here comes from them.
+
+**Cross-platform verification: PASSED** for F3-A, as functional and compatibility evidence.
+
+**Still required:**
+
+- F1's proof, and M3, the adversarial suite, which stays OPEN; R3 is not complete;
+- the owner's decisions on F4 to F8, A2, defect 5.6, the macOS case-insensitive volume behaviour, and any extension of F3-A to `duplicate`; *(F4 decided on 2026-10-24: Option A; see "Batch 2B-3b — M3-R2C: F4 repository identity revalidation (2026-10-24)".)*
+- B1-M, B2 and Phase C, each on the owner's authorization;
+- the eight activation blockers.
+
+#### Batch 2B-3b — M3-R2C: F4 repository identity revalidation (2026-10-24)
+
+**Status: M3-R2C (F4, Option A) IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; CROSS-PLATFORM CI PENDING; F1'S ANCESTOR-RACE PROOF PENDING; R3 NOT COMPLETE; M3 OPEN.** *(Later: committed as `9e5483c` (owner-authorized), pushed, and CROSS-PLATFORM CI VERIFIED by run 40219531790 (9/9) on 2026-10-25; F1's proof pending; M3 still OPEN; see "Batch 2B-3b — M3-R2C: F4 cross-platform CI verification (2026-10-25)".)*
+
+- **What this is:** an owner-approved correctness and integrity correction. It is not adversarial validation, and it changes neither M3 nor R3.
+- **What it does not establish:** an identity guarantee across several operations. Each check reads the record as it is at that moment; nothing makes a sequence of operations atomic.
+- **Unchanged:**
+  - DD-27 and DD-28, F1 to F3, F5 to F8, US-D29 and the eight activation blockers;
+  - B1-M, B2 and Phase C NOT STARTED; Unified Storage inactive; the version 0.1.5; `main` at `ea9659c`.
+- **The state of the work:** in the working tree only, on `0641b72`. Nothing is staged, committed or pushed, and no CI run was dispatched.
+
+**The finding** (M3-R1's F4, reviewed by M3-R2C, read-only, on `0641b72`):
+
+- **The cache:** within one request scope, a record verified `ok` was not read again while its metadata signature matched. That signature (`_record_signature`) was the device, file index, size, `mtime_ns`, `ctime_ns` and root, with `ctime_ns` replaced by 0 on Windows, where Python reports the creation time.
+- **Where it applied:** both checks, `_record_state` (the path accessors) and `_held_record_state` (the held readers), under one key, for every repository-scoped operation: settings and Fix Mode reads, work-item paths, `ensure()` before a write, and deletes.
+- **How long:** one request scope, so one CLI command or one MCP tool call.
+- **History:** this is Batch 1's L4. Batch 2A added `st_ctime_ns` on POSIX and bound verdicts to a scope (D2A-1), which left the Windows case within one scope. Its test, `test_on_posix_an_in_place_rewrite_is_seen_even_within_one_scope`, was POSIX-only by design.
+- **Reproduced on Windows** (an isolated scratch probe, Python 3.14.6, NTFS): `repository.json` was rewritten in place for another root, with the same size and its modification time restored.
+  - The file index, size and `mtime` were unchanged, and so was the signature.
+  - In the same scope, `record_state()` was still `ok` and a held settings read still `present`.
+  - The next scope gave `mismatch` and `StorageIdentityError`.
+- **POSIX:** detected by the change time, shown by the existing test on Linux and macOS in CI.
+- **Impact (Low):**
+  - **No cross-namespace access:** the namespace is chosen by the repository's path-based id (T-15), and the record only confirms it.
+  - **No disclosure:** no content from outside the namespace and no absolute path reaches any surface.
+  - **Who:** only an account that can already write the private data folder.
+  - The record protects integrity, not secrecy (L4).
+- **Option B, rejected:** NTFS's own change time (`FILE_BASIC_INFO.ChangeTime`) moves on such a rewrite. But the same account set it back through the documented `SetFileInformationByHandle(FileBasicInfo)` in the probe, so it is no guarantee.
+
+**The owner's decision (2026-10-24): Option A, APPROVED.**
+
+- Every identity check reads `repository.json` and validates its content, on Windows, Linux and macOS alike.
+- It **supersedes only the record-verdict reuse of Batch 2A's D2A-1.**
+  - The containment and Git working-tree verdicts are still kept for one request scope.
+  - The request scope is still their lifetime boundary.
+- **Approved test changes:** exactly three tests that required record-verdict reuse, `tests/test_storage_identity.py` (about line 666) and `tests/test_storage_held_read.py` (about lines 428 and 443).
+
+**The change** (`bugpilot/core/storage.py` only):
+
+- **`_record_state` and `_held_record_state`** no longer look up or store a verdict. Each check then:
+  - looks at the record (`lstat`, or opens it as itself in the held namespace);
+  - judges its type, link status and size;
+  - reads it, retried as before while it is in use;
+  - judges its content with `_record_verdict`, unchanged.
+- **Removed:** `_record_signature`, which was used only by that cache.
+- **Updated docstrings:** the module's and `request_scope`'s now say the record is read on every check.
+- **Unchanged:**
+  - the id and root rules, and the case-only rename rule;
+  - the missing, corrupt and mismatch handling and words, and the `INVALID_INPUT` and storage error codes;
+  - sharing-violation retries and their "cannot read … right now" failure; POSIX permission handling;
+  - the held folders and no-follow opens; folder-level failures (`FolderFailed`, `FolderDenied`) fatal;
+  - `_scoped` and the containment and Git working-tree verdicts.
+- **Left for a later decision:** `request_scope`'s outdated "Not wired yet" sentence is F8 and is unchanged.
+
+**Tests:**
+
+- **The three updated tests** (owner-approved):
+  - `test_the_record_is_read_on_every_check_inside_a_request_scope_and_outside_one`: 5 reads in a scope of three checks, where it was 3;
+  - `test_a_record_verified_by_a_held_read_is_not_remembered_for_the_path_accessor`: no `record` key in the scope, and the path accessor reads it again;
+  - `test_a_record_verified_by_the_path_accessor_is_judged_again_by_a_held_read`.
+- **New, `tests/test_storage_safety.py`** (6 cases, every system):
+  - an in-place rewrite with size and time kept is seen within one scope;
+  - for a mismatched and for an unreadable record, the same scope refuses a work item's path, a write through `ensure()`, `ensure()` itself and a settings path, in the exact identity words with no absolute path, and refuses a delete in `_remove`'s words, leaving the work item in place;
+  - a record removed within a scope is `missing-record`, the approved policy: not refused, and `ensure()` publishes it again;
+  - a record in use is retried and then reported "right now", never as a verdict;
+  - the containment and Git working-tree verdicts are still computed once per scope, and no `record` verdict is kept.
+- **New, `tests/test_storage_held_read.py`** (2):
+  - after an in-scope rewrite, a held settings read, a Fix Mode read, the Fix Mode listing and the catalog are each refused in the exact mismatch words;
+  - a held record in use is still retried, then fails "right now".
+- **The existing POSIX-only test is unchanged.** It still runs on POSIX and is skipped on Windows, and the new every-system test covers both.
+- **Shown to detect F4:** against `HEAD`'s `storage.py`, 9 of the 11 new and updated tests fail. The 2 that pass hold behaviour that must not change: the missing-record policy, and the held record's retry.
+
+**Performance** (measured on Windows, isolated, separate from estimates):
+
+- **Identity checks per command:** 3 to 6.
+  - `bug --prepare-only`, both task previews, the context preview and MCP `prepare_bug_description` make 6 each.
+  - `fix-mode list` and MCP `list_fix_modes` make 3 each.
+  - With the cache, one of them read the record; now each does.
+- **Held reads:** re-verifying costs nothing measurable. The record is already open there, and over 2,000 held reads the per-read times were 2.82 ms and 2.69 ms, inside the noise.
+- **Path accessors:** +0.6 ms per check (99 µs cached, 698 µs re-verified, over 5,000 checks).
+- **Bounded estimate:** at most about 3.6 ms more per command. Whole-command timings moved by single-digit milliseconds, inside the noise.
+
+**Intentional compatibility differences:**
+
+- **What now fails closed:** a record rewritten during a command, at any size and time, is now refused at the next identity check of that command, with the existing words and codes. Before, Windows kept the earlier verdict.
+- **More frequent reads:** each check reads the record, so a brief lock on it (an antivirus scan, for example) is met more often. It is still retried, and fails closed.
+- **No change to output:** no golden, frozen record, CLI or MCP output and no DD changes.
+
+**Local verification** (Windows 11 Enterprise 10.0.26300, NTFS, Python 3.14.6, unelevated):
+
+| Group | Result |
+| --- | --- |
+| the identity, held-read, safety, scope and unused-symbol files, after the production change, before any test update | 3 failed (exactly the three approved tests), 466 passed, 19 skipped |
+| the same files with the three tests updated | 469 passed, 19 skipped |
+| the 11 new and updated tests | 11 passed; 9 of them fail against `HEAD`'s `storage.py` |
+| 23 related files: storage identity, held reads, safety, scope, the API boundary, the inventory, the witness and unused symbols; read safety, global and repository settings, the Repository Profile, project settings and instructions; the Fix Mode store, custom modes, catalogue and selection; the MCP server and request scope; cleanup, write boundaries and the isolation guard | 1,242 passed, 23 skipped |
+| the full Windows Python suite, first run | 1 failed, 4,057 passed, 63 skipped: publishability refused a second, unlisted ticket key in one new test. The test now uses `JR-12345`, the synthetic key, which exercises the same write through `ensure()` |
+| **the full Windows Python suite, after that fix** | **4,058 passed, 63 skipped, 0 failed, 0 errors, 0 deselected**, exit 0, in 27 minutes: the 4,050 before plus the 8 new cases. The 63 skips are identical; the POSIX-only change-time test is still among them |
+| the approval gate, baselines and task goldens | 308 passed, 17 skipped |
+| `python tests/storage_baseline.py --check` | "baselines match" |
+| the inventory, the import boundary and unused symbols | 17 passed |
+| the plan checker | 0 problems; the decision and batch statuses unchanged |
+| plan parsing (`test_storage_identity.py`) and publishability | 150 passed, 3 skipped |
+| `git diff --check` | clean |
+
+No skipped test is counted as passed. The skips are platform skips; none was added.
+
+**Still required:**
+
+- the owner's review, then the commit authorization; *(Given on 2026-10-24: Option A as implemented approved, with the three test updates; one local commit authorized; no push and no CI.)*
+- a push, and an owner-dispatched CI run with all 9 jobs passing; *(Done: `0641b72..9e5483c`; run 40219531790, SUCCESS 9/9.)*
+- F1's proof, and M3, which stays OPEN;
+- the owner's decisions on F5 to F8, A2, defect 5.6, the macOS case-insensitive volume behaviour, and any extension of F3-A to `duplicate`.
+
+#### Batch 2B-3b — M3-R2C: F4 cross-platform CI verification (2026-10-25)
+
+**Status: M3-R2C (F4, OPTION A) — CROSS-PLATFORM FUNCTIONAL AND COMPATIBILITY CI VERIFICATION PASSED (run 40219531790, 9/9, on `9e5483c`); F1'S ANCESTOR-RACE PROOF PENDING; R3 NOT COMPLETE; ADVERSARIAL SECURITY VALIDATION (M3) OPEN; BATCH 2B-3b NOT COMPLETE; NOT ACTIVATED.**
+
+- **What passed:** Option A, as functional and compatibility evidence on Linux, macOS and Windows.
+  - Every repository identity check reads and validates `repository.json`; no record verdict is kept.
+  - That supersedes only D2A-1's record-verdict reuse.
+  - The containment and Git working-tree verdicts stay bound to one request scope.
+- **What it does not establish:** an identity guarantee across several operations. Each check reads the record as it is at that moment, and nothing makes a sequence of operations atomic.
+- **Unchanged and still open:**
+  - **security:** F1's Windows ancestor-race proof pending; R3 not complete; M3 OPEN;
+  - **decisions:** F5 to F8 undecided; A2, defect 5.6 and the macOS case-insensitive volume behaviour are follow-ups;
+  - **boundaries:** the `fix-mode duplicate` compatibility boundary under DD-28; DD-27 and DD-28;
+  - **gates:** US-D29's integration restrictions, the eight activation blockers, and the Batch 2B-3b completion gate.
+- **Not started:** B1-M, B2 and Phase C. Unified Storage is inactive; the version is 0.1.5, and `main` is `ea9659c`.
+- **This record:** documentation only, made from the public run data.
+
+**The commit:**
+
+- `9e5483c6cf000600ef6e2d2c40fb06703060d215`, `fix(storage): revalidate repository identity on every check`.
+- Parent `0641b72`; 5 files: `storage.py`, three storage test files and this plan.
+- Pushed by fast-forward (`0641b72..9e5483c`), owner-authorized.
+
+**CI run 40219531790** (verified from the public API on 2026-10-25):
+
+- **The run:** workflow `CI` (`.github/workflows/ci.yml`), event `workflow_dispatch`, attempt 1.
+- **The head:** `9e5483c6cf000600ef6e2d2c40fb06703060d215`, on `verify/0.1.6-storage`.
+- **The result:** conclusion success. All nine jobs ran on that head, in attempt 1, and succeeded.
+- **The time:** from 18:04:53 to 18:23:45 UTC.
+
+| Job | Conclusion | Tests (the public annotations) | Against run 40107435984 |
+| --- | --- | --- | --- |
+| Safety and baselines, Windows, Python 3.13.16 | success | 2,073 passed, 65 skipped, 1 deselected | +8 passed; skips unchanged |
+| Safety and baselines, Ubuntu, Python 3.13.16 | success | 1,999 passed, 90 skipped, 1 deselected | +8 passed; skips unchanged |
+| Safety and baselines, Ubuntu, Python 3.10.22 | success | 1,999 passed, 90 skipped, 1 deselected | +8 passed; skips unchanged |
+| Safety and baselines, macOS, Python 3.13.16 | success | 2,003 passed, 86 skipped, 1 deselected | +8 passed; skips unchanged |
+| Full Python suite, Windows | success | 4,055 passed, 65 skipped, 1 deselected | +8 passed; skips unchanged |
+| Full Python suite, Ubuntu | success | 3,973 passed, 97 skipped, 1 deselected | +8 passed; skips unchanged |
+| Full Python suite, macOS | success | 3,977 passed, 93 skipped, 1 deselected | +8 passed; skips unchanged |
+| Extension evidence boundary, Ubuntu | success | `node --test`: 27 tests, 27 passed | unchanged |
+| Extension unit tests, Ubuntu | success | `node --test`: 2,350 tests, 2,348 passed, 2 skipped, 0 failed | unchanged |
+
+- **Failure annotations:** none in any job.
+- **Python versions:** from the safety jobs' observation notices. The full-suite jobs publish none.
+
+**Reading the comparison.** The annotations give counts, not the names of the tests that passed, so this is arithmetic, not observation of individual tests.
+
+- **What +8 everywhere is consistent with:** the 8 new F4 cases running and passing in every Python job. All 8 run on every system, and their three files are in the safety jobs' file list.
+- **What it does not show by name:** that the three updated tests passed. They are counted among the passes, and no job reports a failure.
+- **Skips:** unchanged everywhere. The existing POSIX-only change-time test, unchanged, is still skipped on Windows only.
+- **Against the local run:** the Windows full suite has the same 4,121 tests as the local Windows run (4,058 passed, 63 skipped), split differently between passed, skipped and deselected.
+
+**Evidence limits:**
+
+- **Every skip list is cut.** The CI report cuts each skip annotation at 3,500 characters, and every Python job's skip list in this run is cut. So no individual skip can be shown as absent from a job.
+- **Not read:** the job logs need repository admin rights. Nothing here comes from them.
+
+**Performance evidence** (unchanged from "Batch 2B-3b — M3-R2C: F4 repository identity revalidation (2026-10-24)", measured on Windows only):
+
+- 3 to 6 identity checks per command;
+- held re-reads: no measurable cost;
+- path-accessor re-reads: +0.6 ms each, so at most about 3.6 ms per command.
+
+CI publishes test durations only per job, and those vary between runs, so they add no measurement of this change.
+
+**Cross-platform verification: PASSED** for F4 Option A, as functional and compatibility evidence.
+
+**Still required:**
+
+- F1's proof, and M3, the adversarial suite, which stays OPEN; R3 is not complete; *(2026-10-25: O-1 joins M3's scope and gates; see "Batch 2B-3b — M3-R2E: O-1 repository-link reads, decision and remediation plan (2026-10-25)".)*
+- the owner's decisions on F5 to F8, A2, defect 5.6, the macOS case-insensitive volume behaviour, and any extension of F3-A to `duplicate`;
+- B1-M, B2 and Phase C, each on the owner's authorization, then the Batch 2B-3b completion gate;
+- the eight activation blockers, and US-D29's integration restrictions.
+
+#### Batch 2B-3b — M3-R2E: O-1 repository-link reads, decision and remediation plan (2026-10-25)
+
+**Status: O-1 — MEDIUM SECURITY FINDING (OWNER-APPROVED, 2026-10-25); REMEDIATION OPTION B SELECTED (ONE SAFE-READ CHOKEPOINT); NOT IMPLEMENTED; 0.1.5.x MAINTENANCE PATCH APPROVED FOR PREPARATION, NOT STARTED; AN ADDITIONAL SECURITY GATE FOR M3, 2B-4, 2B-5 AND ACTIVATION; NOT ACTIVATED.** *(Later on 2026-10-25: implemented and verified locally on Windows, not committed; see "Batch 2B-3b — M3-R2E: O-1 implementation and local verification (2026-10-25)".)*
+
+- **Where it came from:**
+  - the read-only F5/F6 review (M3-R2D, 2026-10-25, on `ce04705`);
+  - then a read-only triage (M3-R2E).
+  - Both read code and existing tests only. Nothing was executed, and no reproduction was built.
+  - The F5 to F8 decisions are unchanged and still open.
+- **Not part of the storage work:**
+  - O-1 is in the 0.1.5 layout's readers, on `main` (`ea9659c`) and in the 0.1.5 release commit (`ee3fb00`);
+  - MCP's reader dates from 0.1.0 (`c16d796`);
+  - Option C's held readers are not involved.
+
+**The finding.**
+
+- **The readers:** those of a work item's files (`<repo>/.ai/<id>/`) and of bug memory (`<repo>/.ai_memory/bugs/`) open them by path.
+- **What is followed:** a symbolic link at the file, and for some readers one at a folder.
+- **Why it matters:** a cloned repository can commit such links. A file outside the repository is then read, and handed on to an MCP client, a prompt, a preview or a Jira comment.
+
+| Reader | Reached by | A link at `.ai` or `.ai/<id>` | A link at the file | What leaves the reader |
+| --- | --- | --- | --- | --- |
+| `mcp_server._read_artifact`, `fix_report.read_fix_report` | MCP `summarize_results`; CLI `summarize-results`, `status`, review and retry flows | refused first, by `writable_issue_dir` in `summarize_results_step` | followed | MCP: the first 4,000 characters (`report_excerpt`), and the overview's Summary (up to 1,200 characters) and Review Notes lines |
+| `workflow._build_jira_comment_draft` (`read_fix_report`), `workflow._prepared_jira_comment_text` | CLI `jira-comment-draft`, then `jira-comment` (a preview, or `--execute`); `summarize-results --jira-comment` or `BUGPILOT_AUTO_JIRA_COMMENT`, which post without a preview | refused first | followed (the report); the draft is rewritten first on the automatic path, and read through a link on `jira-comment` | the report's Analysis and Changes sections, redacted, in a Jira comment on the work item's own issue |
+| `memory.search_memory` | MCP `search_memory`; the pipeline's Similar Fixes step | followed (`.ai_memory`, `bugs`) | followed | each file's first `# ` heading, and which query words it contains |
+| `run.load_run`, `issue.load_issue` | MCP `get_status`, the prepare tools' titles; most CLI commands | followed | followed | only the fields of a valid BugPilot run or issue record |
+| `workflow.check_result_files`, MCP `_existing` | MCP `check_results`; every MCP tool's "is it prepared" check | followed | followed | existence only |
+| `workflow._feedback_text`, `workflow._read_artifact`, and the `retrieval`, `review_report` and `verification_report` readers | CLI retry, review and verification flows | refused first, where the step prepares the folder | followed | text built into later prompts and reports |
+| the `context.md` excerpt | MCP prepare and refine | refused | refused: the same call rewrites the file first | BugPilot's own context |
+| `task_preview`, `context_preview` (F13, 0.1.4) | CLI previews | refused | refused | nothing through a link |
+
+**The threat model (§10.1).**
+
+- **Both conditions are in scope:**
+  - a hostile *repository layout*: the committed link;
+  - hostile *text*: an MCP client model, or repository content steering it, calling a tool with the planted id.
+- **Why the user's own account does not settle it:**
+  - the MCP server reads with the user's rights, for a client whose own reads may be confined to the workspace or approved file by file;
+  - BugPilot's tools are approved tool by tool.
+  - `_read_artifact`'s comment, "the agent can open the same file with its own tools", holds for real files in the workspace, not for a link's target outside it.
+
+| Case | Prerequisites | Platforms | Exposure | In scope |
+| --- | --- | --- | --- | --- |
+| A. A link at the file | a committed symbolic link; a tool call or command naming its id | Linux and macOS (Git makes links by default); Windows only with Git's symbolic links enabled | up to 4,000 characters per id per MCP call; CLI previews and prompts; a Jira comment, as in the table above | yes |
+| B. A link at a folder | a committed link at `.ai`, `.ai/<id>`, `.ai_memory` or `bugs` | as A | headings and word presence (memory); existence; valid BugPilot records | yes |
+| C. A Windows junction | it cannot be committed; only the same account makes one | Windows | as B | no (§10.1) |
+| D. A regular file | committed text | all | nothing beyond hostile text, which is fenced (0.1.5, N5); its size is not bounded | as hostile text |
+
+- **Availability:** a link to a FIFO or a device file can block a read, or make it endless. This is inferred from Python's I/O, not executed.
+- **Integrity:** no effect was found. Writes refuse a link at the file and at the folders, including `run.json`, which `summarize_results` writes.
+- **Confirmed, by reading the code (not executed):**
+  - that the reads follow links;
+  - what each one returns;
+  - where the folder checks are.
+- **Hypothetical:**
+  - that a model is steered into calling a tool with a planted id;
+  - that the developer approves the tool;
+  - that the repository's author can predict a target's path;
+  - whether a given client could read the target itself.
+- **The Jira route** needs all of the following:
+  - the work item to be a Jira issue the developer can comment on;
+  - an explicit flag or the variable;
+  - a target with the report's headings.
+
+**Severity: Medium (owner decision, 2026-10-25).**
+
+- **Confidentiality, Medium:** any file the user can read, if its path can be predicted, can reach the model's context. That includes BugPilot's own credentials file.
+- **Integrity:** none.
+- **Availability:** Low.
+
+**The owner's decisions (2026-10-25):**
+
+- O-1 is a Medium security finding.
+- The remediation is Option B: one safe-read chokepoint covering MCP, the CLI, work-item files and bug memory.
+- A maintenance patch for the 0.1.5 release line is approved for preparation.
+- Nothing is implemented, committed, released or published. Coding waits for the owner's approval of this plan.
+
+**The remediation (Option B): the proposed contract.** Each point is PROPOSED, for the owner's approval before coding.
+
+- **P-1, one chokepoint.** A small reader in `bugpilot/core/safe_paths.py` gives each caller a file's bytes, never a path to open. It reads:
+  - a work-item file, `.ai/<id>/<name>`, with `<name>` one of BugPilot's fixed artifact names;
+  - a bug memory file, `.ai_memory/bugs/<name>.md`;
+  - the list of memory files.
+- **P-2, what it refuses.**
+  - **What is judged:** each component below the repository root (`.ai` and `<id>`; `.ai_memory` and `bugs`), and the file itself, as it stands, never followed.
+  - **What is refused:** a link, a junction, a non-folder on the way, or a file that is not regular.
+  - **How:** one sentence in F13's words ("`.ai/<id>/<name>` is behind a link or junction, so nothing in it was read."), with no absolute path, reported as `INVALID_INPUT` by the CLI's JSON and by MCP.
+  - **Unchanged:** the repository root itself may still be a link.
+- **P-3, how it opens.**
+  - **POSIX:** `O_NOFOLLOW` and `O_NONBLOCK`. Then `fstat` must show a regular file, and the same file (device and inode) that the look found.
+  - **Windows:** the look, then the same identity check after the open, so a link made in between is refused.
+  - **A file system that reports no file identity** is judged by the look alone.
+  - **No `_held_folders`:** it is not on `main` or in 0.1.5, and M3 has not validated it.
+- **P-4, bounded.**
+  - Every read stops at the limit plus one byte. A larger file is refused ("is larger than BugPilot reads").
+  - Proposed limits: 16 MiB for a work-item file, 1 MiB for a memory file.
+- **P-5, existence.** These checks use the same look:
+  - MCP `_existing`;
+  - `check_results`;
+  - `summarize_results`' `fix_report` field;
+  - `_package`'s `agent_task`;
+  - `workflow._generated_files`.
+  - A link is a refusal, never "present" or "missing".
+- **P-6, bug memory.**
+  - **A link at `.ai_memory` or `bugs`:** MCP `search_memory` is refused. The pipeline's Similar Fixes step reads nothing, warns, and the run continues.
+  - **A link or a non-regular file among the memory files:** it is skipped unread, and counted in one warning line.
+- **P-7, unchanged for real files.**
+  - Regular files read exactly as today: the same text, decoding, excerpts and fences.
+  - No golden, baseline, prompt-boundary record or task text changes.
+- **The residual, outside §10.1's scope and recorded:**
+  - a same-account process swapping a folder between its look and the open (T-S8's class);
+  - the in-scope attacker, a cloned layout, cannot race.
+
+**The implementation plan (NOT STARTED).**
+
+1. The chokepoint and its unit tests.
+2. The readers re-pointed, in the same commit:
+   - **MCP:** `mcp_server._read_artifact`, `_existing` and the existence fields;
+   - **record readers:** `fix_report.read_fix_report`, `issue.load_issue`, `run.load_run`, and `retrieval`'s reader;
+   - **report readers:** `review_report.read_review_report` and `verification_report.read_verification_report`;
+   - **bug memory:** `memory.search_memory` (the list and the reads), and `memory_update_step`'s read;
+   - **workflow:** `check_result_files`, `_generated_files`, `_read_artifact`, `_feedback_text` and `_prepared_jira_comment_text`;
+   - **previews:** `task_preview` and `context_preview`, through the chokepoint, with their F13 wording.
+3. Regression tests R-1 to R-8 (below).
+4. Validation:
+   - the full Python suite and the safety list;
+   - the goldens, and the prompt-boundary and file-safety baselines;
+   - `storage_baseline.py --check`, on the verification branch;
+   - the extension suites;
+   - then CI, 9/9.
+
+**The proposed allowlist** (the patch's code commit):
+
+- **Code:**
+  - `bugpilot/core/safe_paths.py`;
+  - `bugpilot/mcp_server.py`;
+  - `bugpilot/core/fix_report.py`, `issue.py`, `run.py`, `retrieval.py`, `review_report.py`, `verification_report.py`, `memory.py`, `workflow.py`, `task_preview.py` and `context_preview.py`.
+- **Tests:** `tests/test_work_item_read_safety.py` (new) and `tests/test_mcp_server.py`.
+- **Nothing else:** no extension code, and no frozen record, golden or baseline script.
+
+**The regression tests (synthetic fixtures only).**
+
+- **Fixtures:** each test makes a repository and an "outside" folder in its own temporary directory, and writes a sentinel string into a synthetic file there.
+- **The check:** the sentinel must appear in no output.
+- **Never used:** the real home folder, credentials or any user file.
+
+| Test | Layout | Expected |
+| --- | --- | --- |
+| R-1 | a link at each file that is read: `fix_report.md`, `context.md`, `run.json`, `issue.json`, `retrieval.json`, `review_report.md`, `verification_report.md`, `user_feedback.md`, `jira_comment_draft.md` | every MCP tool and CLI command that reads it refuses, with `INVALID_INPUT`; the sentinel is in no result, message, prompt, preview or draft; no absolute path; the Jira client's stand-in is never called |
+| R-2 | a link at `.ai`, and at `.ai/<id>` | every MCP tool, and the CLI's `status`, `check-results` and `summarize-results`, refuse; no existence answer |
+| R-3 | a link at `.ai_memory`, at `bugs`, and at one memory file | `search_memory` refuses (the folders) or skips (the file); no heading or keyword of the sentinel; real entries still found; the Similar Fixes step warns and continues |
+| R-4 | Windows junctions at `.ai`, `.ai/<id>`, `.ai_memory` and `bugs` | refused as links (a junction needs no privilege) |
+| R-5 | a FIFO at `fix_report.md`, and a link to one (POSIX) | refused as not a regular file, without blocking; a timeout guards the test |
+| R-6 | regular files only | results byte-identical to today's, for every tool and command; goldens and baselines unchanged |
+| R-7 | a regular file one byte over the limit (sparse) | refused; no more than the limit plus one byte read, counted through a wrapper |
+| R-8 | R-1's and R-2's layouts, through the CLI | the same refusals, exit code 1, and JSON `INVALID_INPUT` |
+
+- **One more unit case:** an identity mismatch between the look and the open, injected through a stand-in `fstat`, is refused. No race tooling is used.
+- **Symbolic-link cases** are skipped where the account cannot make links, as the existing tests do.
+
+**Independent security validation** (for the security team, with M3):
+
+- **Real clones** carrying committed links, through real MCP clients, to confirm that no outside content reaches the client:
+  - on Linux and macOS;
+  - on Windows, with Git's symbolic links enabled.
+- **The residual same-account race** of P-3.
+- **The extension's own readers** of `.ai/<id>/` (TypeScript), which O-1's triage did not review.
+
+**The two tracks.**
+
+| | The maintenance patch (the 0.1.5 line) | The 0.1.6 storage line |
+| --- | --- | --- |
+| Base | `main` (`ea9659c`). The release workflow runs only from `main` ("Refuse any ref but main"), and changing that would weaken a release boundary | `verify/0.1.6-storage` |
+| Content | the chokepoint, the re-pointed readers and R-1 to R-8; then a separate version and release commit | the same fix, carried over once it is on `main`: a cherry-pick, or `main` merged under US-D29 (the owner's choice) |
+| Afterwards | released to PyPI, then the Marketplace | 2B-4 and 2B-5 move work items and MCP's paths into the data root. The reads keep the chokepoint's guarantees there, no reader names `.ai/` or `.ai_memory/` (T-S22), and the canary suite covers the MCP and CLI readers |
+| Not included | any storage, settings or Fix Mode change; activation; F5 to F8 | — |
+
+**Release decisions still open (the owner's):** *(2026-10-26: four release gates are recorded, the extension's readers and `bugpilot list` among them; see "Batch 2B-3b — M3-R2E: O-1 Python coverage completion and owner approvals (2026-10-26)".)*
+
+- **REL-1, the version.** *(2026-10-26, the owner: tentatively 0.1.6 for the security release, with Unified Storage moving to 0.1.7; no version changed yet; see "Batch 2B-3b — M3-R2E: O-1 release blockers, the extension and `bugpilot list` (2026-10-26)".)*
+  - **The constraint:** the managed runtime installs exactly `bugpilot==<extension version>` (`extension/src/managedRuntime.ts`), and a Marketplace version has three numeric parts. A `0.1.5.1` on PyPI alone would not reach managed-runtime users.
+  - **Option (a):** release the patch as `0.1.6` on PyPI and the Marketplace. The storage release then takes the next version; this plan keeps its name.
+  - **Option (b):** `0.1.5.1` on PyPI only. Managed-runtime users stay unpatched, so this is not recommended.
+- **REL-2, licence and release text.** `LICENSE` names "Version 0.1.5" as the Licensed Work. The new version's licence parameters, the changelogs and any security note are the owner's, with qualified review.
+- **REL-3, disclosure timing.** The repository is public, and this record describes an unpatched issue in released versions. The proposal: do not push it before the maintenance release is published, unless the owner decides otherwise. *(2026-10-26, the owner: no detailed public disclosure until an appropriately verified fix is available; see "Batch 2B-3b — M3-R2E: O-1 release blockers, the extension and `bugpilot list` (2026-10-26)".)*
+- **REL-4, the release record.** The 0.1.5 line's release records are in the historical development plan, which is the owner's and was not changed. Where the maintenance release is recorded is the owner's decision.
+- **Main's inactive storage code.**
+  - `main` holds 14 commits after `ee3fb00`: the inactive storage foundation, kept by activation blocker 8.
+  - A release from `main` ships that code inactive.
+  - The patch's review confirms it stays uncalled.
+
+**The O-1 security gate** (recorded beside the eight activation blockers, which are not renumbered):
+
+- M3 is not accepted while O-1 is unresolved on this line, or before its independent validation.
+- 2B-4 and 2B-5 do not start before the fix is on `verify/0.1.6-storage`, and each keeps the chokepoint's guarantees for the data-root work folder.
+- Unified Storage is not activated while O-1 is open on this line.
+- B1-M is not gated by O-1: it relocates the Verification Policy and AI Behavior.
+
+**Corrected: §5.2, F01 and F07.**
+
+- **What the inventory said:** `.ai`, `.ai/<id>`, `.ai_memory` and `bugs` are "checked for links" and "refused rather than followed".
+- **Where that holds:** for writes, deletes and the previews, not for the readers above.
+- **The correction:** a dated note on each of the two rows records it; the rows are not rewritten.
+
+**Still required:**
+
+- the owner's approval of P-1 to P-7 and of REL-1 to REL-4, then the implementation authorization;
+- the maintenance patch, its CI, its release and its publication, each owner-authorized;
+- the fix carried over to this line, and its CI;
+- M3, with O-1's independent validation; F1's proof; R3;
+- F5 to F8, A2, defect 5.6, the macOS follow-up and the `duplicate` boundary;
+- US-D29, the eight activation blockers and the O-1 gate.
+
+#### Batch 2B-3b — M3-R2E: O-1 implementation and local verification (2026-10-25)
+
+**Status: O-1 FIX IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; CROSS-PLATFORM CI PENDING; INDEPENDENT SECURITY VALIDATION PENDING; THE 0.1.5.x RELEASE AND BACKPORT DECISION PENDING; F1, R3 AND M3 OPEN; NOT ACTIVATED.** *(Later, 2026-10-26: extended to the attachments listing and the memory-existence check; see "Batch 2B-3b — M3-R2E: O-1 Python coverage completion and owner approvals (2026-10-26)".)*
+
+**The owner's authorization (2026-10-25):**
+
+- **The task:** implement and verify locally the O-1 fix, provisionally Medium.
+- **Its nature:** a security correction, not a storage refactor.
+- **Not allowed:** a commit, push, merge, tag or publication.
+- **The allowlist:**
+  - `bugpilot/mcp_server.py` and `bugpilot/core/safe_paths.py`;
+  - `fix_report.py`, `memory.py`, `workflow.py`, `run.py` and `issue.py`;
+  - `tests/test_mcp_server.py` and `tests/test_batch4_file_safety.py`;
+  - this plan.
+- **Added during the work, on the owner's approval:** `bugpilot/core/retrieval.py`.
+  - `retrieval.json` is read by MCP `summarize_results` (its checklist), by `search_memory` with a work item's id, by `refine_investigation`, and by most CLI steps.
+  - Its reader followed a link at the file.
+- **Not changed:**
+  - `_held_folders.py`, `task_preview.py`, `context_preview.py`, `attachments.py`, `review_report.py`, `verification_report.py` and `cli.py`;
+  - the extension and the workflows;
+  - the baseline-tool scripts, goldens and frozen records;
+  - F1's, F2's, F3-A's and F4's code, DD-27 and DD-28.
+
+**Which batch moves what.** The triage's first report said "B2" here; that was imprecise.
+
+- **2B-3b's B1-M, B2 and Phase C:** relocate the Verification Policy and AI Behavior, and settle their wording and goldens. None touches a reader of a work item or of bug memory.
+- **2B-4:** moves work items, memory, `clean` and `list` into the data root.
+- **2B-5:** moves MCP's work-item paths.
+- **When the repository route goes:** only after those two, and only if no reader of the old folders remains (T-S22).
+- **So** O-1 is fixed in the readers 0.1.5 ships, independent of the migration.
+
+**The fix.**
+
+- **One reader, in `safe_paths.py`:** `read_generated_file(base, path, *, limit)` returns a file's bytes, or `None` when it is not there.
+  - The components come from `path.relative_to(base)`, so no caller spells a layout name; the inventory ratchet counts none new.
+  - **POSIX:** each folder is opened from its parent's descriptor with `O_NOFOLLOW`. The file is opened with `O_NOFOLLOW` and `O_NONBLOCK`, and `fstat` must show a regular file.
+  - **Windows, and any system without descriptor-relative opens:** each component is looked at (`lstat`) and refused as a link before the open. The open must reach the file the look found (device and file index), and the folders are looked at again afterwards. A same-account race against those looks is not claimed to be refused (§10.1); F1 stays open.
+  - **Bounded:** one limit, `GENERATED_READ_LIMIT` (16 MiB). A file whose size says more is refused before it is read. Every read stops at the limit plus one byte, whatever the size said.
+  - **A refusal:** `UnsafePathError`, in one sentence that names the path relative to the repository only ("BugPilot will not read `<path>`: `<reason>`. …, and nothing in this one was used."). Other `OSError`s are raised without the path. A failed safe open is never retried by path.
+- **Two companions:** `generated_file_exists` and `generated_folder_exists` apply the same judgement and read nothing.
+
+**The readers re-pointed:**
+
+| Reader | Reads | A refusal becomes |
+| --- | --- | --- |
+| `fix_report.read_fix_report` | `fix_report.md` | `UnsafePathError` (`INVALID_INPUT`) |
+| `issue.load_issue` | `issue.json` | `IssueArtifactError`, with the refusal's sentence (`INVALID_INPUT`); `read_issue_quietly` gives `None` |
+| `run.load_run` | `run.json` | `RunArtifactError`, with the sentence (`ARTIFACT_NOT_FOUND`, that error's existing code); `read_run_quietly` gives `None` |
+| `retrieval.load_retrieval` | `retrieval.json` | `RetrievalArtifactError`, with the sentence (`INVALID_INPUT`); `read_retrieval_quietly` gives `None` |
+| `memory.search_memory` | the memory files | a link at the memory folders refuses the search; a memory file that is a link or not a regular file is skipped unread and counted in one report line |
+| `workflow.check_result_files`, `jira_comment_step` and `_prepared_jira_comment_text`, `_feedback_text`, `_read_artifact`, `memory_update_step` | the result files, the Jira draft, `user_feedback.md`, the fix report, the memory file | `UnsafePathError` |
+| `workflow._generated_files` | names only | a linked work item folder is refused; a link, a linked attachments folder and a linked memory file are left out of the list |
+| `mcp_server._existing`, `_read_artifact` and `_present` | the work item's folder and files | a tool error; `_read_artifact` and `_present` say `[INVALID_INPUT]` |
+
+**The run's order.**
+
+- **The change:** a run that is not fresh now applies its existing write check to the work item's folder before it reads the persisted Fix Mode. It does this through `_prepare_issue_dir(..., create=False)`, which creates nothing.
+- **The effect:** a linked `.ai` or work item folder is refused in the write refusal's own words ("BugPilot cannot write … Nothing was written.") before anything in it is read.
+- **Why:** the first full run showed the new read refusal arriving first, wrapped in Fix Mode advice that does not apply. Four `tests/test_write_boundaries.py` cases failed.
+- **No expectation was changed.** Before the fix, that persisted-mode read had gone through the link.
+- **Unchanged for a fresh run:** it reads nothing there first, and its cleanup refuses the link in its own words.
+
+**The entry points protected:**
+
+- **MCP:** `summarize_results`, `check_results`, `get_status`, `search_memory`, `refine_investigation`, the prepare tools' excerpt and title, and every tool's "is it prepared" check.
+- **CLI:** `summarize-results` (with `--jira-comment` or `BUGPILOT_AUTO_JIRA_COMMENT`), `check-results`, `status`, `retry-prompt`, `jira-comment`, `review-package` and the memory search.
+- **The pipeline:** Similar Fixes, the memory update, and every step that reads the issue, run or retrieval record.
+- **The previews:** through the issue, run and retrieval readers; their own F13 checks are unchanged.
+
+**What changes for the developer.** Nothing for regular files: the same text, decoding, line endings, excerpts and fences. Only these cases differ:
+
+- a link anywhere on the way, or at the file: refused, where it was followed. A dangling link was "missing";
+- a regular file at `.ai` or at a work item's folder name: refused ("is not a folder"), where it was "missing" or "not prepared";
+- a folder at a file's name: refused ("is not a regular file"), where it was an `OSError` or an unusable record;
+- **memory:**
+  - a linked memory folder refuses the search, so the Similar Fixes step fails, as the memory writer already refuses such a folder;
+  - a linked or non-regular memory file is skipped, with one line in the report;
+- a file over 16 MiB: refused;
+- **POSIX:** a folder on the way must now be readable as well as searchable. One with search permission alone was readable before, and now gives an `OSError`.
+- **Departures from the proposal:** *(Approved by the owner on 2026-10-26: P-6 and P-4; see "Batch 2B-3b — M3-R2E: O-1 Python coverage completion and owner approvals (2026-10-26)".)*
+  - P-6 had the Similar Fixes step warn and continue on a linked memory folder; the search is refused instead (fail closed);
+  - P-4 proposed 1 MiB for memory files; one 16 MiB limit is used for every generated file.
+  - Both are for the owner's review.
+- **No public contract change:**
+  - no golden, baseline, prompt-boundary record or JSON key changes;
+  - the new sentence appears only in a refusal;
+  - the memory report gains a line only when a file was skipped.
+
+**The regression tests** (synthetic and isolated; a sentinel in a file outside the repository must appear in no output, and no message may hold an absolute path):
+
+- **`tests/test_batch4_file_safety.py`:** 16 test functions (41 cases). Most run under both read strategies; the descriptor strategy runs where the system has it.
+- **`tests/test_mcp_server.py`:** 5 test functions (9 cases).
+- **O-1's test labels:** R-1 to R-8 are O-1's own, not 2B-3b's "R-1 (the removal helper)". The owner's fourteen required checks map onto them:
+
+| Required check | Covered by |
+| --- | --- |
+| 1, 2: a link at the fix report; no sentinel in an MCP result | R-1: the fix-report test; MCP `summarize_results` |
+| 3, 6: links on the way; `check_results` follows none | R-2: the on-the-way test; MCP's linked-folder test for four tools; `check_results` in both suites |
+| 4: memory folder and file links | R-3: the memory-folder, memory-file and MCP `search_memory` tests |
+| 5: `run.json` and `issue.json` (and `retrieval.json`) | R-1: the record test (and quiet readers); MCP `get_status` |
+| 7: a non-regular file, no hang | R-5: a folder at a file's name (every system); FIFOs, guarded by a timeout (POSIX) |
+| 8: oversized | R-7: refused by size; the read stops at the limit when the size understates it |
+| 9, 10: regular output unchanged; missing files | R-6: byte-identical text, the same error words, missing answers; MCP's regular-and-missing test; every existing suite |
+| 11: no absolute path | every refusal test |
+| 12: the CLI | R-8: `check-results`, `summarize-results`, `status`, `retry-prompt`, `jira-comment` |
+| 13: Windows reparse points | R-4: junctions at `.ai` and `.ai_memory`; the link-on-the-way tests use a junction where symbolic links are refused |
+| 14: F1, F2, F3-A and F4 unchanged | their suites, in the full run |
+
+- **Plus:** an identity mismatch after the look, injected through a stand-in `fstat`, is refused (the Windows strategy). No race tooling was built.
+
+**Local verification** (Windows, Python 3.14.6, on `ce04705`, uncommitted):
+
+- the full Python suite: 4,090 passed and 81 skipped, none failed (against the last full Windows run, 4,058 and 63: the 50 new cases, 32 run and 18 POSIX-only skipped). The first full run, before the run's order was fixed, gave 4 failed, 4,086 passed and 81 skipped: the four `test_write_boundaries.py` cases above;
+- the focused suites (MCP, workflow, Similar Fixes, file safety, boundaries, previews, cleanup): 252 passed and 36 skipped after the last change (write boundaries, file safety, MCP, CLI JSON, cleanup, inventory, import boundary);
+- the O-1 tests: file safety 23 passed, 18 skipped (the POSIX descriptor strategy and the FIFOs); MCP 9 passed;
+- the approval gate, baselines and goldens: 308 passed, 17 skipped;
+- `storage_baseline.py --check`: baselines match;
+- the inventory ratchet and import boundary: 15 passed; no count increased;
+- the plan checker: 0 problems; one decision row more (US-D40, PROPOSED);
+- plan parsing and publishability: 150 passed, 3 skipped;
+- `git diff --check`: clean.
+
+**Evidence limits:**
+
+- **Not run here:** the POSIX descriptor strategy and the FIFO tests are skipped on Windows. Linux, macOS and Python 3.10 need CI.
+- **Not run anywhere:** real clones, real MCP clients and same-account races (independent validation).
+
+**Still required:**
+
+- the owner's review of this change and of US-D40, then a commit authorization;
+- CI on all nine jobs;
+- independent security validation:
+  - real clones carrying committed links, through real MCP clients;
+  - Windows with Git's symbolic links enabled;
+  - the residual race;
+  - the extension's TypeScript readers;
+  - `attachments.attachment_names` and `listed_attachments`, which still look through a linked attachments folder (names and existence only; outside this allowlist);
+- the 0.1.5.x release and backport decision (REL-1 to REL-4);
+- F1's proof, R3 and M3;
+- F5 to F8, A2, defect 5.6, the macOS follow-up and the `duplicate` boundary;
+- US-D29, the eight activation blockers and the O-1 gate.
+
+#### Batch 2B-3b — M3-R2E: O-1 Python coverage completion and owner approvals (2026-10-26)
+
+**Status: O-1 PYTHON FIX EXTENDED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; THE POSIX CASES NOT YET RUN (CI PENDING); INDEPENDENT SECURITY VALIDATION PENDING; RELEASE-BLOCKING FOLLOW-UPS OPEN (THE EXTENSION'S READERS AND `bugpilot list`); THE 0.1.5.x RELEASE AND BACKPORT DECISIONS PENDING; F1, R3 AND M3 OPEN; NOT ACTIVATED. O-1 IS NOT RESOLVED, AND NO PATCH RELEASE IS READY.**
+
+**The owner's decisions** (recorded 2026-10-26; given during the pre-commit review and this authorization):
+
+- **`bugpilot/core/retrieval.py`:** its inclusion as an affected reader is approved.
+- **The run's order:** the correction is approved. A run that is not fresh applies its write check to the work item's folder before reading anything in it, which keeps the write refusal's words.
+- **P-6, approved:** a linked memory folder fails closed; the search is refused.
+- **P-4, approved:** one 16 MiB limit for the current O-1 readers of generated files.
+- **US-D40, approved as the requirement:** its implementation, cross-platform CI and independent security validation remain pending.
+- **The authorization:**
+  - **in scope:** close the Python read-boundary gaps the pre-commit review confirmed, before the first public push;
+  - **added to the allowlist:** `bugpilot/core/attachments.py`;
+  - **not in this slice:** the extension's TypeScript readers and `bugpilot list`. They are release-blocking follow-ups below, not accepted vulnerabilities.
+
+**What the pre-commit review found** (read-only, 2026-10-25):
+
+- **The patch:** sound, with no regression.
+- **Gaps outside it:**
+  - `attachments.attachment_names` and `listed_attachments` followed a link at the attachments folder or at an entry. An outside folder's file names, or an outside file's existence, could reach `task.md`, which tells the agent to read those paths, and `run.json`.
+  - `workflow._generated_files` asked about the memory file without judging `.ai_memory` and `bugs`, so a link there answered whether an outside file exists.
+
+**The attachments correction** (`attachments.py`, `safe_paths.py`):
+
+- **A new listing in `safe_paths.py`:** `generated_file_names(base, folder)` judges the folder as `generated_folder_exists` does. It names only entries that are regular files as they stand, never following one.
+  - **POSIX:** lists from the folder's own descriptor; descriptor-relative listing (`os.scandir` on a descriptor) is now part of what selects that strategy.
+  - **Windows:** looks at the folders again after listing.
+- **`attachment_names(target)`:** lists through it. A link or junction at the attachments folder, at the work item's folder or at `.ai` is refused (`UnsafePathError`, `INVALID_INPUT`).
+- **`listed_attachments(target, recorded)`:** judges the folder the same way, then names a recorded file only when it is a regular file as it stands; the folder is judged again afterwards.
+- **The choice for one unsafe entry** (a link, a junction, or anything but a regular file): it is left out, never named and never followed.
+  - That is the existing attachments contract, under which a name that is not a regular file was never listed.
+  - The answer is the same whether a link's target exists or not, so nothing is said about it.
+  - The whole listing is not refused for one entry, because a regular attachment must still reach the agent.
+- **Unchanged:**
+  - both signatures (the frozen file-safety baseline calls them as before);
+  - sorting, recorded order, names and plain-name rules;
+  - a missing or empty folder gives no attachments;
+  - the copy and `remove_attachments`.
+- **No write was added.**
+- **A compatibility difference:** a regular file where the attachments folder should be is refused ("is not a folder"), where it used to list nothing.
+
+**The memory-existence correction** (`workflow._generated_files`):
+
+- **The memory file:** its existence is answered by `generated_file_exists`. A link or junction at `.ai_memory`, `bugs` or the file is refused, as the memory writer already refuses them, and is never reported as "missing".
+- **The work item's folder:** listed through `generated_file_names`.
+- **Attachments:** through `attachment_names`.
+- **Unchanged:** genuine absence still lists nothing, and real files list as before.
+- **A refusal here fails the status write** that asked; the run was already refusing such a layout before writing anything.
+
+**The release gates** (owner, 2026-10-26). Each blocks the 0.1.5.x maintenance release; none is an accepted vulnerability:
+
+1. **The extension's TypeScript readers of repository-controlled artifacts.** *(2026-10-26, later: implemented locally, not committed; see "Batch 2B-3b — M3-R2E: O-1 release blockers, the extension and `bugpilot list` (2026-10-26)".)*
+   - `files.readFile` is a plain read of `<root>/.ai/<id>/<name>`.
+   - These follow a link at the file: `copyContext` (to the clipboard), `useFeedbackHelper` (into the feedback and the retry prompt), the verification editor, and `#readStatus`.
+   - `listDirectory` leaves linked files out, but a linked `.ai` or work item folder is followed.
+2. **`bugpilot list`** (`cli.py`, `_list_work_items`): a linked `.ai` lists an outside folder's work-item-shaped names, and whether each holds a `run.json`. Titles already go through the safe reader. *(2026-10-26, later: implemented locally, not committed; see "Batch 2B-3b — M3-R2E: O-1 release blockers, the extension and `bugpilot list` (2026-10-26)".)*
+3. **Independent security validation**, on Windows and on POSIX. *(2026-10-27: M3: WAIVED BY OWNER FOR 0.1.6 — NOT VERIFIED; release-specific; see "Batch 2B-3b — M3-R2E: 0.1.6 owner M3 waiver and release readiness (2026-10-27)")*
+4. **The 0.1.5.x backport and release decisions** (REL-1 to REL-4).
+
+**The regression tests** (synthetic and isolated):
+
+- **Added to `tests/test_batch4_file_safety.py`:** 8 test functions (21 cases) on top of O-1's 16 (41 cases). They cover:
+  - a linked attachments folder, work item folder or `.ai`, refused by every reader and by the status listing;
+  - linked entries (an existing and a dangling target) and a folder entry, left out with identical answers;
+  - regular attachments unchanged (sorting, recorded order, plain names), and missing and empty folders;
+  - a linked `.ai_memory`, `bugs` or memory file, refused by the status listing;
+  - the listing without memory, and with a real memory file, unchanged;
+  - Windows junctions as an entry and as the folder;
+  - two CLI runs: one refuses a linked attachments folder with `INVALID_INPUT` and no outside name; one names its real `--attach` file and never a planted link.
+- **Added to `tests/test_mcp_server.py`:** 1 (`prepare_jira_bug` refuses a linked attachments folder; no outside name in the answer or the task).
+- **The test files touched:** only these two; `tests/test_attachments.py` needed no change.
+
+**Local verification** (Windows, Python 3.14.6, on `ce04705`, uncommitted):
+
+- the full Python suite: 4,103 passed and 90 skipped, none failed (against the previous full run, 4,090 and 81: the 22 new cases, 13 run and 9 POSIX-only skipped);
+- the O-1 tests: file safety 35 passed, 27 skipped (the POSIX descriptor strategy and the FIFOs); MCP 10 passed;
+- the focused suites (attachments, Similar Fixes, MCP, request scope, workflow, CLI JSON, file safety, write boundaries, cleanup, the previews, the file-safety baseline, inventory, import boundary): 607 passed, 62 skipped;
+- the approval gate, baselines and goldens: 308 passed, 17 skipped;
+- `storage_baseline.py --check`: baselines match;
+- the inventory ratchet and import boundary: 15 passed; no count increased;
+- unused symbols (`pyflakes`, against HEAD): no new finding in any changed file;
+- the plan checker: 0 problems (US-D40 now APPROVED with conditions);
+- plan parsing and publishability: 150 passed, 3 skipped;
+- `git diff --check`: clean.
+
+**Not verified here:**
+
+- **The POSIX cases:** 27 O-1 cases are skipped on Windows (the descriptor strategy and FIFOs). They first run in CI on Linux and macOS, including Python 3.10 (the safety jobs run the file-safety suite).
+- **Not run anywhere:** real clones, real MCP clients and same-account races.
+
+**Unchanged:**
+
+- the eight activation blockers, with the O-1 gate beside them;
+- US-D29 and every earlier decision;
+- DD-27, DD-28, F1 to F4;
+- the task goldens, frozen records and baseline-tool scripts.
+
+**Still required:**
+
+- the owner's commit authorization; *(Given on 2026-10-26: exactly one local commit of the O-1 Python patch, the original fix and this completion with their tests and this record, 12 files; no push and no CI; the disclosure and release sequencing stay separate. The patch carries 72 new O-1 cases (41 and 21 in the file-safety suite, 9 and 1 in the MCP suite), 27 of them skipped on Windows and pending POSIX CI.)* *(Done: committed locally as `f977127` on 2026-10-26; not pushed.)*
+- CI on all nine jobs;
+- the release gates above;
+- F1's proof, R3 and M3;
+- F5 to F8, A2, defect 5.6, the macOS follow-up and the `duplicate` boundary;
+- US-D29, the eight activation blockers and the O-1 gate.
+
+#### Batch 2B-3b — M3-R2E: O-1 release blockers, the extension and `bugpilot list` (2026-10-26)
+
+**Status: THE EXTENSION AND `bugpilot list` CORRECTIONS ARE IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; THE PYTHON FIX `f977127` IS COMMITTED LOCALLY AND NOT PUSHED; POSIX AND macOS NOT YET RUN (THE PRIVATE CI MIRROR IS PROVISIONAL AND UNVALIDATED); INDEPENDENT SECURITY VALIDATION PENDING; THE SECURITY-ONLY PORT TO `main`, THE VERSION AND THE RELEASE PENDING; F1, R3 AND M3 OPEN; NOT ACTIVATED. O-1 IS NOT RESOLVED, AND NO RELEASE IS READY.**
+
+**Where things stand:**
+
+- **The Python fix:** committed locally as `f977127c4def106b945c127529a0bf1056a93aff` (2026-10-26, parent `ce04705`, 12 files).
+- **Not pushed:** `origin/verify/0.1.6-storage` is still `ce04705`, and no CI was dispatched. A push is public, and it would disclose O-1 before a verified fix is available.
+
+**The owner's decisions (2026-10-26):**
+
+1. **Validation:** use a private CI mirror for the cross-platform run, subject to a separate review of the repository's security. It is provisional; nothing has been created. *(Later on 2026-10-26: created, configured and used; see "Batch 2B-3b — M3-R2E: O-1 private cross-platform CI (2026-10-26)".)*
+2. **One release:** the extension and `bugpilot list` corrections go into the same O-1 security release.
+3. **`f977127` stays as it is.**
+4. **The port:** a narrow, security-only port to `main` comes later. The 0.1.6 verification branch is never merged into `main`.
+5. **The version, tentatively:**
+   - the security release takes 0.1.6, and Unified Storage moves to 0.1.7;
+   - no version changes yet.
+6. **O-1 stays in M3's** independent security validation.
+7. **Disclosure:** no detailed public disclosure until an appropriately verified fix is available.
+
+**The extension correction:**
+
+- **A new module, `extension/src/app/workItemFiles.ts`:**
+  - **Folders:** a read goes only through the folders `checkArtifactDirectory` (`sessionReset.ts`, the existing check behind deletion and `user_feedback.md`'s writer) proves are the repository's own. That means no link or junction at `.ai` or at the work item's folder, and a real path matching the expected one.
+  - **The file:** it must be a regular file as it stands. It is opened with `O_NOFOLLOW` and `O_NONBLOCK` where the system has them, and the open must reach the file the look found (device and file index).
+  - **Bounded:** at 16 MiB, the CLI's limit.
+  - **Afterwards:** the folders are looked at again.
+  - **A refusal:** a `WorkItemRefusal` whose sentence names the path relative to the repository only.
+- **No race claim:** Node opens nothing relative to a folder handle, so the folders are judged by path. A same-account race against those looks is not claimed to be refused (§10.1); F1's own proof stays open.
+- **`extension/src/host/ports.ts`:**
+  - **The files port:** `readFile` and `listDirectory` now take the work item (as `writeFile` already did) and go through the module, and a refusal is passed on as `WorkItemRefusal`.
+  - **Opening:** `openFile` checks a work item's file before it opens it.
+  - **History:** a work item is probed (its listing and `run.json`) only when its folder passes the same check.
+- **`extension/src/app/controller.ts`:**
+  - **Reads:** `copyContext`, `useFeedbackHelper`, the verification editor's compare and overwrite, `#readStatus` and `#readSummary` read through one helper.
+  - **Opens:** Retry and `openArtifact` open through another.
+  - **What a refusal does:** it is said once (a warning for what the developer asked for, the log for background reads), nothing of the file is used, and nothing is read another way. The verification evidence is then neither compared with nor written over that report.
+- **Unchanged:** regular files read, list and open as before; no generic read elsewhere changed.
+
+**The `bugpilot list` correction** (`bugpilot/cli.py`, `bugpilot/core/safe_paths.py`):
+
+- **A new listing in `safe_paths.py`:** `generated_folder_names` names the real sub-folders of a folder, judged as `generated_file_names` judges files.
+- **The command:**
+  - a link or junction at `.ai` is refused in one sentence (`INVALID_INPUT` in JSON; "ERROR: …" in text);
+  - a work item folder that is a link is not listed;
+  - "prepared" is a regular `run.json` as it stands, so a link there is never prepared, whatever it points at.
+- **Unchanged:** the JSON keys, sorting and text output, and the inventory ratchet.
+- **The extension's History:** it already degrades to "The work item list could not be read." when `list` fails.
+
+**The regression tests** (synthetic and isolated):
+
+- **`extension/test/workItemFiles.test.ts`** (new): 9 tests on a real file system. They cover:
+  - a regular file read exactly as `readFile` reads it;
+  - missing files and folders;
+  - links at the file, whether or not the target exists;
+  - links at the work item folder or `.ai`, which are junctions on Windows;
+  - a folder at a file name;
+  - a FIFO without blocking (POSIX only);
+  - the size limit, and a file outside the folder;
+  - a listing that names regular files only.
+- **`extension/test/controller.test.ts`:** 6 tests. They cover:
+  - every read, listing and open names the work item;
+  - Copy, Use Review Findings and Open say a refusal and use nothing;
+  - a refused status read is logged and absent;
+  - verification evidence is never compared with, or written over, a refused report.
+  - **The harness change:** its read hook now receives the work item, and open and list hooks were added. No assertion was weakened.
+- **`tests/test_batch4_file_safety.py`:** 4 functions (6 cases). They cover:
+  - `generated_folder_names`;
+  - `list` with a linked `.ai`, in JSON and text;
+  - a linked work item folder and a linked `run.json`;
+  - real work items, missing `.ai`, and the text output unchanged.
+- **Platform-dependent:**
+  - the FIFO tests and the POSIX descriptor strategy run on Linux and macOS only;
+  - the junction cases run on Windows only;
+  - file-link cases skip where the account cannot make links.
+
+**Local verification** (Windows, Python 3.14.6, Node 24.22.0, on `f977127`, uncommitted):
+
+- **Python:**
+  - the full suite: 4,108 passed and 91 skipped, none failed (against 4,103 and 90 before: the 6 new cases, 5 run and 1 POSIX-only skipped);
+  - the focused CLI and file-safety suites: 376 passed, 63 skipped;
+  - the O-1 file-safety tests: 40 passed, 28 skipped.
+- **The extension:**
+  - typecheck clean;
+  - unit tests: 2,365, of which 2,364 passed and 1 skipped (the FIFO), 0 failed;
+  - the evidence-boundary job's subset: 27 passed;
+  - the build and package check: 86 files, all current.
+- **Shared checks:**
+  - the approval gate, baselines and goldens: 308 passed, 17 skipped;
+  - `storage_baseline.py --check`: baselines match;
+  - the inventory ratchet and import boundary: 15 passed;
+  - the plan checker: 0 problems;
+  - plan parsing and publishability: 150 passed, 3 skipped;
+  - `git diff --check`: clean.
+- **Not run here:** POSIX and macOS are not verified by these results.
+
+**The private CI mirror** (a read-only review of `ci.yml` and `release.yml`; nothing created or run):
+
+- **`ci.yml`:**
+  - read-only (`permissions: contents: read`) and secret-free, with every third-party action pinned to a full SHA;
+  - it would run unchanged on a private repository, with the same runners and Python versions (Linux, macOS and Windows on 3.13, and Linux on 3.10);
+  - its one upload is the synthetic file-safety observations (`upload-artifact`, 30 days), which stay private in a private repository;
+  - it downloads tools and packages (PyPI, npm, ripgrep) and publishes nothing.
+- **Triggers:** a push to `main` or a pull request into it; anything else needs a dispatch by someone with write access.
+- **`release.yml`:** the only publishing workflow.
+  - **How it publishes:** manual dispatch, the `pypi` environment, and OIDC trusted publishing (`id-token: write`, no stored token).
+  - **In a mirror:** disable it in the repository's settings. GitHub may create a referenced environment that does not exist, without protection rules.
+  - **Not checked from here:** PyPI's side. It should reject a run from any repository it has not registered.
+- **Populating it:** pushing commits carries only committed content. The owner's untracked and modified files never travel.
+- **Unvalidated:**
+  - the mirror's confidentiality: access, visibility, apps and forks;
+  - its Actions settings: read-only default token, release workflow disabled;
+  - its minutes (macOS minutes are multiplied);
+  - how the run's commit and results are verified, since a private repository's API needs the owner's credentials.
+
+**REL-1 to REL-4:**
+
+- **REL-1, the version:** tentatively 0.1.6 for the security release, both on PyPI and on the Marketplace, as the managed runtime pins `bugpilot==<extension version>`. Unified Storage would take 0.1.7. No version changes yet.
+- **REL-2, licence and release text:** open. `LICENSE` names "Version 0.1.5"; the new parameters need the owner and a qualified review.
+- **REL-3, disclosure:** no detailed public disclosure until an appropriately verified fix is available. A push to the public repository is a disclosure, so it waits for the coordinated release.
+- **REL-4, the release record:** open.
+
+**Still required:**
+
+- **The owner's decisions:**
+  - the review of this change, and a commit authorization; *(Given on 2026-10-26: exactly one local commit of the nine files of this change (the five sources, the three test files and this record), on `f977127`, which stays unchanged; no push, no CI and no mirror. The POSIX-only cases have not run.)*
+  - the mirror's security review, then the mirror and its CI run, POSIX and macOS included; *(Later on 2026-10-26: done; 9/9, Linux and macOS included; see "Batch 2B-3b — M3-R2E: O-1 private cross-platform CI (2026-10-26)".)*
+- **The release work:**
+  - the security-only port to `main`, with its own validation;
+  - the version, licence and release text, and the coordinated release and disclosure;
+- **Validation:** independent security validation (O-1 in M3);
+- **Still open:**
+  - F1's proof, R3 and M3;
+  - F5 to F8, A2, defect 5.6, the macOS follow-up and the `duplicate` boundary;
+  - US-D29, the eight activation blockers and the O-1 gate.
+
+#### Batch 2B-3b — M3-R2E: O-1 private cross-platform CI (2026-10-26)
+
+**Status: PRIVATE CROSS-PLATFORM FUNCTIONAL AND COMPATIBILITY CI VERIFICATION PASSED, 9/9, ON A PARENTLESS SNAPSHOT OF `836f204`'S TREE. THE JOB LOGS SHOW NO WINDOWS-ONLY SKIP REASON ON LINUX OR macOS, AND THE EXTENSION'S FIFO TEST RUN ON UBUNTU. BOTH SECURITY COMMITS ARE LOCAL AND NOT PUSHED; INDEPENDENT SECURITY VALIDATION (M3), THE SECURITY-ONLY PORT TO `main` AND REL-1 TO REL-4 PENDING; F1, R3 AND M3 OPEN; NOT ACTIVATED. O-1 IS NOT RESOLVED, AND NO RELEASE IS READY.**
+
+**The source:**
+
+- **The security commits,** both local on `verify/0.1.6-storage` and not pushed. `origin/verify/0.1.6-storage` is still `ce04705`, and `main` and `origin/main` are still `ea9659c`.
+  - `f977127c4def106b945c127529a0bf1056a93aff`: the Python fix (parent `ce04705`, 12 files).
+  - `836f2047b5e26c97341fa2a1088113393b561ae4`: the extension and `bugpilot list` corrections (`fix(security): protect extension and CLI work-item reads`, parent `f977127`, 9 files).
+- **The tree tested:** `adb683809232164744db4777f23e6885c2808c14`, `836f204`'s tree, 474 files. `ci.yml` (blob `37c88d993dea82c1e6310e04eb592ce80d285ac0`) and `release.yml` (blob `e92ebbceb4b11af2c49bb4b8ad266dfe2c2c8e6f`) are unchanged, byte for byte.
+
+**The private mirror** (the owner's repository `xsw7910/bugpilot-ci-private`):
+
+- **The snapshot:** one commit with no parent, `b477fed575428d0ee639547e3c296509a5013bf0`, of exactly that tree.
+  - Author and committer: the owner's GitHub no-reply identity, as on the public commits, at `1793032759 -0600`, `836f204`'s commit time.
+  - Message: "Private validation snapshot of 836f2047b5e26c97341fa2a1088113393b561ae4".
+  - Nothing else travelled: no history, no tags, and none of the owner's uncommitted or untracked files.
+- **Where it is:** on `validation` only, the default branch. The mirror has no `main`, so `ci.yml`'s push trigger never fires and `release.yml` refuses to run.
+- **How it got there:**
+  - Gate B's first preflight found the new repository public. It was empty, and nothing had been built or pushed; the owner made it private.
+  - This session's push was blocked by its own permission settings, so the owner pushed the prepared snapshot.
+- **Release prevention,** configured by the owner before the run:
+  - Release disabled;
+  - allowed actions limited to `ci.yml`'s four pinned actions;
+  - the default token read-only, and pull-request creation and approval off;
+  - no secrets, variables or environments, and no PyPI trusted publisher for the mirror;
+  - collaborators, apps, deploy keys and webhooks reviewed, and an Actions budget set.
+
+**The run:** 40384259264 (`ci.yml`, `workflow_dispatch` on `validation`, commit `b477fed`, dispatched by the owner).
+
+- **The first attempt:** seven jobs succeeded. The two macOS jobs, "Safety and baselines (macos-latest, Python 3.13)" and "Full Python suite (macos-latest)", never got a runner: GitHub reported capacity constraints for macOS ARM64 runners and an internal server error. That is a runner-availability failure, not a BugPilot defect.
+- **The recovery:** the owner re-ran only the failed jobs in the same run, and both macOS jobs then succeeded. No second workflow run was dispatched. The attempt numbers were not obtained.
+- **The result: 9/9 success.** Every job's tests passed, with no failure or error:
+
+| Job (as named in `ci.yml`) | Passed | Skipped | Deselected |
+|---|---:|---:|---:|
+| Full Python suite (windows-latest) | 4,105 | 93 | 1 |
+| Full Python suite (ubuntu-latest) | 4,049 | 99 | 1 |
+| Full Python suite (macos-latest) | 4,053 | 95 | 1 |
+| Safety and baselines (windows-latest, Python 3.13) | 2,113 | 93 | 1 |
+| Safety and baselines (ubuntu-latest, Python 3.13) | 2,065 | 92 | 1 |
+| Safety and baselines (ubuntu-latest, Python 3.10) | 2,065 | 92 | 1 |
+| Safety and baselines (macos-latest, Python 3.13) | 2,069 | 88 | 1 |
+| Extension unit tests (ubuntu-latest) | 2,363 | 2 | 0 |
+| Extension evidence boundary (ubuntu-latest) | 27 | 0 | 0 |
+
+- **The deselected test:** in every Python job it is `test_the_word_list_is_present_and_private`, which `ci.yml` deselects by name.
+- **Cross-checks against this record:**
+  - Windows' full suite totals 4,199 cases, as locally (4,108 passed and 91 skipped on Python 3.14).
+  - The POSIX totals agree with one another: 4,149 for the full suite on Ubuntu and macOS, and 2,158 for the safety jobs on Ubuntu (3.13 and 3.10) and macOS.
+  - The extension totals 2,365 tests, as locally. Its 2 skips on Ubuntu match its two Windows-only tests, by the source: a `bugpilot.exe` in the working directory, and the `py` launcher.
+  - The evidence boundary's 27 tests match the local run.
+
+**The POSIX evidence:**
+
+- **The O-1 Python cases:** in the Linux and macOS jobs, pytest's skip summaries (`-rfEs` lists every skip with its reason) do not show either reason under which the 28 POSIX-only O-1 cases skip on Windows. Those reasons are "this system has no descriptor-relative opens" (26 descriptor-strategy cases) and "FIFOs are POSIX" (2), and the suites passed. So those cases were not skipped for those platform limits. This is skip-list and suite-success evidence; each case's execution was not inspected individually.
+- **The extension's FIFO test:** Ubuntu's TAP output shows `ok 2291 - a FIFO is refused without blocking`, with no skip, and the job passed.
+- **The artifacts:** the GitHub API reported four file-safety artifacts, one per safety job, among them `file-safety-macos-latest-py3.13`. Their contents were not reviewed here.
+
+**The evidence, by source:**
+
+- **Verified here, through Git** (the mirror's refs, and a fresh fetch of `validation`):
+  - `validation` is `b477fed…`, with no parent; its tree, both workflow blobs and the 474 files are as above, with no `.bugpilot/` or `.vscode/extensions.json`;
+  - the only refs are `HEAD` (pointing at `validation`) and `refs/heads/validation`, so there is no `main` and there are no tags;
+  - the repository is not readable anonymously: the API and the web page answer 404, and an anonymous `git ls-remote` is refused.
+- **Confirmed by the owner in the GitHub UI:** private visibility, `validation` as the default branch, Release disabled, CI enabled, no other runs, the settings above, the first attempt's runner failure and the re-run.
+- **From the GitHub API and job logs,** retrieved in the owner's separate review outside this session (this session has no access to a private repository's API):
+  - the run's workflow, event, branch and commit;
+  - the nine conclusions and the counts above;
+  - the skip summaries, the extension's TAP line and the artifact list.
+- **Not obtained:** the attempt numbers, and the artifacts' contents.
+
+**What this does and does not show:**
+
+- **Shown:**
+  - the Python suites pass on Linux (3.13 and 3.10), macOS and Windows, and the extension's typecheck and unit tests pass on Ubuntu, the O-1 tests included;
+  - the POSIX descriptor strategy's and the FIFO cases were not skipped on Linux or macOS;
+  - the extension's FIFO refusal ran on Ubuntu.
+- **Not covered by this CI:**
+  - the extension on macOS or Windows (its jobs run on Ubuntu only);
+  - real MCP clients and the VS Code extension end to end;
+  - adversarial and race validation.
+
+  The Windows ancestor-swap limitation (§10.1; F1's proof) and the extension's same-account race limitation stand.
+
+**Still required:**
+
+- **Validation:** independent security validation (O-1 in M3), including real MCP-client and VS Code end-to-end checks.
+- **The release work:**
+  - the security-only port to `main`, with its own validation; *(Later on 2026-10-26: implemented and committed locally on an isolated branch, `7844c8b`; its own CI and validation pending; see "Batch 2B-3b — M3-R2E: O-1 security backport to `main` (2026-10-26)".)*
+  - REL-1: 0.1.6 tentatively; no version changed;
+  - REL-2: the licence parameters and release text, with a qualified review;
+  - REL-3: disclosure only with the coordinated release; nothing has been pushed publicly;
+  - REL-4: the release record.
+- **Still open:**
+  - F1's proof, R3, M3 and O-1;
+  - F5 to F8, A2, defect 5.6, the macOS follow-up and the `duplicate` boundary;
+  - US-D29, the eight activation blockers and the O-1 gate.
+
+#### Batch 2B-3b — M3-R2E: O-1 security backport to `main` (2026-10-26)
+
+**Status: THE O-1 SECURITY BACKPORT IS IMPLEMENTED, VERIFIED LOCALLY ON WINDOWS AND COMMITTED LOCALLY ON AN ISOLATED BRANCH FROM `main`; NOT PUSHED; `main` UNCHANGED. THE PRIVATE CI RUN OF THE BACKPORTED TREE, INDEPENDENT SECURITY VALIDATION (M3) AND REL-1 TO REL-4 ARE PENDING; F1, R3 AND M3 OPEN; NOT ACTIVATED. O-1 IS NOT RESOLVED, AND NO RELEASE IS READY.**
+
+**Where it is:**
+
+- **An isolated clone,** in a sibling folder (`bugpilot-o1-backport`) outside this working tree. It holds `main` only, with none of this branch's history, and its push URL is disabled.
+- **The branch:** `security/o1-0.1.6-backport`, from `main` at `ea9659cd39ccc16565a95ffce5937eee1bdbbf51`.
+- **The commit:** `7844c8b74e70bda033f4e83cb31db42c1ba21027` (`fix(security): backport O-1 file-read protections`, parent `ea9659c`, 17 files, +1,894 −137), local only.
+- **Unchanged:** `main`, `origin/main` and this repository's branches.
+
+**What `main` needed** (`ea9659c` against `f977127` and `836f204`):
+
+- **Byte-identical to `836f204`'s version:** 13 of the 17 files. They are:
+  - `safe_paths.py`, with `decode_text`;
+  - seven readers that are identical on `main` and on the fix's parent `ce04705`: `attachments.py`, `fix_report.py`, `issue.py`, `memory.py`, `retrieval.py`, `run.py` and `workflow.py`;
+  - `controller.ts`, `ports.ts` and `controller.test.ts`;
+  - the two new files, `workItemFiles.ts` and its test. The new reader reuses `sessionReset.ts`'s `checkArtifactDirectory`, which is identical on `main`.
+- **The verified lines in drifted files:** `mcp_server.py`, `cli.py`, `tests/test_batch4_file_safety.py` and `tests/test_mcp_server.py` differ on the branch for storage reasons. Their O-1 changes are exactly the verified lines, in places the storage changes do not touch.
+- **One dependency:** `decode_text` (12 lines, from Option C M2), which decodes bytes as `Path.read_text` does. Nothing else from storage comes with it.
+- **One adaptation:** `cli.py`'s import line, written by hand because `main` does not import `repository_settings` or `storage`.
+- **No reader unique to `main`:**
+  - None of the modules that differ between `main` and this branch reads a work item's or bug memory's files (`config.py`'s difference is a comment).
+  - The CLI's other existence checks are the same on both, as the verified fix left them.
+  - `main`'s `.bugpilot/` readers keep 0.1.4's per-reader link checks. This branch's later hardening of them is not O-1, and is excluded.
+
+**Excluded:** everything else on this branch:
+- the storage request scopes, the Fix Mode and settings storage work, `_held_folders.py` and `repository_settings.py`;
+- the branch-only tests and this plan;
+- the activation work (2B-2 onward, B1-M, B2, Phase C).
+
+No golden or frozen record changed.
+
+**Local verification** (Windows, Python 3.14.6, Node 24.22.0, in the isolated clone):
+
+- **Python:**
+  - the full suite: 3,753 passed, 86 skipped and 1 deselected, none failed. This is CI-style: the word-list presence test is deselected, because the private word list is not in the clone.
+  - the O-1 tests: 50 passed and 28 skipped, as on this branch. The skips are 26 "this system has no descriptor-relative opens" and 2 "FIFOs are POSIX".
+  - the CLI, MCP and file-safety suites: 294 passed, 46 skipped;
+  - the approval gate, baselines and goldens, with the prompt-boundary corpus, oracles and context boundary: 533 passed, 17 skipped;
+  - `storage_baseline.py --check`: baselines match;
+  - the inventory ratchet, import boundary and unwired symbols: 15 passed;
+  - publishability and plan parsing: 148 passed, 4 skipped and 1 deselected, with the word list absent. Every added line is identical to the verified commits', which passed with it.
+- **The extension:**
+  - typecheck clean;
+  - unit tests: 2,365, of which 2,364 passed and 1 skipped (the FIFO), 0 failed;
+  - the evidence boundary: 27 passed;
+  - the build and package check: 86 files, all current. No VSIX was made.
+- **The diff:** `git diff --check` clean; no assertion removed; no storage reference added.
+- **An environment note:** the code-page test starts `python -m bugpilot` from elsewhere, so it needs an absolute `PYTHONPATH`; with one, it passes.
+- **Not verified here:**
+  - POSIX and macOS;
+  - this tree in CI. The private run of this branch (40384259264, `b477fed`) does not verify it.
+
+**Releasing from `main`:**
+
+- **What ships besides the fix:** a release from `main` also ships what `main` gained after 0.1.5 (`ee3fb00`). That is the unused 0.1.6 storage foundation (`storage.py` and `private_folder.py`, imported by nothing) and `safe_paths.py`'s Batch 1 change (`5222da7`): a refusal names its boundary, which defaults to the old wording, so existing messages are unchanged. That needs the owner's acceptance in REL-4. Removing them is not O-1.
+- **How the release must run:** the Release workflow runs only from `main`'s head. So the backport reaches `main` by a fast-forward from `ea9659c`, after its CI and the owner's approval, and is never a merge of this branch.
+
+**Still required:**
+
+- **The backport's own private CI run:** *(Later on 2026-10-26: run 40421551787 on `1fa80a1` (`validation-o1-main`), 9/9 as the owner reports; the logs and artifacts not yet reviewed here; see "Batch 2B-3b — M3-R2E: O-1 backport private CI and 0.1.6 release readiness (2026-10-26)".)*
+  - a parentless snapshot of the backport commit's tree, on a new branch of the private mirror (for example `validation-o1-main`), never over `validation`, whose `b477fed` stays as recorded;
+  - Release stays disabled;
+  - dispatched by the owner, with its job logs reviewed: the per-job counts, no Windows-only skip reason on Linux or macOS, and the extension's FIFO test.
+- **Independent security validation (O-1 in M3)** of the backported tree:
+  - synthetic links committed to a real Git repository, in fresh clones on Windows, Linux and macOS;
+  - real MCP-client calls, and the VS Code extension's reads and opens end to end;
+  - Windows file links and junctions, with and without the privilege to make links;
+  - the residual ancestor-swap and same-account races analysed;
+  - no synthetic sentinel or absolute path in any refusal, and refusals that remain usable.
+
+  Automated regression tests do not replace it.
+- **The release work:**
+  - REL-1: 0.1.6 tentatively for this security release, on PyPI and the Marketplace (the managed runtime pins `bugpilot==<extension version>`), with Unified Storage moving to 0.1.7. No version changed.
+  - REL-2: the licence parameters and release text, with a qualified review;
+  - REL-3: disclosure only with the coordinated release;
+  - REL-4: the release record, including what `main` ships besides the fix.
+- **Still open:**
+  - F1's proof, R3, M3 and O-1;
+  - F5 to F8, A2, defect 5.6, the macOS follow-up and the `duplicate` boundary;
+  - US-D29, the eight activation blockers and the O-1 gate.
+
+#### Batch 2B-3b — M3-R2E: O-1 backport private CI and 0.1.6 release readiness (2026-10-26)
+
+**Status: THE BACKPORT'S PRIVATE CROSS-PLATFORM CI RUN SUCCEEDED, 9/9, AT ITS FIRST ATTEMPT (REPORTED BY THE OWNER; ITS LOGS AND ARTIFACTS WERE NOT REVIEWED HERE). RELEASE READINESS: NO-GO FOR PUBLICATION TODAY. INDEPENDENT SECURITY VALIDATION (M3), TWO CI EVIDENCE GAPS AND REL-1 TO REL-4 ARE OPEN. NOTHING IS PUBLIC; `main` IS UNCHANGED; F1, R3, M3 AND O-1 OPEN; UNIFIED STORAGE NOT ACTIVATED.**
+
+**What was tested:**
+
+- **The backport:** `7844c8b74e70bda033f4e83cb31db42c1ba21027` (parent `ea9659c`, public `main`), tree `8033b5c43e0c78c88add191cb7127c56b83d16e1`.
+- **The snapshot:** `1fa80a1c87dffea92f3233efc185b256c0cc879a`, with no parent and the same tree, pushed by the owner to `validation-o1-main` in the private mirror.
+- **The run:** 40421551787 (`CI`, `workflow_dispatch` on `validation-o1-main`, the first attempt, dispatched by the owner).
+
+**Verified here, through Git:**
+
+- `validation-o1-main` is `1fa80a1`. A fresh fetch shows the same commit hash recomputed, no parent, tree `8033b5c…`, `ci.yml` `ead19909…` and `release.yml` `e92ebbce…`.
+- `validation` is still `b477fed`; there is no `main` and there are no tags.
+- The mirror is not readable without signing in.
+
+**Reported by the owner from the job logs** (not reviewed here):
+
+| Job (as named in `ci.yml`) | Passed | Skipped | Deselected |
+|---|---:|---:|---:|
+| Full Python suite (ubuntu-latest) | 3,758 | 56 | 1 |
+| Full Python suite (macos-latest) | 3,760 | 54 | 1 |
+| Full Python suite (windows-latest) | 3,752 | 87 | 1 |
+| Safety and baselines (ubuntu-latest, Python 3.13) | 1,803 | 50 | 1 |
+| Safety and baselines (ubuntu-latest, Python 3.10) | 1,803 | 50 | 1 |
+| Safety and baselines (macos-latest, Python 3.13) | 1,805 | 48 | 1 |
+| Safety and baselines (windows-latest, Python 3.13) | 1,791 | 87 | 1 |
+| Extension unit tests (ubuntu-latest) | 2,363 | 2 *(corrected later on 2026-10-26)* | 0 |
+| Extension evidence boundary (ubuntu-latest) | 27 | 0 | 0 |
+
+**Cross-checks made here:**
+
+- **Windows' full suite** totals 3,840 cases, the same as the local run of this tree (3,753 passed, 86 skipped, 1 deselected on Python 3.14).
+- **The POSIX totals agree with one another:** 3,815 for the full suite on Ubuntu and macOS, and 1,854 for the safety jobs on Ubuntu (both versions) and macOS.
+- **One discrepancy:** the extension's sources and tests are byte-identical to the verification branch's, whose Ubuntu job counted 2,365 tests (2,363 passed, 2 skipped). The reported 2,363 passed and 1 skipped make 2,364. Node counts the same tests on every platform, so the job log's totals must settle it. *(Settled later on 2026-10-26: the job counted 2,365 tests, 2,363 passed and 2 skipped; see "Batch 2B-3b — M3-R2E: 0.1.6 release candidate prepared (2026-10-26)".)*
+
+**Not reviewed here** (the evidence gaps): *(Later on 2026-10-26: reviewed by the owner, logs and artifacts; see "Batch 2B-3b — M3-R2E: 0.1.6 release candidate prepared (2026-10-26)".)*
+
+- the job logs: the commit each job checked out; the skip reasons, which must show neither "this system has no descriptor-relative opens" nor "FIFOs are POSIX" on Linux or macOS; and Ubuntu's TAP line for "a FIFO is refused without blocking";
+- the four `file-safety-*` artifacts. The owner reports four uploads; their contents were not inspected.
+
+**Regression and compatibility** (on this tree, from the local verification recorded in "O-1 security backport to `main` (2026-10-26)"):
+
+- **Valid files:** generated files read, list and open as before.
+- **Refusals:**
+  - a link, a junction, a non-regular file or an oversized file is refused in one sentence that names the path relative to the repository only;
+  - the tests assert that no synthetic outside content and no absolute path appears;
+  - MCP tools report a refusal as a tool error and keep serving;
+  - the extension says a refusal once and uses nothing of the file;
+  - `bugpilot list` keeps its JSON keys, order and text output.
+- **The suites:** Python 3,753 passed, 86 skipped and 1 deselected; the CLI, MCP and file-safety suites 294 passed, 46 skipped; the extension 2,364 passed, 1 skipped; the evidence boundary 27 passed; the package check 86 files.
+- **Publishability:** 20 passed with the private word list and samples read in place.
+
+**Unified Storage stays inactive:**
+
+- The backport adds no storage reference.
+- `main` already holds, since after 0.1.5, the unused `storage.py` and `private_folder.py`. Nothing imports them, but they ship in the wheel's package.
+- `main` also holds `safe_paths.py`'s boundary wording (Batch 1, `5222da7`), whose default leaves every existing message as it was.
+- The backport changes the status of none of them.
+
+**Residual limitations** (documented, not closed):
+
+- On Windows, and in the extension, folders are judged by path. A same-account process racing those checks is outside the threat model (§10.1) and is not claimed to be refused. F1's proof is still pending.
+- CI tests the extension on Ubuntu only.
+- Releasing with these needs the owner's explicit acceptance, after M3's review.
+
+**Independent validation before publication (M3; an independent reviewer, not this record).** The objectives and acceptance criteria:
+
+- **Fresh clones** on Windows (with and without the privilege to create links), Linux and macOS, of repositories whose work-item and memory paths contain committed links:
+  - every reader refuses them or leaves them out;
+  - nothing outside the repository is read, shown or logged;
+  - ordinary work items keep working.
+- **A real MCP client session:**
+  - the tools are listed and work;
+  - a refusal is a one-sentence tool error, with no outside content and no absolute path;
+  - the session continues after it.
+- **A real VS Code Extension Host session:**
+  - guarded reads, copies and opens refuse a linked file once;
+  - nothing outside the repository is opened or used.
+- **The residual race limitation,** reviewed against the threat model, and accepted or mitigated by the owner.
+
+**Release readiness:**
+
+- **REL-1, the version 0.1.6:**
+  - `bugpilot/__init__.py` (the package reads its version from there), `extension/package.json` and `extension/package-lock.json` (two fields), plus a 0.1.6 entry in `extension/CHANGELOG.md`;
+  - the release preflight requires the typed version to equal both sources;
+  - the managed runtime installs `bugpilot==<extension version>`, so PyPI must be live before the Marketplace.
+- **REL-2, the licence:**
+  - `LICENSE` ("BugPilot CLI and Tools Version 0.1.5.") and `extension/LICENSE.txt` ("BugPilot for VS Code Version 0.1.5.") must name the new version;
+  - `extension/test/manifest.test.ts` and `tests/test_publishable.py` require the extension's licence to name the manifest's version, so the version and the licence parameters change in one commit;
+  - the Change Date (2030-10-11) and the grant need the owner and a qualified review. Nothing was changed.
+- **REL-3, disclosure:**
+  - pushing the backport to the public `main` discloses it, so that push, its CI and the release belong to one window;
+  - the release notes stay general until PyPI and the Marketplace are live; the detailed note follows, at the owner's choice.
+- **REL-4, Git:**
+  - `7844c8b`'s parent is the public `main`, so `main` can advance by fast-forward, never a merge;
+  - the release commit (the version, licence and changelog on `7844c8b`) needs its own CI, because the Release workflow runs only from `main` and its preflight requires CI to be green on `main`'s head;
+  - the order:
+    1. the release commit, and optionally its own private CI;
+    2. the owner's fast-forward of the public `main`;
+    3. CI 9/9 on it;
+    4. the Release workflow, through the `pypi` environment's approval;
+    5. PyPI live;
+    6. the VSIX on the Marketplace;
+    7. the detailed disclosure.
+
+**Conclusions** (kept apart):
+
+- **The security code:** validated by automated tests, on Windows locally and in private CI on Linux, macOS and Windows (as reported). It is not independently validated (M3).
+- **A release candidate ready for the owner's approval:** not yet.
+- **The public release:** not done.
+- **The verdict:** **NO-GO** for publication today. It becomes a **CONDITIONAL GO** once:
+  1. the run's logs and artifacts are reviewed, and the extension count settled;
+  2. M3 has passed, or the owner has recorded the acceptance of the residual limitations after the independent review;
+  3. the REL-1 and REL-2 commit exists, with the licence reviewed;
+  4. that commit's CI is green;
+  5. the owner has approved the REL-3 and REL-4 sequence.
+
+**Still open:**
+
+- F1's proof, R3, M3 and O-1;
+- F5 to F8, A2, defect 5.6, the macOS follow-up and the `duplicate` boundary;
+- US-D29, the eight activation blockers and the O-1 gate.
+
+#### Batch 2B-3b — M3-R2E: 0.1.6 release candidate prepared (2026-10-26)
+
+**Status: THE 0.1.6 RELEASE CANDIDATE IS PREPARED AND VERIFIED LOCALLY ON WINDOWS, BUT NOT COMMITTED: ITS LICENCE CHANGE AWAITS THE OWNER'S APPROVAL AFTER A QUALIFIED REVIEW. THE BACKPORT'S CI EVIDENCE IS COMPLETE (VERIFIED BY THE OWNER). INDEPENDENT SECURITY VALIDATION (M3) IS OPEN. RELEASE: NO-GO. NOTHING PUSHED OR PUBLISHED; `main` UNCHANGED; F1, R3, M3 AND O-1 OPEN; UNIFIED STORAGE NOT ACTIVATED.**
+
+**The backport's CI evidence, completed.** For run 40421551787, the owner verified the job logs and reviewed the four artifacts; this session did not see them.
+
+- **Jobs:** all nine succeeded at the first attempt, with the counts in "O-1 backport private CI and 0.1.6 release readiness (2026-10-26)".
+- **The extension's corrected count:** 2,365 tests: 2,363 passed, 2 skipped, 0 failed.
+  - The 2 skips are its two Windows-only tests, so the total matches the local 2,365, and the earlier discrepancy is settled.
+  - Ubuntu's "a FIFO is refused without blocking" passed.
+- **The artifacts:** the four `file-safety-*` artifacts were downloaded and reviewed.
+
+**The release candidate:**
+
+- **The branch:** `release/0.1.6-rc` in the isolated clone, at `7844c8b` (the backport, whose parent is public `main`). The backport branch is unchanged.
+- **Where the work was done:** the candidate's files were prepared and tested in a scratch checkout of that branch. Nothing is committed on it. *(Later on 2026-10-26: committed on `release/0.1.6-rc` as `bed66e0`; see "Batch 2B-3b — M3-R2E: 0.1.6 release candidate committed (2026-10-26)".)*
+- **The version** (proposed, uncommitted):
+  - `bugpilot/__init__.py`, `extension/package.json` and both `version` fields of `extension/package-lock.json` go from 0.1.5 to 0.1.6;
+  - `extension/CHANGELOG.md` gains a 0.1.6 entry in general terms: safer handling of BugPilot's own project files, and clearer errors. It is dated "unreleased" until the release. *(Committed later with more general wording, headed "unreleased (release candidate)"; see "Batch 2B-3b — M3-R2E: 0.1.6 release candidate committed (2026-10-26)".)*
+- **No other version-bearing metadata:**
+  - `pyproject.toml` reads the version from `bugpilot/__init__.py`;
+  - the 0.1.5 values in `tests/test_release_workflow.py` are test inputs;
+  - the licence files are the gate below.
+
+**The licence (the gate):**
+
+- **What exists:**
+  - `LICENSE` names "BugPilot CLI and Tools Version 0.1.5.", and `extension/LICENSE.txt` names "BugPilot for VS Code Version 0.1.5.";
+  - both have the same Licensor, Additional Use Grant, Change Date (2030-10-11) and Change License (Apache License, Version 2.0).
+- **Tests tie them to the version:**
+  - `test_the_licence_parameters_are_filled_in` requires `LICENSE` to name `__version__`;
+  - `test_every_component_ships_the_same_licence` and the extension's manifest test require `LICENSE.txt` to name the manifest's version, and both files to agree in every other parameter.
+  - With only the version changed, exactly those three tests fail.
+- **The proposal** (a patch outside the tree, not committed): the two Licensed Work lines only, from 0.1.5 to 0.1.6. The Change Date, the grant, the Licensor and the Change License stay unchanged. *(Later on 2026-10-26: approved by the owner exactly as proposed and committed; the Change Date and grant unchanged; see "Batch 2B-3b — M3-R2E: 0.1.6 release candidate committed (2026-10-26)".)*
+- **For the owner, after a qualified review:**
+  - whether 0.1.6 keeps the Change Date 2030-10-11 or takes its own. The standard text makes each version's change effective at the Change Date or the fourth anniversary of that version's first public distribution, whichever comes first.
+  - whether the grant stays as it is.
+
+  No licence term was changed.
+
+**The candidate's verification** (Windows, Python 3.14.6, Node 24.22.0, with the version and the licence proposal applied in the scratch checkout):
+
+- **Python:**
+  - the full suite: 3,753 passed, 86 skipped and 1 deselected, none failed;
+  - the licence and release-version tests: 91 passed, 1 skipped, 1 deselected;
+  - the release preflight's version reader returns ("0.1.6", "0.1.6");
+  - the O-1 tests: 50 passed, 28 skipped;
+  - the CLI, MCP and file-safety suites: 294 passed, 46 skipped;
+  - the approval gate, baselines, goldens and prompt boundary: 533 passed, 17 skipped;
+  - `storage_baseline.py --check`: baselines match;
+  - the ratchet and import boundary: 15 passed.
+- **Publishability:** 20 passed, with the private word list and samples read in place, never copied.
+- **The extension:**
+  - typecheck clean;
+  - 2,365 tests, of which 2,364 passed and 1 skipped (the FIFO, on Windows), 0 failed; its licence test passes;
+  - the evidence boundary: 27 passed;
+  - the build and package check: 86 files, all current. No VSIX was built.
+- **The diff:** `git diff --check` clean; no golden, baseline or workflow change.
+
+**What the release would contain:**
+
+- **23 files against public `main`:** the 17 backport files, 4 version and changelog files, and the 2 licence files.
+- **No other change:** no workflow, `pyproject.toml` or dependency change; `package-lock.json` changes its two `version` fields only.
+- **The dormant storage modules,** `storage.py` and `private_folder.py`, are unchanged and imported by nothing. Unified Storage stays inactive.
+
+**Conclusions** (kept apart):
+
+- **The security code:** validated by automated tests, locally and in the private CI (verified by the owner). It is not independently validated (M3).
+- **A release candidate ready for the owner's approval:** not yet. It needs the licence approval, then the candidate's commit. *(Later on 2026-10-26: committed and tested locally; its private CI pending; see "Batch 2B-3b — M3-R2E: 0.1.6 release candidate committed (2026-10-26)".)*
+- **The public release:** not done.
+- **The verdict: NO-GO.**
+
+**The order after the approvals:**
+
+1. **The licence:** the owner approves its text after the qualified review.
+2. **The release commit:** one local commit on `release/0.1.6-rc` (version, dated changelog, licence), with the checks above run again.
+3. **Its private CI:** a new snapshot on a new branch of the mirror, never over `validation` or `validation-o1-main`.
+4. **M3** on that tree passes, or the owner records the acceptance of the residual limitations after an independent review.
+5. **The disclosure point:** the owner fast-forwards the public `main` to the release commit; that push is the disclosure point.
+6. **CI 9/9 on `main`:** started by the push; the release preflight requires it on `main`'s head.
+7. **The Release workflow:** dispatched with version 0.1.6 and the commit; the `pypi` environment's approval; PyPI live.
+8. **The VSIX:** built from the same commit, checked against the live PyPI package, published to the Marketplace.
+9. **The detailed disclosure.**
+
+**Still open:**
+
+- F1's proof, R3, M3 and O-1;
+- F5 to F8, A2, defect 5.6, the macOS follow-up and the `duplicate` boundary;
+- US-D29, the eight activation blockers and the O-1 gate.
+
+#### Batch 2B-3b — M3-R2E: 0.1.6 release candidate committed (2026-10-26)
+
+**Status: THE 0.1.6 RELEASE CANDIDATE IS COMMITTED LOCALLY AND VERIFIED ON WINDOWS. ITS PRIVATE CI SNAPSHOT IS BUILT; ITS UPLOAD AND CI RUN AWAIT THE OWNER. NOT YET VALIDATED BY CI, NOT APPROVED FOR RELEASE, NOT PUBLISHED. M3, REL-3 AND REL-4 ARE OPEN; `main` IS UNCHANGED; F1, R3, M3 AND O-1 OPEN; UNIFIED STORAGE NOT ACTIVATED.**
+
+**The licence, approved by the owner (2026-10-26):** the Licensed Work's version only.
+
+- **The two changes:**
+  - `LICENSE`: "BugPilot CLI and Tools Version 0.1.5." becomes "Version 0.1.6.";
+  - `extension/LICENSE.txt`: "BugPilot for VS Code Version 0.1.5." becomes "Version 0.1.6.".
+- **Unchanged:** the Licensor, the Additional Use Grant and its limits, the Change Date (2030-10-11), the Change License (Apache License, Version 2.0), the notices and the standard text.
+- **Reviewed here:**
+  - no other term names a version, and no clause needed a further change;
+  - a byte comparison shows one byte changed in each file (`5` to `6`), with the sizes unchanged.
+
+**The release candidate:**
+
+- **The commit:** `bed66e095c18d2263bbf6004fa704f6931a529d2` on `release/0.1.6-rc` in the isolated clone.
+  - It has one parent, `7844c8b` (the backport, unchanged), and its tree is `b3bf7932ff6f0d47e80df544af7ddaf480b2ded1`.
+- **Six files:**
+  - `bugpilot/__init__.py`, `extension/package.json` and both `version` fields of `extension/package-lock.json`, at 0.1.6;
+  - `extension/CHANGELOG.md`: a 0.1.6 entry headed "unreleased (release candidate)". Its wording is general: safer reading of BugPilot's project files, and clearer errors for invalid project files. It has no date.
+  - the two licence files, as approved.
+- **Against public `main`:** 23 files, the 17 backport files and these six.
+  - The six contain no security code, test, workflow, build configuration, golden, baseline or storage file.
+  - The dormant storage modules are unchanged.
+
+**The committed tree's verification** (Windows, Python 3.14.6, Node 24.22.0; the tested working tree equals the commit). All results are as on the prepared candidate.
+
+- **Python:**
+  - the full suite: 3,753 passed, 86 skipped and 1 deselected, none failed;
+  - the licence, version and release-workflow tests: 91 passed, 1 skipped, 1 deselected;
+  - the release preflight reads ("0.1.6", "0.1.6");
+  - the O-1 tests: 50 passed, 28 skipped;
+  - the CLI, MCP and file-safety suites: 294 passed, 46 skipped;
+  - the gate: 533 passed, 17 skipped;
+  - baselines match; the ratchet: 15 passed.
+- **Publishability:** 20 passed, with the private files read in place.
+- **The extension:**
+  - manifest 0.1.6, typecheck clean;
+  - 2,365 tests, of which 2,364 passed and 1 skipped (the FIFO, on Windows); its licence test passes;
+  - the evidence boundary: 27 passed;
+  - the build and package check: 86 files.
+
+**The private CI snapshot:**
+
+- **The commit:** `9aa67982ce18cbae9b9f61eaebf49f26c6473cf2`, with no parent, the RC's tree (`b3bf793…`) and 464 files.
+  - Author and committer: the owner's GitHub no-reply identity, at `1793067356 -0600` (the RC commit's time).
+  - Message: "Private validation snapshot of bed66e0…". The precomputed SHA matched.
+- **The workflows are unchanged:** `ci.yml` `ead19909…` and `release.yml` `e92ebbce…`. Every test file `ci.yml` names exists.
+- **Against the previous snapshot** (`1fa80a1`, tree `8033b5c`): the six RC files only.
+- **Where it goes:** reserved for `validation-o1-rc` in the private mirror. `validation` (`b477fed`) and `validation-o1-main` (`1fa80a1`) stay as they are. *(Later on 2026-10-26: uploaded by the owner; `validation-o1-rc` is `9aa6798`, verified here through Git; CI run 40442766609; see "Batch 2B-3b — M3-R2E: 0.1.6 final acceptance and release approval package (2026-10-26)".)*
+
+**The mirror:**
+
+- **Checked here, through Git and read-only:**
+  - it is not readable without signing in;
+  - HEAD is on `validation`, which is `b477fed`, and `validation-o1-main` is `1fa80a1`;
+  - there is no `validation-o1-rc`, no `main` and no tags.
+- **Not checkable here** (it rests on the owner's earlier confirmations): Release disabled, CI enabled, no secrets or environments, a read-only token.
+
+**The owner's upload:**
+
+- **The script,** `owner_push_validation_o1_rc.sh`, is in this session's scratch folder:
+  - it re-checks privacy, the refs and the snapshot;
+  - it asks for `PUSH` on the terminal (`/dev/tty`);
+  - it pushes the one ref, then checks the refs again.
+- **Tested:** `--check-only` passed here.
+- **Then:** the owner dispatches CI on `validation-o1-rc`.
+
+**One decision before that CI run:** the changelog's heading reads "unreleased (release candidate)". Dating it is a new commit with a new tree, which needs its own CI. Either: *(Later on 2026-10-26: the CI ran on the heading as committed; the recommendation, a heading-only commit before publication, is in "Batch 2B-3b — M3-R2E: 0.1.6 final acceptance and release approval package (2026-10-26)".)*
+- date it before the upload, in one more commit with a new snapshot; or
+- keep the heading for the release; or
+- accept one more CI cycle later.
+
+**The states** (kept apart):
+
+- **The RC committed locally and tested:** yes.
+- **The RC validated by private CI:** not yet; it waits on the owner's upload and dispatch. *(Later on 2026-10-26: run 40442766609, 9/9 as the owner reports; its logs and artifacts not reviewed here; see "Batch 2B-3b — M3-R2E: 0.1.6 final acceptance and release approval package (2026-10-26)".)*
+- **The public release approved:** no.
+- **The public release published:** no.
+- **The verdict:** NO-GO for publication.
+
+**Still required:**
+
+1. **The snapshot's upload and CI** on `validation-o1-rc`, done by the owner, with its logs and artifacts reviewed. *(Later on 2026-10-26: uploaded and run; the logs and artifacts await the owner's review (EG-1); see "Batch 2B-3b — M3-R2E: 0.1.6 final acceptance and release approval package (2026-10-26)".)*
+2. **M3** on this tree, or the owner's recorded acceptance of the residual limitations after an independent review.
+3. **REL-3:** the disclosure window.
+4. **REL-4:**
+   1. the owner's fast-forward of the public `main` to the release commit (the disclosure point);
+   2. CI 9/9 on `main`;
+   3. the Release workflow, with version 0.1.6 and that commit;
+   4. PyPI live;
+   5. the Marketplace VSIX.
+
+**Still open:**
+
+- F1's proof, R3, M3 and O-1;
+- F5 to F8, A2, defect 5.6, the macOS follow-up and the `duplicate` boundary;
+- US-D29, the eight activation blockers and the O-1 gate.
+
+#### Batch 2B-3b — M3-R2E: 0.1.6 final acceptance and release approval package (2026-10-26)
+
+**Status: THE 0.1.6 RELEASE CANDIDATE (`bed66e0`, TREE `b3bf793`) IS UNCHANGED. ITS PRIVATE CI RUN SUCCEEDED, 9/9, AT ITS FIRST ATTEMPT, AS THE OWNER REPORTS (ITS LOGS AND ARTIFACTS WERE NOT REVIEWED HERE). FUNCTIONAL ACCEPTANCE ON WINDOWS PASSED: THE CLI, A REAL MCP SESSION AND A REAL VS CODE EXTENSION HOST, WITH NO REGRESSION AGAINST PUBLIC `main`. INDEPENDENT SECURITY ACCEPTANCE (M3) IS NOT DONE. RELEASE: NO-GO. NOTHING PUSHED OR PUBLISHED; `main` UNCHANGED; F1, R3, M3 AND O-1 OPEN; UNIFIED STORAGE NOT ACTIVATED.**
+
+**Preflight** (read-only):
+
+- **The verification branch:**
+  - at `a839788`, with nothing staged and only the owner's three entries in its status;
+  - the 11 protected files, the 17 goldens and the 8 frozen records match, and both baseline scripts equal HEAD.
+- **The isolated clone:**
+  - on `release/0.1.6-rc` at `bed66e0` (parent `7844c8b`, tree `b3bf793`), clean, with no tags and pushing disabled;
+  - the backport branch is at `7844c8b`.
+- **Public `main`:** `ea9659c`, with no tags (read through Git).
+
+**The RC's private CI run, 40442766609:**
+
+- **Verified here, through Git (read-only):**
+  - the mirror's `validation-o1-rc` is `9aa67982ce18cbae9b9f61eaebf49f26c6473cf2`, the snapshot of `bed66e0`: no parent, the RC's tree `b3bf793`, `ci.yml` `ead19909…` and `release.yml` `e92ebbce…`;
+  - `validation` (`b477fed`) and `validation-o1-main` (`1fa80a1`) are unchanged, and there is no `main` and no tag;
+  - without signing in, the mirror's API, its web page and the run's page all answer 404, and an anonymous `ls-remote` is refused.
+- **Reported by the owner** (the figures given with this task; not reviewed here): all nine jobs succeeded at the first attempt.
+
+  | Job (as named in `ci.yml`) | Passed | Skipped | Deselected |
+  |---|---:|---:|---:|
+  | Full Python suite (windows-latest) | 3,752 | 87 | 1 |
+  | Full Python suite (ubuntu-latest) | 3,758 | 56 | 1 |
+  | Full Python suite (macos-latest) | 3,760 | 54 | 1 |
+  | Safety and baselines (windows-latest, Python 3.13) | 1,791 | 87 | 1 |
+  | Safety and baselines (ubuntu-latest, Python 3.13) | 1,803 | 50 | 1 |
+  | Safety and baselines (ubuntu-latest, Python 3.10) | 1,803 | 50 | 1 |
+  | Safety and baselines (macos-latest, Python 3.13) | 1,805 | 48 | 1 |
+  | Extension unit tests (ubuntu-latest), 2,365 tests | 2,363 | 2 | 0 |
+  | Extension evidence boundary (ubuntu-latest) | 27 | 0 | 0 |
+
+- **Cross-checks made here:**
+  - Every figure equals the backport run's (40421551787), whose logs and artifacts the owner verified. That is what the RC should give, because its six files change no code and no test.
+  - Windows' full suite totals 3,840 cases, as in the local run of this tree (3,753 passed, 86 skipped, 1 deselected, on Python 3.14). The POSIX totals agree with one another (3,815 and 1,854).
+- **Not reviewed here** (evidence gap **EG-1**). This session has no authenticated GitHub access, and installing `gh` or reading stored credentials is not allowed. These rest on the owner: *(Later on 2026-10-26: resolved by the owner's review of the run and its four artifacts; see "Batch 2B-3b — M3-R2E: M3 reviewer handoff and final release gates (2026-10-26)".)*
+  - that the run ran on `validation-o1-rc` at `9aa6798`, at attempt 1, and which commit each job checked out;
+  - the counts and the skip reasons. On Linux and macOS, neither "this system has no descriptor-relative opens" nor "FIFOs are POSIX" may appear;
+  - Ubuntu's "a FIFO is refused without blocking";
+  - the four `file-safety-*` artifacts: that they hold only the synthetic observations `ci.yml` uploads from `BUGPILOT_BASELINE_OUT`, and nothing sensitive.
+
+**Functional acceptance on Windows (2026-10-26).**
+
+*The setup:*
+
+- **The system:** Windows 11, Python 3.14.6 and Node 24.22.0. VS Code 1.142.0 is the official standalone build, its SHA-256 checked against the update service.
+- **The RC, from a `git archive` of `bed66e0`** (464 files):
+  - **A wheel**, `bugpilot-0.1.6-py3-none-any.whl`, SHA-256 `dba48e89…`:
+    - its 62 package files equal the commit's, its METADATA says 0.1.6 and its licence names Version 0.1.6;
+    - it was installed alone in a new virtual environment; it has no dependencies, and the MCP extra came from the system.
+  - **A VSIX**, built with the release's own command (`npm run package`: build, package check, `vsce package`): `bugpilot-0.1.6.vsix`, 88 entries, SHA-256 `8279f039…`.
+  - Both are scratch builds for testing, not release artifacts.
+- **The project and the comparison:** a synthetic Git project (a small module and a test) and an empty home folder. Public `main`'s archive (`ea9659c`) ran beside the RC for comparison.
+- **Ordinary operations only:** no link, junction or special file was made; those belong to M3.
+
+*The CLI* (the installed `bugpilot` console script):
+
+- **Start-up:** it starts and reports `bugpilot 0.1.6`.
+- **Listing:** `list` and `list --json` give output identical to public `main`'s on the empty and on the prepared project, with the envelope unchanged.
+- **Preparing a bug:** `bug --description … --prepare-only --json` prepares one work item, with `issue.json`, `context.md`, `task.md` and `run.json`, and launches no agent.
+- **Reading it:**
+  - `check-results` (before and after an agent's `fix_report.md`), `context-preview` and `task-preview` give output and exit codes identical to public `main`'s;
+  - `--strict` without a report exits 1;
+  - `memory search` and `summarize-results --no-jira-comment` work.
+- **Invalid references:** an id with spaces, an id with a separator and a well-formed local id never prepared.
+  - Each gives a one-sentence error (`INVALID_INPUT`, `WORK_ITEM_NOT_FOUND`), exits 1 and prints no traceback.
+  - Each is identical to public `main`'s.
+- **Afterwards:**
+  - every command still works;
+  - the tracked files are unchanged;
+  - `git status` shows only `.ai/` and `.ai_memory/`.
+- **The contract check:** `scripts/check_cli_contract.py --expect-version 0.1.6` is the release's own check (it strips `JIRA_*` and uses an empty home). **It accepted all 39 command lines the extension sends**, and `doctor --json` listed the five capabilities.
+- **The score:** 22 of the driver's 25 checks passed. The three misses are OBS-1 below, identical in public `main`.
+
+*The MCP server.* A real stdio session ran through the official MCP Python SDK's client (2.1.1) against the installed `bugpilot-mcp`.
+
+- **Start-up:** the handshake completes, and nine tools and the `fix_bug` prompt are listed.
+- **Normal calls:**
+  - on the CLI's work item: `list_fix_modes`, `get_status` and `check_results`;
+  - `prepare_bug_description`, which prepares a new work item with its files, then `get_status` on it;
+  - `search_memory`.
+- **Invalid references:** an unprepared id, an id with a separator, an id with spaces and an unknown Fix Mode.
+  - Each returns a one-sentence tool error and creates no folder.
+  - The server writes no traceback.
+  - The session keeps working afterwards.
+- **Public `main`'s server**, in its own session, lists the same nine tools and gives identical results for five calls, valid and invalid.
+- **The score:** 23 of 24 checks passed. The one miss is the driver's expected wording ("has not been prepared"). `get_status` says "No run state for … Prepare it first …", a tool error identical to public `main`'s.
+
+*VS Code.* The VSIX was installed into a disposable profile, and a test runner inside the real Extension Host called BugPilot's registered commands.
+
+- **All 20 checks passed:**
+  - **Installation:** the extension is installed from the VSIX, not from a development folder. It is version 0.1.6 and activates on the synthetic project.
+  - **Normal use:**
+    - Show Work Item, Open Artifact (`context.md`, `fix_report.md`), Open task.md and Refresh Results open the work item's own files;
+    - the editor shows exactly the file on disk;
+    - switching to the MCP's work item opens its file.
+  - **An id BugPilot could not have created:** refused and logged once, leaving the shown work item as it was.
+  - **A never-prepared id:** opens nothing and creates no folder.
+  - **An artifact name that is not a file name:** refused and logged, opening nothing.
+  - **Afterwards:** everything still works, and every editor opened is a work item's own file.
+- **Doctor:** the extension's own Doctor command reports the CLI at 0.1.6 with the five capabilities.
+- **The project:** unchanged by both VS Code sessions, all 24 entries byte-identical.
+
+*Isolation:*
+
+- **Home folders:** every process used an empty home folder, and the real BugPilot home folder's fingerprint (names, sizes, times) is unchanged.
+- **Agents:** no AI agent was on the disposable window's `PATH`.
+- **Jira:** this session's environment carries `JIRA_*` variables (their names were seen, never their values).
+  - The CLI, MCP and VS Code processes inherited them, but no command that contacts Jira was run: `doctor` only checks presence, a hand-described bug fetches nothing, and `--no-jira-comment` was used.
+  - The contract check strips them.
+  - Later acceptance runs should unset them.
+
+*Two observations of existing behaviour.* Both are identical in public `main`, so neither is a 0.1.6 regression, and neither blocks the release.
+
+- **OBS-1:** `bugpilot check-results` with a well-formed id that was never prepared exits 0 with a "missing fix report" warning and leaves an empty `.ai/<id>/` folder. The MCP tools refuse the same id.
+- **OBS-2:** the `bugpilot.openArtifact` command, run by hand for a missing file, ends in VS Code's own "cannot open file" error, which names the absolute path in a local notification. The panel and Results offer only files that exist.
+
+*Not covered by this acceptance:*
+
+- Linux and macOS (CI covers them);
+- real clicks in the webview, and its rendering;
+- a third-party MCP client;
+- agent handoffs and Jira;
+- any security scenario, which belongs to M3.
+
+**The release content, verified against public `main`:**
+
+- **Files:** 23 differ. The 17 of the backport are byte-identical in the RC (17 of 17), and the other six are the RC's.
+- **Versions:** `bugpilot/__init__.py` 0.1.6; `extension/package.json` 0.1.6; both fields of `extension/package-lock.json` 0.1.6.
+- **Licences:**
+  - only the Licensed Work lines differ ("BugPilot CLI and Tools Version 0.1.6." and "BugPilot for VS Code Version 0.1.6.");
+  - the Licensor, the Change Date (2030-10-11) and the Change License (Apache License, Version 2.0) read as before;
+  - the Additional Use Grant is byte-identical in both files.
+- **Dependencies:** `pyproject.toml` is unchanged; `package.json` and its lock change only the version.
+- **Workflows and build:**
+  - `.github/` is unchanged (`ci.yml` `ead19909…`, `release.yml` `e92ebbce…`);
+  - the build configuration is unchanged, and no golden or baseline changed.
+- **Unified Storage:** `storage.py` and `private_folder.py` are unchanged against `main`, and nothing imports `storage`.
+- **Public `main`:** still `ea9659c`.
+
+**The changelog's heading (CHG-1): change it before publication.**
+
+- **Why:** `extension/CHANGELOG.md` ships in the VSIX, and both the Marketplace and VS Code's extension page show it.
+  - Released as it is, 0.1.6 would call itself "unreleased (release candidate)" for good.
+  - Every earlier entry is dated, for example 0.1.5 — 2026-10-15.
+- **How:** one more commit on top of `bed66e0`, never an amend.
+  - It changes only that heading, to "0.1.6 — <the release date>".
+  - It is made once the date is fixed, dated for the planned day (as 0.1.4 was).
+- **What it needs:** the commit has a new SHA, and its tree differs from `b3bf793` only in `extension/CHANGELOG.md`. Before it is released:
+  - a diff showing the one line;
+  - locally, the extension's tests, the package check and publishability;
+  - the nine CI checks on `main` at that commit, which the Release workflow requires anyway;
+  - the owner's decision on whether it also runs through private CI before `main` moves. Its code and tests are byte-identical to what run 40442766609 tested;
+  - telling M3's reviewer that the release tree differs from the reviewed one in that file only.
+- **The alternative:** keeping the heading avoids the commit but ships an inaccurate heading. That is not recommended.
+- **The RC itself:** not changed by this record.
+
+**Disclosure (DISC-1, part of REL-3): the backport commit's message.**
+
+- **The finding:** `7844c8b`'s message describes the issue and its effect in plain words, and fast-forwarding `main` publishes it with the code.
+- **Why rewording would not help:** the shipped source says the same in its comments (`safe_paths.py`, `workItemFiles.ts`), and the wheel and the VSIX carry them. Rewording the messages would not keep the issue private once `main` moves; the push is the disclosure point either way.
+- **The recommendation:**
+  - keep both commits as they are, since CI, this acceptance and M3 refer to their SHAs;
+  - keep the window from the push to both packages short.
+- **The alternative:** tree-identical commits with general messages, made before the push. That changes the SHAs, though not the trees, and needs the owner's authorization.
+
+**M3: the independent security review package.** This package is for an authorized, independent reviewer; this record is not that review.
+
+- **Who and how:**
+  - The reviewer is independent of this work and authorized by the owner, and works on systems and synthetic repositories of their own, never on a third-party system.
+  - The reviewer chooses the scenarios and records the results and a risk assessment. The owner then records a risk decision; the owner's acceptance does not replace the review.
+- **The correction under review (O-1):** the readers of the files BugPilot generates in a work item's folder (`.ai/<id>/`) and in bug memory (`.ai_memory/bugs/`).
+  - **What they do:**
+    - they judge every component as it stands and never follow a link;
+    - they take regular files only, up to 16 MiB;
+    - a refusal is one sentence, naming the path relative to the repository only.
+  - **Where:**
+    - the CLI and MCP go through `read_generated_file` and its existence and listing checks (`bugpilot/core/safe_paths.py`);
+    - the extension goes through `extension/src/app/workItemFiles.ts`;
+    - `bugpilot list` refuses a linked `.ai` and leaves out a linked work item.
+- **The source:** `bed66e095c18d2263bbf6004fa704f6931a529d2`, tree `b3bf7932ff6f0d47e80df544af7ddaf480b2ded1`. Against public `main`, it holds the 17 code and test files of `7844c8b` and six version, licence and changelog files.
+- **The evidence so far:**
+  - **Local Windows runs:** Python 3,753 passed; the O-1 tests 50 passed and 28 skipped (POSIX-only); the extension 2,364 passed.
+  - **Private CI on Linux, macOS and Windows:**
+    - run 40421551787, on the backport, whose logs and artifacts the owner verified;
+    - run 40442766609, on this tree, as the owner reports.
+  - **This record's functional acceptance** (ordinary operations only).
+- **The regression tests:** `tests/test_batch4_file_safety.py`, `tests/test_mcp_server.py`, `extension/test/workItemFiles.test.ts` and `extension/test/controller.test.ts`.
+- **Supported environments:**
+  - Windows 10 and 11 on NTFS, Linux and macOS;
+  - Python 3.10 to 3.13; CI uses 3.13, and 3.10 on Ubuntu;
+  - VS Code 1.90 or later. CI runs the extension's tests on Ubuntu only.
+- **Entry points:**
+  - **the `bugpilot` CLI:** `list`, `check-results`, `summarize-results`, `context-preview`, `task-preview` and `bug`;
+  - **the `bugpilot-mcp` server:** nine tools and one prompt;
+  - **the extension:** the panel, Results and History, Show Work Item, Open Artifact, Open task.md, and copy and handoff.
+- **The expected behaviour:**
+  - every entry point refuses or leaves out a generated file or folder that is a link or junction, is not a regular file, or is too large;
+  - nothing outside the repository is read, shown, logged, copied, put in a prompt or sent;
+  - refusals name repository-relative paths only;
+  - MCP sessions and the extension carry on after a refusal;
+  - ordinary work items behave as in 0.1.5.
+- **The documented residual limitations:**
+  - **Path-based checks:** on Windows (the CLI and MCP), and in the extension on every system, folders are judged by path, before the open and again after it.
+    - A same-account process that changes them in between is outside the threat model (§10.1), and no protection against it is claimed.
+    - The CLI's path on POSIX is descriptor-based.
+  - **Hard links and POSIX mount points** are not links. M3-R1's F5 records this for the storage readers; whether it matters here is Q2's.
+  - **F1** itself concerns `_held_folders.py`, which 0.1.6 does not ship; see the register.
+- **Acceptance criteria:**
+  - **AC-1:**
+    - **What is tested:** fresh clones on Windows (with and without the privilege to create links), Linux and macOS. In each, the repository has committed links at the work-item, work-item-folder and bug-memory paths.
+    - **What must hold:** every entry point refuses or leaves them out, and nothing outside the repository is read, shown, logged or sent.
+  - **AC-2:** ordinary work items keep working, and the CLI's JSON and text output is unchanged.
+  - **AC-3:** in a real MCP client session, a refusal is a one-sentence tool error with no outside content and no absolute path, and the session continues.
+  - **AC-4:** in a real VS Code Extension Host, guarded reads, copies, lists and opens refuse once and use nothing of the file.
+  - **AC-5:** an oversized or non-regular file is refused without blocking.
+  - **AC-6:** every reader of these generated paths in 0.1.6 goes through the guarded functions, with no gap in the inventory.
+  - **AC-7:** the residual race limitation is assessed against the threat model, with a written recommendation: accept it, mitigate it before the release, or mitigate it later.
+  - **AC-8:** findings are rated, and no Critical or High finding remains open for the release.
+- **Open questions for the reviewer:**
+  - **Q1:** is excluding the same-account race appropriate for 0.1.6, given that the adversary O-1 addresses is a repository's author, not a local process?
+  - **Q2:** does the Windows look cover every reparse-point kind a clone or a checkout can produce on supported Windows versions? Name surrogates are refused, and data-holding reparse points are treated as files. Can hard links or mount points arise from a clone at all?
+  - **Q3:** Git without symbolic-link support on Windows checks a link out as a small text file that holds the target's path. Is reading that text as an ordinary file acceptable?
+  - **Q4:** does any reader of these paths bypass the guarded functions (AC-6)?
+  - **Q5:** is the 16 MiB bound right for every generated file?
+  - **Q6:** do refusals stay free of absolute paths and outside content everywhere: in logs, notifications, MCP errors, and Jira or e-mail text?
+  - **Q7:** is the disclosure window acceptable (REL-3, below)?
+- **Status:** not started, as far as this plan records. **M3 is OPEN.** *(Later on 2026-10-26: the reviewer handoff is prepared; the review is not started; see "Batch 2B-3b — M3-R2E: M3 reviewer handoff and final release gates (2026-10-26)".)*
+
+**The risk register:**
+
+| ID | Technical scope | Evidence available | Evidence still missing | Release impact | Decision needed | Status |
+|---|---|---|---|---|---|---|
+| O-1 | Repository-committed links followed by the readers of generated work-item and bug-memory files (CLI, MCP, extension) | The fix in the RC; local Windows tests; private CI 9/9 for the backport (logs and artifacts owner-verified) and for the RC (owner-reported); this record's functional acceptance | M3; EG-1 | The release is the fix: 0.1.5 users stay exposed until it ships | The owner: GO once M3 and EG-1 are closed | **OPEN**: fixed in the RC; unreleased; not independently validated |
+| O-1 residual race | The path-based checks on Windows and in the extension: a same-account process racing them | Documented in the code and §10.1; tests for everything already in place | An independent assessment (AC-7); the owner's written acceptance | If not accepted: handle-based reads on Windows and in Node, a new RC and new CI | M3's reviewer, then the owner | **OPEN**, documented |
+| F1 | M3-R1's Windows held-folder ancestor race in `_held_folders.py` (the storage readers on the verification branch). Earlier records list it beside the residual race above | Regression tests on the verification branch; the observation that held folders' ancestors cannot be renamed | Dynamic proof, or an owner decision on relative opens | None for 0.1.6: the RC's tree has no `_held_folders.py`. It gates Unified Storage | The owner, with Unified Storage | **OPEN**, deferred with Unified Storage |
+| R3 | §17's repository-isolation criterion (two repositories with the same id; the §7.3 rows) | Not complete, per earlier records | The two-repository test for the CLI, MCP and the extension; the §7.3 rows | None for 0.1.6: Unified Storage is inactive and not in it. It gates Unified Storage | The owner, with Unified Storage | **OPEN**, not complete |
+| M3 | Independent security validation of O-1 on the RC | This package | The review, its report and the owner's risk decision | Blocks the release | An independent reviewer, then the owner | **OPEN**, not started as recorded *(2026-10-27: M3: WAIVED BY OWNER FOR 0.1.6 — NOT VERIFIED; release-specific; see "Batch 2B-3b — M3-R2E: 0.1.6 owner M3 waiver and release readiness (2026-10-27)")* |
+| EG-1 | Run 40442766609's logs and four artifacts | The branch and the snapshot (through Git); the owner's figures | Checkout SHAs, counts, skip reasons, the FIFO line, the artifacts' contents | Blocks the release until reviewed | The owner, or the evidence shared for review | **OPEN** *(later on 2026-10-26: resolved by the owner's review; see "Batch 2B-3b — M3-R2E: M3 reviewer handoff and final release gates (2026-10-26)")* |
+| DISC-1 | `7844c8b`'s message describes the issue | This record | — | Disclosure at the push, as with the source | The owner: keep the commits (recommended) or reword them, tree-identical | **OPEN** |
+| CHG-1 | The changelog's heading | This record | — | An inaccurate heading if kept | The owner: a heading-only commit (recommended) | **OPEN** |
+| REL-3 | The disclosure window and notice | The sequence below | The date; the notice's text | Exposure between the push and both packages | The owner | **OPEN** |
+| REL-4 | Integration and publication | The sequence below | All of it | — | The owner, at each step | **OPEN** |
+| OBS-1, OBS-2 | Existing behaviour, as in 0.1.5 | This record | — | None | Follow-ups after the release | **OPEN**, low |
+
+Outside 0.1.6's scope, and unchanged:
+
+- F2 to F8 (M3-R1's findings on the verification branch's readers);
+- A2, defect 5.6, the macOS follow-up and the `duplicate` boundary;
+- US-D29 and the eight activation blockers.
+
+**The release sequence** (an owner checklist; nothing in it was executed):
+
+*Before the window:*
+
+1. **M3 and the risk decision:** the independent review's report, and the owner's written decision on the residual race and on every open finding.
+2. **EG-1:** the run's logs and artifacts reviewed.
+3. **The final commit:**
+   - it is `bed66e0`, or the changelog-only commit on it (CHG-1), with DISC-1 decided;
+   - record its full SHA and tree;
+   - `git diff --name-only ea9659c <release>` lists the 23 files, and a changelog commit adds nothing else.
+4. **Licence and content approval:** recorded above.
+5. **Fast-forward eligibility:**
+   - `git ls-remote origin refs/heads/main` still answers `ea9659c`, and `git merge-base --is-ancestor ea9659c <release>` succeeds;
+   - if `main` has moved, stop: a merge or a rebase would be a new candidate.
+6. **Ready in advance:**
+   - the final VSIX, built from the release commit's archive (`npm ci`, `npm run package`), with its SHA-256 recorded;
+   - a fresh VS Code profile;
+   - the advisory, drafted privately in general terms;
+   - a clean virtual environment for the PyPI check.
+7. **One sitting:** the owner is free for the whole window.
+
+*The window:*
+
+8. **The push** (the disclosure point, done by the owner from the working repository):
+   - `git fetch <clone> release/0.1.6-rc`;
+   - then `git push origin <full SHA>:refs/heads/main`: a fast-forward, never forced.
+9. **CI on `main`:** the push starts it. Wait for the nine checks to succeed on that SHA; a failure stops the release.
+10. **The Release workflow:** Actions → Release → Run workflow, from `main`, with version `0.1.6` and the full SHA.
+    - **The preflight** refuses unless `main`'s head is that SHA, both versions are 0.1.6 and the nine checks are green.
+    - **While the publish job waits:**
+      - download `python-distributions` and compare its SHA-256 with the run summary;
+      - install it in a clean environment;
+      - run `bugpilot --version` and `python -I scripts/check_cli_contract.py --bugpilot <venv>/Scripts/bugpilot.exe --expect-version 0.1.6`.
+    - **Then** approve the `pypi` deployment, or reject it.
+11. **PyPI:** in a new environment, `python -m pip install bugpilot==0.1.6`, then check that `bugpilot --version` says 0.1.6.
+12. **The Marketplace:**
+    - with the final VSIX, in a fresh profile with no `bugpilot` on `PATH`, Install BugPilot Runtime installs `bugpilot==0.1.6`;
+    - restart VS Code, and complete one prepare-only Run;
+    - then the owner uploads the VSIX and checks that the listing shows 0.1.6.
+13. **The versions match:** PyPI and the extension are both at 0.1.6, and the managed runtime pins the same.
+14. **The notice,** once both are live: the security advisory, in general terms.
+    - It gives the affected versions (as recorded for O-1), the fixed version (0.1.6) and how to update both components.
+    - A detailed note can follow later, at the owner's choice.
+
+*After:*
+
+15. **Smoke:**
+    - an existing install, once updated (`pipx upgrade bugpilot` or `pip install -U bugpilot`), reports 0.1.6;
+    - VS Code updates the extension and its runtime to 0.1.6, and Doctor lists the five capabilities;
+    - a prepare-only Run, `bugpilot list` and the MCP tools work.
+16. **Records:** the plan's closure. The verification branch is pushed only after the release, because it holds the O-1 records.
+
+**The exposure window and its coordination:**
+
+- **What is exposed:** from the push until both packages are live, the fix (its code, tests, comments and messages) is public while users cannot yet install it.
+- **How long:** mostly CI on `main` (its longest job is Windows' full suite), the Release build and its approval, then the Marketplace's processing.
+- **Who is at risk:** users of 0.1.5 remain exposed until they update. The issue needs a developer to open a prepared repository with BugPilot.
+- **Keeping it short:**
+  - prepare everything in advance (step 6), and do it in one sitting;
+  - publish no notice until both packages are live;
+  - if CI on `main` fails, decide at once: a fix-forward candidate through the same gates, or a short holding note.
+- **The order is fixed:** PyPI comes first, then the Marketplace, because the managed runtime pins the version.
+
+**GO / NO-GO: NO-GO.** It becomes a GO only when:
+
+1. EG-1 is closed; *(closed later on 2026-10-26 by the owner's review; see "Batch 2B-3b — M3-R2E: M3 reviewer handoff and final release gates (2026-10-26)")*
+2. M3's independent review is done, and the owner has recorded a risk decision on its findings and on the residual race;
+3. CHG-1 and DISC-1 are decided, and any changed commit has passed its verification;
+4. the owner has approved the window (REL-3) and the sequence (REL-4), step by step.
+
+**The states** (kept apart):
+
+- **The RC's code quality verified:** yes, by automated tests: locally on Windows, and in private CI on three systems. The RC's own run is owner-reported, and its logs were not reviewed here. *(Later on 2026-10-26: the owner reviewed the run and its artifacts; see "Batch 2B-3b — M3-R2E: M3 reviewer handoff and final release gates (2026-10-26)".)*
+- **Functional acceptance completed:** yes, on Windows, for ordinary use of the CLI, a real MCP session and a real Extension Host, within the limits above.
+- **Independent security acceptance completed:** no; M3 is OPEN.
+- **The release approved:** no.
+- **The release published:** no.
+
+**Unified Storage:**
+
+- It stays inactive and is deferred to 0.1.7 (REL-1).
+- 0.1.6 ships none of its work beyond what `main` already holds unused (`storage.py`, `private_folder.py`).
+- §20's checklist is that release's, not this one's.
+
+**Still open:**
+
+- O-1, M3, the residual race, EG-1, CHG-1, DISC-1, REL-3 and REL-4;
+- F1's proof and R3, with Unified Storage;
+- F2 to F8, A2, defect 5.6, the macOS follow-up and the `duplicate` boundary;
+- US-D29, the eight activation blockers and the O-1 gate.
+
+#### Batch 2B-3b — M3-R2E: M3 reviewer handoff and final release gates (2026-10-26)
+
+**Status: EG-1 RESOLVED BY THE OWNER'S REVIEW OF RUN 40442766609 AND ITS FOUR ARTIFACTS. THE M3 REVIEWER HANDOFF IS PREPARED, BUT THE INDEPENDENT REVIEW HAS NOT STARTED: M3 OPEN. THE RELEASE CANDIDATE (`bed66e0`, TREE `b3bf793`) IS UNCHANGED. RELEASE: NO-GO. NOTHING PUSHED OR PUBLISHED; `main` UNCHANGED; O-1, THE RESIDUAL RACE, F1, R3 AND M3 OPEN; UNIFIED STORAGE NOT ACTIVATED.**
+
+**EG-1, the CI evidence: resolved** by an owner-assisted independent review, outside this session.
+
+- **The four artifacts** of run 40442766609: `file-safety-macos-latest-py3.13`, `file-safety-windows-latest-py3.13`, `file-safety-ubuntu-latest-py3.10` and `file-safety-ubuntu-latest-py3.13`. The owner retrieved and inspected all four:
+  - each was readable and held three JSON evidence files, twelve in all;
+  - no real credentials and no sensitive user-file contents were identified.
+- **The run:** it completed successfully, all nine jobs, and the extension's FIFO regression test ("a FIFO is refused without blocking") passed.
+- **The counts:** those in "0.1.6 final acceptance and release approval package (2026-10-26)", as the owner gave them.
+- **Not stated separately in the owner's review:** the commit each job checked out, and the POSIX skip reasons that the earlier EG-1 list named. The owner closes EG-1 for CI evidence completeness.
+- **The attribution, corrected:** the job results and the artifacts were reviewed by the owner. This session saw neither; it verified only, through Git, the branch, the snapshot and the mirror's privacy.
+- **What the artifacts do not establish:** M3's end-to-end security acceptance. They record what the automated file-safety tests observed, not a review of real clones and clients.
+
+**The functional acceptance** (Windows, 2026-10-26; details in the section above), kept apart:
+
+- **Checks that passed:**
+  - **The wheel:** a clean install of the wheel built from the candidate's archive reports `bugpilot 0.1.6`.
+  - **The contract check:** `scripts/check_cli_contract.py` accepted 39 of 39 command lines.
+  - **The CLI:** its output is identical to public `main`'s, valid and invalid references alike.
+  - **MCP:** a real stdio session through the official MCP Python SDK client listed the nine tools and the prompt. Normal calls worked, and invalid references gave one-sentence tool errors with the session continuing, identical to `main`'s server.
+  - **VS Code:** a real Extension Host with the VSIX installed passed 20 of 20, covering valid and invalid references, and left the project unchanged.
+- **Observations, not failures** (existing behaviour, identical in 0.1.5): OBS-1 and OBS-2.
+- **Not covered:**
+  - end-to-end runs on Linux and macOS;
+  - interactive use of the panel;
+  - a third-party MCP client;
+  - any security scenario.
+- **Credential hygiene:**
+  - the earlier test processes inherited the session's `JIRA_*` variables, though none contacted Jira, and their values were never printed;
+  - future isolated tests should unset them and inherit no real credential they do not need. `scripts/check_cli_contract.py` already strips them.
+
+**The M3 reviewer handoff** (prepared 2026-10-26, for private delivery by the owner):
+
+- **Where:** outside the repository, in the owner's release working folder `bugpilot-016-m3`, beside earlier releases' folders.
+- **What it holds:** *(Updated on 2026-10-27 for `7feeaf7`: a new bundle and document, the test builds relabelled; see "Batch 2B-3b — M3-R2E: CHG-1 final changelog commit and the updated M3 handoff (2026-10-27)".)*
+  - `bugpilot-0.1.6-m3-reviewer-handoff.md`, the document (SHA-256 `02ce25f5…`);
+  - `bugpilot-0.1.6-rc.bundle`, a Git bundle of `release/0.1.6-rc` (SHA-256 `b1cdb4d0…`). A clone of it was checked: HEAD `bed66e0`, tree `b3bf793`, 23 files against `ea9659c`;
+  - the acceptance's test builds, not release artifacts: the wheel `dba48e89…` and the VSIX `8279f039…`;
+  - `SHA256SUMS.txt`.
+- **The document's sections:**
+  - the product and release context, the exact commit and tree, and how to verify them;
+  - the correction's scope and the existing evidence, with the run's URL in the private mirror;
+  - the platforms and the CLI, MCP and VS Code entry points;
+  - the expected file-boundary behaviour, and error and diagnostic confidentiality;
+  - the residual limitations RL-1 to RL-4, and OBS-1 and OBS-2;
+  - the acceptance criteria, each with the evidence it requires and a PASS, FAIL or NOT TESTED field;
+  - a findings table with severity and release blocking, the reviewer's conclusion and sign-off;
+  - a separate section for the owner's residual-risk decision.
+- **Where it refines this plan's earlier M3 package** (the handoff governs where they differ):
+  - AC-1 is split by platform (Windows with and without the link privilege, Linux, macOS);
+  - AC-9 adds diagnostic confidentiality;
+  - Q6 now asks about Open Artifacts Folder, which hands the work item's folder to VS Code's Explorer without the guard.
+- **What it is not:** it describes what must hold, not how to attack it. The reviewer chooses the scenarios within their authorization; no third-party system and no real user data.
+
+**M3's status: OPEN, not started.**
+
+- The handoff is ready; delivering it to an authorized independent reviewer is the owner's.
+- No reviewer decision exists, and none is recorded here.
+- Neither this session's checks, the owner's CI review nor the owner's acceptance replaces it.
+
+**The release decisions** (the owner's; none is made here):
+
+| ID | The question | Options and what each needs | This record's view (advisory) | The owner's decision |
+|---|---|---|---|---|
+| CHG-1 | The changelog heading "0.1.6 — unreleased (release candidate)" | (a) a release-neutral heading, "0.1.6", the owner's stated preference; (b) a dated heading; (c) keep it. (a) and (b) are a new commit on `bed66e0`, never an amend, and the new tree differs in `extension/CHANGELOG.md` only. Either needs a one-line diff check, the extension's tests, the package check, publishability, and CI 9/9 on `main` at that commit; private CI is optional; the reviewer confirms the result applies (handoff §13) | (a), made before the review ends, so that CI and the reviewer see the final tree; (b) depends on the date | pending *(2026-10-27: option (a), made as `7feeaf7`; see "Batch 2B-3b — M3-R2E: CHG-1 final changelog commit and the updated M3 handoff (2026-10-27)")* |
+| DISC-1 | Public integration exposes the patch and the descriptive history (`7844c8b`'s message) | Keep the commits; or tree-identical commits with general messages before the push (new SHAs, the same trees) | Keep them: the shipped source comments say the same, so the push discloses either way; keep the window short | pending |
+| REL-3 | The timing of PyPI, the Marketplace and the security notice | One sitting: the push, CI on `main`, the Release workflow, PyPI, then the Marketplace; the notice only once both are live; a detailed note later, at the owner's choice | As described | pending: the date, the time and the notice's text |
+| REL-4 | The fast-forward, CI on `main` and the Release workflow's prerequisites | `main` still `ea9659c` and an ancestor of the release commit; the VSIX prebuilt from that commit; CI 9/9 on `main` at it; the preflight (`main`'s head, both versions 0.1.6, nine checks green); the `pypi` approval | As described | pending, step by step |
+| Residual risk | RL-1 to RL-4 and any finding | The reviewer's AC-7 assessment, then the owner's written decision (handoff §15), recorded in this plan | — | pending the review *(2026-10-27: the owner accepted RL-1 and RL-2 for 0.1.6; RL-3 and RL-4 undecided; M3 not waived; see "Batch 2B-3b — M3-R2E: 0.1.6 owner risk acceptance and final release gate (2026-10-27)")* |
+
+**The release gates still to pass,** in order:
+
+1. The owner delivers the handoff to an authorized independent reviewer, with access to the private CI run if needed.
+2. CHG-1 is decided; any commit is made and verified, and its final SHA is given to the reviewer. *(2026-10-27: decided, made as `7feeaf7`, verified locally, its SHA in the handoff; the reviewer's confirmation remains; see "Batch 2B-3b — M3-R2E: CHG-1 final changelog commit and the updated M3 handoff (2026-10-27)")*
+3. The M3 review is complete: the handoff's §13 and §14 are filled in and signed, and no Critical or High finding is open. *(2026-10-27: M3: WAIVED BY OWNER FOR 0.1.6 — NOT VERIFIED; release-specific; see "Batch 2B-3b — M3-R2E: 0.1.6 owner M3 waiver and release readiness (2026-10-27)")*
+4. The owner's residual-risk decision (handoff §15) is recorded in this plan. *(2026-10-27: the owner accepted RL-1 and RL-2 for 0.1.6; RL-3 and RL-4 undecided; M3 not waived; see "Batch 2B-3b — M3-R2E: 0.1.6 owner risk acceptance and final release gate (2026-10-27)")*
+5. DISC-1 is decided.
+6. REL-3 is fixed: the date and the window; the VSIX prebuilt from the final commit; the advisory drafted privately.
+7. Fast-forward eligibility is re-checked, and the owner pushes the release commit to `main`. This is the disclosure point.
+8. CI succeeds, 9/9, on `main` at that SHA.
+9. The Release workflow runs (`0.1.6` and the SHA); its artifact is checked; the owner approves the `pypi` deployment.
+10. PyPI serves `bugpilot==0.1.6`.
+11. The Marketplace: the runtime install is checked with the final VSIX; the owner uploads it.
+12. The advisory is published.
+13. The post-release smoke runs, this plan is closed, and the verification branch is pushed.
+
+**GO / NO-GO: NO-GO.**
+
+- Gates 1 to 6 are open.
+- The candidate's code is not in question: it is verified by automated tests and by functional acceptance. Its independent security acceptance is missing.
+
+**The states** (kept apart):
+
+- **The RC's code quality verified:** yes. Local tests pass on Windows, and private CI passed on three systems, its results and artifacts reviewed by the owner.
+- **Functional acceptance completed:** yes, on Windows, for ordinary use, within the limits above.
+- **Independent security acceptance completed:** no; M3 is OPEN.
+- **The release approved:** no.
+- **The release published:** no.
+
+**Unified Storage:** stays inactive and deferred to 0.1.7.
+
+**Still open:**
+
+- O-1, M3, the residual race (RL-1 to RL-4), CHG-1, DISC-1, REL-3 and REL-4;
+- OBS-1 and OBS-2, as follow-ups;
+- F1's proof and R3, with Unified Storage;
+- F2 to F8, A2, defect 5.6, the macOS follow-up and the `duplicate` boundary;
+- US-D29, the eight activation blockers and the O-1 gate.
+
+#### Batch 2B-3b — M3-R2E: CHG-1 final changelog commit and the updated M3 handoff (2026-10-27)
+
+**Status: CHG-1 DECIDED BY THE OWNER (A RELEASE-NEUTRAL "0.1.6" HEADING) AND MADE AS `7feeaf7` (TREE `b651cbc`), ONE NEW LOCAL COMMIT ON `bed66e0` THAT DIFFERS FROM IT IN ONE CHANGELOG LINE. LOCAL CHECKS PASS; NO CI HAS RUN ON ITS TREE. THE M3 HANDOFF IS UPDATED FOR IT; THE INDEPENDENT REVIEW HAS NOT STARTED: M3 OPEN. RELEASE: NO-GO. NOTHING PUSHED OR PUBLISHED; `main` UNCHANGED (`ea9659c`); O-1, THE RESIDUAL RACE, F1, R3, M3, DISC-1, REL-3 AND REL-4 OPEN; UNIFIED STORAGE NOT ACTIVATED.**
+
+**Preflight** (2026-10-27), as expected:
+
+- **This repository:** `verify/0.1.6-storage` at `ad1fea5`; nothing staged; only the owner's three entries in its status.
+- **The isolated clone:**
+  - `release/0.1.6-rc` at `bed66e0`, tree `b3bf793`;
+  - clean, with no tags and pushing disabled;
+  - `security/o1-0.1.6-backport` at `7844c8b`.
+- **The remote:** public `main` and `origin/main` at `ea9659c`; the remote verification branch at `ce04705`.
+- **Integrity:**
+  - 11 of 11 owner-protected files, the 17 goldens and the 8 frozen records are hash-identical;
+  - the baseline scripts equal `HEAD`;
+  - the clone's goldens and baselines equal `main`'s.
+
+**CHG-1, the decision and the change:**
+
+- **The decision** (the owner's, 2026-10-27): option (a). The heading "0.1.6 — unreleased (release candidate)" becomes the release-neutral "0.1.6", with no date.
+- **The commit:** `7feeaf7e1cc8ac48358d6b974431c619096df2e0` ("release: finalize 0.1.6 changelog heading"), tree `b651cbc616b3995e18e832feab941ca017f9e052`.
+  - Its only parent is `bed66e095c18d2263bbf6004fa704f6931a529d2`.
+  - It is committed locally under the owner's GitHub no-reply identity, with only `extension/CHANGELOG.md` staged.
+  - Nothing was amended or rewritten, and it is not pushed.
+- **The difference from `bed66e0`:** one line of `extension/CHANGELOG.md`, the heading, and nothing else.
+  - The release notes and the earlier entries are unchanged, and no date was added.
+  - The security implementation, the tests, the scripts, the workflows, the licences, the manifests and the version (0.1.6 in both sources) are identical to `bed66e0`'s.
+- **Against `main`:** still 23 files. `ea9659c` is an ancestor of `7feeaf7`, so a fast-forward remains possible.
+- **Unchanged:** `security/o1-0.1.6-backport`, at `7844c8b`.
+
+**Local verification on `7feeaf7`'s tree** (Windows; Node 24 and Python 3.14; the `JIRA_*` variables unset; an isolated home):
+
+| Check | Result |
+|---|---|
+| The extension's typecheck | clean |
+| The extension's unit tests | 2,365: 2,364 passed, 1 skipped (the POSIX-only FIFO test), none failed; as at `bed66e0` locally |
+| The extension's evidence boundary (`evidence`, `hintImprovement`, `scratchFile`) | 27 of 27 |
+| The extension's build and package check | 86 files, 73 of them built JavaScript, all current |
+| Python: `test_publishable.py`, `test_extension_argv_contract.py` (the version), `test_release_workflow.py` (including `release_preflight`) and `test_review_package.py` | 148 passed, 1 skipped, 1 deselected. The skip and the deselection are the private word-list checks: the clone deliberately has no private list |
+| Publishability against the private word list and samples, read in place and not copied | 20 of 20, including those two checks |
+| The release preflight's version reader, offline | 0.1.6 and 0.1.6 |
+| `git diff --check` | clean |
+| The working tree after the checks | clean; only the changelog was staged |
+
+- **Not run:** the full Python suite. No test reads the changelog.
+- **Comparison builds** (in a scratch folder; not release artifacts and not in the handoff):
+  - a wheel built from `7feeaf7`'s archive holds the same 68 files, with the same contents, as the acceptance wheel built from `bed66e0`;
+  - a VSIX built from `7feeaf7` holds the same 88 files as the acceptance VSIX, and only `extension/changelog.md` differs.
+
+**The CI evidence and its attribution:**
+
+- **Private CI run 40442766609** (9/9, reviewed by the owner with its four artifacts) ran on `bed66e0`'s tree `b3bf793`, through the snapshot `9aa6798`. It is evidence for `bed66e0`.
+- **It did not run on `b651cbc`,** and this record does not treat it as covering that exact tree. The two trees differ only in the changelog heading, which no test reads.
+- **No CI has run on `b651cbc`.** A private run is optional, the owner's choice. CI 9/9 on `main` at the release commit is required (gate 8) before the Release workflow.
+
+**The M3 handoff, updated** (in the owner's release working folder `bugpilot-016-m3`; private):
+
+- **The document now:**
+  - identifies the final commit (`7feeaf7`, tree `b651cbc`) and the tested candidate (`bed66e0`, tree `b3bf793`);
+  - shows the one-line difference, and states that the security implementation is unchanged;
+  - attributes the private CI and the functional acceptance to `bed66e0`, and states the CI's limits, including that no CI has run on `b651cbc`;
+  - records the local checks on `7feeaf7` and the comparison builds;
+  - adds a ten-step reviewer checklist;
+  - asks in its Section 13 whether a result on `bed66e0` applies to `7feeaf7`.
+- **Still blank:** the result fields, the findings, the conclusion, the sign-off and the owner's section.
+- **The bundle, regenerated:** `release/0.1.6-rc` at `7feeaf7`, with complete history. A clone of it was checked:
+  - HEAD `7feeaf7`, tree `b651cbc`; HEAD~1 `bed66e0`, tree `b3bf793`;
+  - 23 files against `ea9659c`, and the one-line difference against HEAD~1;
+  - no tags.
+- **The test builds** were not rebuilt. They moved into `test-builds/from-bed66e0/`, so their source travels with them, and their hashes are unchanged.
+- **SHA-256,** all 4 of 4 verified against the regenerated `SHA256SUMS.txt`:
+
+  | File | SHA-256 | Before |
+  |---|---|---|
+  | `bugpilot-0.1.6-m3-reviewer-handoff.md` | `4c4c9648…` | `02ce25f5…` |
+  | `bugpilot-0.1.6-rc.bundle` | `7b902fb2…` | `b1cdb4d0…` |
+  | `test-builds/from-bed66e0/bugpilot-0.1.6-py3-none-any.whl` | `dba48e89…` | the same |
+  | `test-builds/from-bed66e0/bugpilot-0.1.6.vsix` | `8279f039…` | the same |
+
+**M3's status: OPEN, not started.**
+
+- No reviewer result, sign-off or residual-risk decision exists, and none is recorded here. Nothing in this record replaces them.
+- **The reviewer:**
+  - assesses AC-1a to AC-1d and AC-2 to AC-9, including the residual race (AC-7: RL-1 and RL-2), and answers Q1 to Q7;
+  - says whether a result on `bed66e0` applies to `7feeaf7`.
+
+**The decisions:**
+
+| ID | Status on 2026-10-27 |
+|---|---|
+| CHG-1 | **decided and made:** option (a), `7feeaf7`. The reviewer's confirmation that the result applies remains, and CI on `main` follows at gate 8 |
+| DISC-1 | pending, the owner's |
+| REL-3 | pending, the owner's: the date, the window and the notice's text |
+| REL-4 | pending, step by step. `ea9659c` is an ancestor of `7feeaf7` today |
+| Residual risk | pending the review *(2026-10-27: the owner accepted RL-1 and RL-2 for 0.1.6; RL-3 and RL-4 undecided; M3 not waived; see "Batch 2B-3b — M3-R2E: 0.1.6 owner risk acceptance and final release gate (2026-10-27)")* |
+
+**The release gates** (from "M3 reviewer handoff and final release gates (2026-10-26)"):
+
+- **Gate 2, CHG-1:** decided, made and verified locally, and the final SHA is in the handoff. The reviewer's Section 13 confirmation remains.
+- **Gates 1, 3, 4, 5 and 6:** open. Gate 6's VSIX is to be prebuilt from the final commit, `7feeaf7` unless it changes. *(Later on 2026-10-27: gate 6's VSIX prebuilt from `7feeaf7` and the runbook and notices drafted; see "Batch 2B-3b — M3-R2E: 0.1.6 coordinated release preparation (2026-10-27)".)*
+- **Gates 7 to 13:** not started.
+
+**GO / NO-GO: NO-GO.**
+
+- M3 has not started.
+- DISC-1, REL-3, REL-4 and the residual-risk decision are pending.
+
+**The states** (kept apart):
+
+- **The RC's code quality verified:** yes.
+  - `bed66e0`: by private CI and locally.
+  - `7feeaf7`: locally. It differs only in the heading.
+- **Functional acceptance completed:** yes, on Windows, with `bed66e0`'s builds.
+- **Independent security acceptance completed:** no; M3 is OPEN.
+- **The release approved:** no.
+- **The release published:** no.
+
+**Unified Storage:** stays inactive and deferred to 0.1.7.
+
+**Still open:**
+
+- O-1, M3, the residual race (RL-1 to RL-4), DISC-1, REL-3, REL-4 and the residual-risk decision;
+- OBS-1 and OBS-2, as follow-ups;
+- F1's proof and R3, with Unified Storage;
+- F2 to F8, A2, defect 5.6, the macOS follow-up and the `duplicate` boundary;
+- US-D29, the eight activation blockers and the O-1 gate.
+
+#### Batch 2B-3b — M3-R2E: 0.1.6 coordinated release preparation (2026-10-27)
+
+**Status: RELEASE PREPARATION DONE LOCALLY. THE PREFLIGHT AND THE RELEASE-CONTENT CHECK PASS; THE FINAL WHEEL, SDIST AND VSIX ARE BUILT FROM `7feeaf7` AND CLEAN-INSTALLED; THE RELEASE WORKFLOW AND THE LIVE GITHUB, PYPI AND MARKETPLACE CONFIGURATION ARE AUDITED; THE RUNBOOK AND BOTH NOTICES ARE PREPARED. M3 HAS NOT STARTED (THE HANDOFF IS BLANK), AND NO RESIDUAL-RISK DECISION EXISTS. RELEASE: NO-GO. NOTHING PUSHED, DISPATCHED, TAGGED, APPROVED OR PUBLISHED; `main` UNCHANGED (`ea9659c`); O-1, THE RESIDUAL RACE, F1, R3 AND M3 OPEN; UNIFIED STORAGE NOT ACTIVATED.**
+
+**Preflight** (2026-10-27): every item as expected.
+
+- **This repository:** `verify/0.1.6-storage` at `b5fe9a1`; nothing staged; only the owner's three entries in its status.
+- **The isolated clone:**
+  - `release/0.1.6-rc` at `7feeaf7` (tree `b651cbc`);
+  - parents in a line: `7feeaf7` → `bed66e0` → `7844c8b` → `ea9659c`;
+  - `security/o1-0.1.6-backport` unchanged at `7844c8b`;
+  - the working tree equals `HEAD`; no tags; pushing disabled.
+- **The public remote:**
+  - `main` is `ea9659c` and an ancestor of `7feeaf7`, three commits behind, so a fast-forward is possible;
+  - no tags; the remote verification branch at `ce04705`.
+- **The versions:** 0.1.6 in `bugpilot/__init__.py` and `extension/package.json`.
+- **The licences:** both name version 0.1.6 ("CLI and Tools" and "for VS Code"); Change Date 2030-10-11 in both; the terms unchanged.
+- **Integrity:**
+  - 11 of 11 owner-protected files, the 17 goldens and the 8 frozen records are hash-identical;
+  - the baseline scripts equal `HEAD`;
+  - the owner's three entries are untouched.
+- **Unified Storage:** not activated. Nothing in the shipped code imports `storage` or `private_folder`, and both modules equal `main`'s.
+
+**The independent security acceptance gate:**
+
+- **What the reviewer package holds:** unchanged since its 2026-10-27 update. Every acceptance result (AC-1a to AC-9) is blank; there are no findings, no conclusion, no applicability statement for `7feeaf7`, no reviewer identity or signature, and no owner decision (handoff Sections 11 to 15).
+- **Nothing is inferred from:**
+  - the blank form;
+  - the automated tests;
+  - the owner's instruction to prepare the release.
+- **Result:** M3 OPEN, not started. The release is NO-GO.
+
+**The release content,** `ea9659c` to `7feeaf7`:
+
+- **23 files:**
+  - the 17 of the security backport, whose diff against `main` is byte-identical to `7844c8b`'s;
+  - the 6 release files: `LICENSE`, `bugpilot/__init__.py`, `extension/CHANGELOG.md`, `extension/LICENSE.txt`, `extension/package.json` and `extension/package-lock.json`.
+- **The release files change only:**
+  - the version lines (0.1.5 → 0.1.6, in both manifests and the two version entries of the lock file);
+  - the two licences' Licensed Work lines;
+  - the changelog's new 0.1.6 entry. The CHG-1 commit is its one-line heading.
+- **New files:** only `extension/src/app/workItemFiles.ts` and its test.
+- **Unchanged against `main`, with nothing in them to review:**
+  - `pyproject.toml`, so there are no new dependencies;
+  - the lock file's dependency entries;
+  - `.github/`, so the workflows, the pins and the publishing settings are unchanged;
+  - `scripts/`, the packaging configuration, the ignore rules, and `storage.py` and `private_folder.py`.
+- **Not in the tree, and not in the diff:**
+  - credential-like strings;
+  - private word lists;
+  - generated paths (`.ai`, `.ai_memory`, `out`, `dist`, `node_modules`, built archives).
+
+**The final distribution artifacts** (built 2026-10-27 from a clean archive of `7feeaf7`; kept in the owner's private release folder `bugpilot-016-final`, beside earlier releases' folders):
+
+| File | Role | SHA-256 | Bytes |
+|---|---|---|---|
+| `bugpilot-0.1.6.vsix` | **The Marketplace candidate** | `38131c90b1581daf171e8d031bd5008abc362f3df59d58575a57e54aec4d4c06` | 571,942 |
+| `bugpilot-0.1.6-py3-none-any.whl` | A local reference build: PyPI receives the Release workflow's own build | `7efdd6625ab6d066a5071d4b28354546dda4f396c3dd6df00b96e19d3c513ab2` | 375,240 |
+| `bugpilot-0.1.6.tar.gz` | A local reference build, as above | `1af24f59494f7167f886d8ffa34ed354821e2f1c23b1adce8c3db209a5d4fb39` | 347,907 |
+
+- **The Python build:** the pinned build tools (build 1.6.1, setuptools 84.0.0, twine 7.0.0), run as `python -m build --no-isolation --sdist --wheel`, with `twine check --strict` passing for both files. It used Python 3.14 locally; the release runner uses 3.13.
+- **The VSIX:** `npm ci` and `npm run package`. The package check passed: 86 files, all built JavaScript current. npm skipped the install scripts of `vsce`'s publishing helpers, which are not shipped.
+- **The wheel:**
+  - 68 files, the licence included;
+  - `License-Expression: BUSL-1.1`, `Requires-Python: >=3.10`;
+  - no required dependency; the `mcp` extra;
+  - the console scripts `bugpilot` and `bugpilot-mcp`.
+
+  Its package files are identical to the `bed66e0` test wheel's. Only `WHEEL`'s generator line differs (setuptools 84.0.0 against 84.2.1), and `RECORD` with it.
+- **The sdist:** 74 files. Every source file is byte-identical to the tree, and it holds no tests and no private files.
+- **The VSIX contents:**
+  - 88 files: the licence, the third-party notices and the changelog;
+  - `engines.vscode` `^1.90.0`;
+  - no runtime or extension dependencies, and no `node_modules`.
+
+  It equals the CHG-1 comparison build, and differs from the `bed66e0` test VSIX in `changelog.md` only.
+- **Not the M3 test builds:** those stay labelled `from-bed66e0` in the reviewer package.
+
+**The clean installs** (Windows 11; an isolated home; the `JIRA_*` variables unset):
+
+| Check | Result |
+|---|---|
+| The wheel alone, in a fresh environment | It installs with no dependencies and reports `bugpilot 0.1.6`; `--help` works; `doctor` reports 0.1.6 with no warnings; the contract check accepts 39 of 39 command lines |
+| The sdist, in a fresh environment | It builds, installs and reports `bugpilot 0.1.6` |
+| The wheel with `[mcp]` (mcp 2.3.0): CLI | 25 of 25. Ordinary commands and invalid references give output identical to public `main`'s 0.1.5 where compared. OBS-1 is identical, as before |
+| The same: MCP | 24 of 24: a real stdio session through the official MCP SDK client, with the handshake, the nine tools, the prompt, normal calls, one-sentence tool errors, and the session continuing |
+| The VSIX in a disposable VS Code 1.142.0 profile | 20 of 20 |
+| The managed runtime, offline (pip pointed at a folder holding only the final wheel; no `bugpilot` on PATH) | Install Runtime: 7 of 7, about 18 s. The runtime's files match the wheel's RECORD, 67 of 67. After a restart: 5 of 5, with no second install. A prepare-only run through the runtime's CLI succeeds |
+
+- **The driver changes, from the earlier acceptance:** two expectations were corrected, and nothing was loosened.
+  - The MCP `get_status` refusal's real wording is now expected.
+  - OBS-1's empty folder is checked as the existing 0.1.5 behaviour, still against `main`.
+- **Not covered:**
+  - installs on macOS and Linux;
+  - Python 3.10 to 3.13 locally;
+  - a Run started from the panel;
+  - the managed runtime against live PyPI, which is only possible after publication (runbook step 10).
+
+**The release workflow and the live configuration** (read 2026-10-27, through public unauthenticated APIs and the workflow files; no credentials used):
+
+- **The trigger:** `release.yml` is `workflow_dispatch` only, with two required string inputs, `version` and `commit` (the full 40-character SHA). `release.yml` exists on the default branch `main`, as GitHub requires for a manual run.
+- **The build job:**
+  1. It refuses any ref but `refs/heads/main`.
+  2. `scripts/release_preflight.py` requires:
+     - the typed commit to equal the checked-out one;
+     - the typed version to equal both manifests';
+     - CI's own newest run on that commit successful, with the newest check run of each of the nine required jobs successful.
+  3. It installs the hashed, pinned build tools, then builds and checks exactly that version's wheel and sdist (`twine check --strict`).
+  4. It records the SHA-256s and uploads `python-distributions`.
+- **The publish job:**
+  - `main` only, in environment `pypi`, and the only job with `id-token: write`;
+  - it verifies the build job's hashes and publishes through PyPI Trusted Publishing.
+- **Permissions:** the default is `contents: read`. The build job adds `checks: read` and `actions: read`.
+- **No tags, no GitHub Releases:** none is created, none is expected, and none exists.
+- **Python only:** the Marketplace upload is manual, on the publisher page, after PyPI serves the version (`docs/development.md`, "Release order").
+- **The `pypi` environment:**
+  - required reviewers: the maintainer, with Prevent self-review off;
+  - deployment branches: custom, exactly `main`;
+  - administrators cannot bypass.
+
+  The 0.1.5 publish job waited 14 minutes for its approval.
+- **The trusted publisher,** as 0.1.5's PyPI provenance attests: this repository, `release.yml`, environment `pypi`. PyPI's own settings page needs the owner's login and was not read.
+- **`main`:** not branch-protected, with no rulesets. GitHub requires no status checks; the nine checks are enforced only by the preflight. A force-push is not prevented, so the runbook's push is a plain fast-forward, never `--force`.
+- **Today:**
+  - PyPI serves 0.1.0 to 0.1.5, with no 0.1.6;
+  - the Marketplace lists 0.1.5;
+  - recent CI runs on `main` took 14 to 19 minutes, and one of the last six failed;
+  - the preflight, run read-only against `7feeaf7`, refuses, because GitHub does not know the commit before the push. That is fail-closed, as designed.
+
+**The runbook** (in full, with exact commands and screens, in the private release folder's `RELEASE-RUNBOOK.md`; summarized here):
+
+1. **The gates:**
+   - M3 complete and signed, its result applying to `7feeaf7`, with no Critical or High finding open;
+   - the owner's residual-risk decision recorded here;
+   - DISC-1 decided; REL-3's window fixed;
+   - the notices reviewed, the advisory saved as a private draft.
+
+   Otherwise stop.
+2. **A read-only recheck:** the release commit and tree; `main` still `ea9659c`; no tags; no 0.1.6 on PyPI; the release folder's checksums.
+3. **The disclosure point:** the owner fetches the release branch from the clone into this repository and pushes `7feeaf7` to `main` as a plain fast-forward, after a dry run.
+4. **CI:** CI on `main` at exactly `7feeaf7`.
+5. **All nine jobs successful,** confirmed with the preflight run locally, read-only.
+6. **The dispatch:** **Actions → Release → Run workflow** from `main`, with version `0.1.6` and the full SHA.
+7. **The approval:** the owner checks the `python-distributions` artifact (its hashes against the run summary, its contents against the reference wheel, a clean install, the contract check), then approves the `pypi` environment.
+8. **PyPI** serves 0.1.6.
+9. **The published package:** a clean install of `bugpilot[mcp]==0.1.6`, the contract check, and the downloaded wheel compared with the artifact.
+10. **The extension against PyPI:** the final VSIX, in a fresh profile with no `bugpilot` on PATH. Install BugPilot Runtime from live PyPI; a restart; one prepare-only Run.
+11. **The Marketplace:** the VSIX uploaded, after its checksum is checked.
+12. **An install from the Marketplace** shows 0.1.6. The exposure window closes.
+13. **The advisory** is published.
+14. **The post-release smoke,** and the release recorded here.
+
+- **The exposure window:** from step 3 to step 12, about 60 to 90 minutes typically. During it, the fix and `7844c8b`'s message are public while only 0.1.5 is installable.
+- **The contingencies:**
+  - CI failure: no dispatch; re-run for the infrastructure, fix forward for a real failure; never rewrite `main`.
+  - A preflight refusal: dispatch again with the right inputs.
+  - A failed artifact check: reject the deployment.
+  - PyPI live but the runtime check failing: no VSIX upload, and the advisory held or scoped.
+  - A Marketplace rejection: retry.
+  - A partial PyPI upload: a version can never be re-uploaded.
+- **The ordering rules:** never the VSIX before PyPI serves 0.1.6, and never the advisory before both are live.
+
+**The notices** (in the private release folder; not published):
+
+- **`RELEASE-NOTES-0.1.6.md`:** the public notes. A maintenance release with safer reading of project files and controlled handling of invalid references; nothing else changes; the requirements and upgrade commands, including Install BugPilot Runtime once after the extension updates. The advisory link is added only once the advisory is public.
+- **`SECURITY-NOTICE-0.1.6-DRAFT.md`:** a confidential advisory draft, for publication only after both distributions are live. It describes the issue in general terms, with no reproduction detail. Its open items, for the owner and legal review where the owner's policy requires:
+  - the severity, after M3;
+  - a CVE, if wanted;
+  - whether to keep the paragraph on the limitations, per the residual-risk decision;
+  - the credits and the dates.
+
+**The decisions and the remaining gates:**
+
+| Item | Status on 2026-10-27 |
+|---|---|
+| M3 | **OPEN, not started**: the handoff is blank |
+| The residual-risk decision | pending the review *(2026-10-27: the owner accepted RL-1 and RL-2 for 0.1.6; RL-3 and RL-4 undecided; M3 not waived; see "Batch 2B-3b — M3-R2E: 0.1.6 owner risk acceptance and final release gate (2026-10-27)")* |
+| CHG-1 | done (`7feeaf7`) |
+| DISC-1 | pending, the owner's. No history rewrite to obscure it |
+| REL-3 | pending: the date and the window. The runbook, the VSIX and both notices are ready |
+| REL-4 | its local prerequisites verified: the fast-forward, the versions, the prebuilt VSIX. CI on `main` and the approvals follow at the release |
+
+**GO / NO-GO: NO-GO.**
+
+- M3 has not started.
+- No residual-risk decision exists.
+- DISC-1 and REL-3 are pending.
+- Every other prerequisite this session can check passes.
+
+**The states** (kept apart):
+
+- **The final RC's code verified:** yes.
+  - `bed66e0`'s tree: by private CI.
+  - `7feeaf7`: locally, and by these clean installs.
+- **The final artifacts built and verified locally:** yes.
+- **Independent security acceptance completed:** no.
+- **The release approved:** no.
+- **The release published:** no.
+
+**A follow-up, after the release (DOC-1):** `docs/development.md` says the `pypi` environment had "no protection rules" (as verified on 2026-10-14). The live settings now have them. Correct the note in a later documentation commit; the release candidate is not changed for it.
+
+**Unified Storage:** stays inactive and deferred to 0.1.7.
+
+**Still open:**
+
+- O-1, M3, the residual race (RL-1 to RL-4), the residual-risk decision, DISC-1 and REL-3;
+- OBS-1, OBS-2 and DOC-1, as follow-ups;
+- F1's proof and R3, with Unified Storage;
+- F2 to F8, A2, defect 5.6, the macOS follow-up and the `duplicate` boundary;
+- US-D29, the eight activation blockers and the O-1 gate.
+
+#### Batch 2B-3b — M3-R2E: 0.1.6 owner risk acceptance and final release gate (2026-10-27)
+
+**Status: THE OWNER ACCEPTS THE DOCUMENTED RESIDUAL RISKS RL-1 AND RL-2 FOR BUGPILOT 0.1.6 (2026-10-27), AS RECORDED HERE. THE INDEPENDENT SECURITY VALIDATION (M3) HAS NOT STARTED, AND THE OWNER'S OWN RELEASE GATES REQUIRE IT; THE ACCEPTANCE DOES NOT WAIVE IT. RELEASE: NO-GO. THE RELEASE COMMIT STAYS `7feeaf7` (TREE `b651cbc`). NOTHING PUSHED, DISPATCHED, TAGGED, APPROVED OR PUBLISHED; `main` UNCHANGED (`ea9659c`); O-1, M3, F1 AND R3 OPEN; UNIFIED STORAGE NOT ACTIVATED.**
+
+**The owner's residual-risk decision** (2026-10-27): **ACCEPTED.**
+
+- **What is accepted:**
+  - **RL-1, Windows (the CLI and MCP):** folders are judged by path, before the open and again after it. A process running as the same user that changes them in between is outside the threat model.
+  - **RL-2, the VS Code extension, on every system:** folders are judged by path, before and after the open, with the same exclusion.
+- **The scope, as the owner set it:**
+  - BugPilot 0.1.6 only;
+  - the existing documented limitations only;
+  - no acceptance of unknown vulnerabilities;
+  - no acceptance of any undisclosed Critical or High finding;
+  - no claim that independent security validation has passed.
+- **What it is not:**
+  - **Not the reviewer's assessment.** It was made before the review's AC-7 assessment, which does not exist yet. It covers RL-1 and RL-2 as documented; a review finding that changes them, or adds to them, is not covered.
+  - **Not a waiver of M3.** Nothing here waives the independent review, and none is inferred. *(Later on 2026-10-27: the owner then waived M3 for 0.1.6, explicitly and separately; see "Batch 2B-3b — M3-R2E: 0.1.6 owner M3 waiver and release readiness (2026-10-27)".)*
+  - **Not a decision on RL-3 or RL-4** (hard links and mount points; Git without symbolic-link support). The decision did not name them, so they remain the owner's to decide. The handoff's Section 15 lists them separately. *(Later on 2026-10-27: accepted by the owner with the waiver; see "Batch 2B-3b — M3-R2E: 0.1.6 owner M3 waiver and release readiness (2026-10-27)".)*
+  - **Not a change to O-1's status.**
+- **The handoff's Section 15 stays blank.** It asks for the reviewer's report, so the owner completes it after the review. Until then, this record holds the owner's decision.
+
+**The read-only gate checks** (2026-10-27):
+
+| Check | Result |
+|---|---|
+| Public `main` | `ea9659c`; no tags; no GitHub Releases |
+| The release commit | `7feeaf7`, tree `b651cbc`, parent `bed66e0`. The clone is clean, `7844c8b` is unchanged, and `ea9659c` is an ancestor: a fast-forward |
+| The release diff | 23 files: the security part byte-identical to `7844c8b`'s, and the six release files |
+| The package checksums | the release folder `bugpilot-016-final`, 4 of 4 (the VSIX `38131c90…`); the M3 package, 4 of 4 |
+| The versions | 0.1.6 in `bugpilot/__init__.py` and `extension/package.json` |
+| The licences | both name version 0.1.6; Change Date 2030-10-11 in both |
+| The release workflow | `.github/` identical to `main`'s (`release.yml` blob `e92ebbc`). It is dispatched by hand from `main`, with the inputs `version` and `commit`; the preflight requires CI's nine jobs green on that exact commit |
+| The `pypi` environment | required reviewer: the maintainer; deployment branches: `main` only; administrators cannot bypass |
+| `main` | not branch-protected; no rulesets |
+| PyPI and the Marketplace | both at 0.1.5; no 0.1.6 |
+| The private CI evidence | Run 40442766609, 9/9, reviewed by the owner with its four artifacts (EG-1 closed). It ran on the snapshot `9aa6798`, confirmed again locally: parentless, with tree `b3bf793`, `bed66e0`'s. It does not cover `b651cbc`; CI on `main` at `7feeaf7` is required (runbook step 4) |
+| M3 | The handoff is unchanged since its 2026-10-27 update (its hash matches the manifest): 0 of 12 results, no findings, no conclusion, no signature |
+| Integrity | 11 of 11 owner-protected files, the 17 goldens and the 8 frozen records unchanged; the baseline scripts equal `HEAD`; the owner's entries untouched |
+
+**The release policy** (what this record checked):
+
+- **The owner's release gates** (2026-10-26, in "O-1 Python coverage completion and owner approvals"):
+  - "Each blocks the 0.1.5.x maintenance release; none is an accepted vulnerability." That release became 0.1.6 (REL-1).
+  - Gate 3 is "Independent security validation, on Windows and on POSIX".
+  - The owner decided, the same day, that O-1 stays in M3's independent validation.
+- **The final acceptance package's register** rates M3 as "Blocks the release".
+- **The handoff's gates:** gate 3 (M3 complete and signed) comes before gate 4 (the owner's residual-risk decision).
+- **The conclusion:** accepting RL-1 and RL-2 satisfies gate 4 for those two limitations. It neither satisfies nor waives gate 3.
+
+**The final release decision: NO-GO.** *(Later on 2026-10-27: superseded for 0.1.6 by the owner's M3 waiver; this decision stands as made under the policy then in force; see "Batch 2B-3b — M3-R2E: 0.1.6 owner M3 waiver and release readiness (2026-10-27)".)*
+
+- **The mandatory gate still open:** gate 3, M3.
+- **The minimum reviewer action:** an authorized independent reviewer, who did not develop the correction, completes the handoff (`bugpilot-016-m3`):
+  - the review is of `7feeaf7`, or of `bed66e0` with a Section 13 statement that the result applies to `7feeaf7`;
+  - Section 11: a result for AC-1a to AC-9, with its evidence, and NOT TESTED with the reason where a criterion does not apply;
+  - Section 12: every finding rated, with no Critical or High finding open;
+  - Section 13: the conclusion, including the AC-7 race assessment;
+  - Section 14: signed.
+- **The owner's other items before the window opens:**
+  - RL-3 and RL-4;
+  - DISC-1;
+  - REL-3's date and window;
+  - the notices' review, with the advisory saved as a private draft (runbook Section 1).
+
+**The release sequence, approved subject to the gates.** The owner's twelve steps map onto the runbook's fourteen as follows. None was run.
+
+| The owner's step | The runbook (`RELEASE-RUNBOOK.md` in `bugpilot-016-final`) |
+|---|---|
+| 1. Confirm every mandatory gate | Step 1 |
+| 2. Recheck public `main` and the final RC SHA | Step 2 |
+| 3. Fast-forward public `main` to the final RC | Step 3 (a plain push of `7feeaf7` to `refs/heads/main`, never `--force`) |
+| 4. CI on `main`, nine of nine jobs, at the exact SHA | Steps 4 and 5 (the local read-only preflight confirms it) |
+| 5. Run the Release workflow | Step 6 (`main`, `0.1.6`, the full SHA) |
+| 6. Approve the `pypi` environment | Step 7, after the artifact check |
+| 7. Check that PyPI serves 0.1.6 | Step 8 |
+| 8. Test the runtime installed from published PyPI | Steps 9 and 10 |
+| 9. Publish the final VSIX | Step 11 |
+| 10. Check an install from the Marketplace | Step 12 |
+| 11. Publish the security notice | Step 13 |
+| 12. Post-release smoke | Step 14 |
+
+The two sequences agree. The runbook adds two checks:
+
+- the artifact check before the approval;
+- a clean install of the published package before the extension's runtime test.
+
+**The states** (kept apart):
+
+- **The owner's residual-risk acceptance:** recorded, for RL-1 and RL-2, for 0.1.6.
+- **M3, the independent approval:** no; OPEN, not started.
+- **The release approved:** no. **Published:** no.
+
+**Unified Storage:** stays inactive and deferred to 0.1.7.
+
+**Still open:**
+
+- M3, O-1, RL-3 and RL-4, DISC-1 and REL-3;
+- OBS-1, OBS-2 and DOC-1, as follow-ups;
+- F1's proof and R3, with Unified Storage;
+- F2 to F8, A2, defect 5.6, the macOS follow-up and the `duplicate` boundary;
+- US-D29, the eight activation blockers and the O-1 gate.
+
+#### Batch 2B-3b — M3-R2E: 0.1.6 owner M3 waiver and release readiness (2026-10-27)
+
+**Status: M3: WAIVED BY OWNER FOR 0.1.6 — NOT VERIFIED. THE OWNER ACCEPTS RL-1 TO RL-4 FOR 0.1.6. THE RELEASE PREFLIGHT PASSES FOR `7feeaf7` (TREE `b651cbc`). THE RELEASE IS READY FOR THE OWNER'S RELEASE SESSION, ONCE THE OWNER CONFIRMS TWO THINGS: THAT NO OUTSIDE REQUIREMENT MANDATES AN INDEPENDENT REVIEW (THIS COULD NOT BE DETERMINED HERE), AND THAT THE NOTICES ARE APPROVED. NOTHING PUSHED, DISPATCHED, TAGGED, APPROVED OR PUBLISHED; `main` UNCHANGED (`ea9659c`); UNIFIED STORAGE NOT ACTIVATED.**
+
+**The owner's decision** (2026-10-27):
+
+- **The waiver:** the owner waives the independent M3 security review for BugPilot 0.1.6.
+  - **Status: M3: WAIVED BY OWNER FOR 0.1.6 — NOT VERIFIED.**
+  - M3 was not independently executed or signed. The reviewer handoff stays blank and unchanged, and no result or signature is recorded anywhere.
+  - **It is release-specific.** It is not a general change to future release requirements.
+  - **Kept for traceability and for later releases:**
+    - the owner's release gates of 2026-10-26;
+    - M3's acceptance criteria (AC-1a to AC-9) and questions (Q1 to Q7);
+    - the earlier NO-GO decisions, which were right under the policy in force when they were made.
+  - **No independent security review approval may be claimed,** in this plan, the release notes, the advisory or anywhere else.
+- **The residual risks:**
+  - **RL-1 and RL-2:** accepted, as recorded earlier on 2026-10-27 in "owner risk acceptance and final release gate".
+  - **RL-3 and RL-4** (hard links and mount points; Git without symbolic-link support): the owner additionally accepts the release uncertainty they carry, despite incomplete independent verification.
+  - **Not established:** the absence of unknown vulnerabilities.
+- **Evidence that remains valid, within its tested scope:**
+  - private CI run 40442766609 (9/9 on `bed66e0`'s tree, reviewed by the owner with its artifacts);
+  - run 40421551787 (9/9 on `7844c8b`'s code and tests);
+  - the Windows functional acceptance of 2026-10-26 (`bed66e0`'s builds);
+  - the local checks on `7feeaf7`;
+  - the clean installs of the final artifacts on 2026-10-27.
+
+  None of these is an adversarial or independent security test.
+
+**The policy check** (the owner's condition for the waiver):
+
+- **The repository:** there is no security policy, code-owners, contributing or governance file, and no shipped document or licence clause requires an independent review.
+- **The organization:** the organization's policy available to this session requires:
+  - human review of AI-generated code before it is merged;
+  - human review of external-facing content before publication;
+  - that code review, security scanning and change management are not circumvented.
+
+  It names no independent-security-review requirement for a release. Whether the organization's change-management or security processes govern this project's publication could not be determined here.
+- **Contracts and law:** they could not be checked here.
+- **The result:** no conflict was found, but whether any requirement applies is **UNKNOWN**. The owner confirms it before the release session (the runbook's new gate 7). If such a requirement exists, the release stops.
+
+**The coordinated disclosure decision** (DISC-1 and REL-3; the owner's, 2026-10-27):
+
+- **The history is kept.** The security commits are not rewritten. Pushing `main` reveals the code and `7844c8b`'s descriptive message.
+- **One release session:** public `main`, its CI, PyPI, the Marketplace and the notice. The interval between the push and the availability of both patched packages is kept as short as practical.
+- **The detailed security notice comes only after both packages are available.**
+- **Not recorded, and not invented:** a disclosure date, a CVE, a severity or any external approval.
+
+**The notices, reviewed** (in the private release folder `bugpilot-016-final`):
+
+- **The release notes:** accurate for the release content, and they claim no independent review.
+  - What `main` gained after 0.1.5 ships too: two storage modules that nothing imports, and a `safe_paths.py` refactor whose messages are unchanged with its defaults.
+  - So "nothing else changes" holds.
+- **The security notice draft: corrected.** Its header, severity line, limitations note, credits and timeline assumed an independent review. They now state that none took place and none may be claimed.
+  - The timeline names only what was done: automated tests on three systems, and functional testing on Windows.
+  - **The owner's placeholders stay:** the severity, a CVE (optional), the earliest affected version, the credits and the dates.
+  - **Still needed:** the owner's approval of both texts, with legal review where the owner's policy requires.
+
+**The release preflight** (2026-10-27, read-only): every check passes.
+
+| Check | Result |
+|---|---|
+| The release commit | `7feeaf7`, tree `b651cbc`. The clone is clean, `7844c8b` is unchanged, and there are no local tags |
+| Public `main` | `ea9659c`, with `7feeaf7` three commits ahead (a fast-forward); no tags; no GitHub Releases |
+| The release diff | 23 files: the security part byte-identical to `7844c8b`'s, and the six release files. The only added files are `workItemFiles.ts` and its test |
+| The versions and licences | 0.1.6 in both manifests; both licences name 0.1.6; Change Date 2030-10-11 |
+| Dependencies and files | `pyproject.toml`, `.github/` (`main`'s CI workflow included), `scripts/` and the storage modules equal `main`'s. The lock file differs only in its two version lines |
+| Unified Storage | inactive: nothing imports `storage` or `private_folder` |
+| The checksums | the release folder, 4 of 4 (the VSIX `38131c90…`); the M3 package, 4 of 4, unchanged |
+| PyPI and the Marketplace | both at 0.1.5. 0.1.6 is not taken on either |
+| The `pypi` environment | a required reviewer and a branch policy; administrators cannot bypass |
+| Integrity | 11 of 11 owner-protected files, the 17 goldens and the 8 frozen records unchanged; the baseline scripts equal `HEAD` |
+
+**Release readiness:**
+
+- **Technically:** ready. Every check passes, and the final artifacts are built and clean-installed.
+- **Before the session, the owner:**
+  - confirms gate 7, that no outside requirement mandates an independent review;
+  - approves the notices (gate 5), saving the advisory as a private draft.
+- **The session:** the runbook's new Section 7, in the owner's twelve steps:
+  1. preflight;
+  2. fast-forward `main` to `7feeaf7`;
+  3. CI 9/9 at that SHA;
+  4. the Release workflow with `0.1.6` and the SHA;
+  5. approve `pypi` after the artifact review;
+  6. PyPI serves 0.1.6;
+  7. a clean install from PyPI;
+  8. the runtime from PyPI with the final VSIX;
+  9. the Marketplace;
+  10. a Marketplace install;
+  11. the notice;
+  12. the post-release smoke.
+
+  At any failed check, stop and report; nothing is forced.
+- **This plan commit is not pushed** as part of the security release.
+
+**The states** (kept apart):
+
+- **M3:** WAIVED BY OWNER FOR 0.1.6 — NOT VERIFIED.
+- **Independent security approval:** none, and none may be claimed.
+- **The owner's risk acceptance:** RL-1 to RL-4, for 0.1.6.
+- **The release:** authorized by the owner to proceed, subject to gates 5 and 7; not started.
+- **Published:** no.
+
+**Unified Storage:** stays inactive and deferred to 0.1.7.
+
+**Still open:**
+
+- gates 5 and 7, the owner's;
+- O-1, which closes after the release, with M3 recorded as waived and not verified;
+- OBS-1, OBS-2 and DOC-1, as follow-ups;
+- F1's proof and R3, with Unified Storage;
+- F2 to F8, A2, defect 5.6, the macOS follow-up and the `duplicate` boundary;
+- US-D29, the eight activation blockers and the O-1 gate.
+
+#### 0.1.7 — Simplified Unified Storage: the file location change (2026-10-27 to 2026-10-28)
+
+**Status: IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS ON `verify/0.1.7-storage`; THE IMPLEMENTATION IS NOT COMMITTED (IT AWAITS THE OWNER'S REVIEW); NOTHING PUSHED; CROSS-PLATFORM CI NOT RUN; THE 142 BASELINE DIFFERENCES U7-1 TO U7-142 AND THE RETARGETED PAIRS DD-5 → U7-10 AND DD-9 → U7-12 AWAIT THE OWNER'S APPROVAL; THE VERSION IN THE TREE IS STILL 0.1.6; NOT RELEASED. Released 0.1.6 (`7feeaf7`) is untouched.**
+
+**The owner's direction** (2026-10-27): simplify the Unified Storage plan. It is a **file location change**, not an architecture redesign: move BugPilot-managed files out of user Git repositories into the existing data folder, keep file formats, business logic, security protections and public interfaces, reuse the completed and verified storage work, and finish in one coherent pass, targeting 0.1.7. No new storage framework, database, file format, index, cache or migration engine; no legacy data is read, migrated or deleted.
+
+**The branch.** `verify/0.1.7-storage`, from `verify/0.1.6-storage` (`38fb165`), with the released 0.1.6 merged in as `8d69f6f`: the version, licence and changelog changes of `bed66e0` and `7feeaf7`. The O-1 security changes were already on the branch in the same form, so the merge changed nothing else. `main` and the 0.1.6 release are untouched.
+
+**The simplified scope.** What was left of Batches 2B-3b to 5, done directly:
+
+1. **Work items** — `<repo>/.ai/<id>/` → `<data folder>/repositories/<repository id>/work/<id>/`.
+2. **Bug memory** — `<repo>/.ai_memory/bugs/<id>.md` → `.../memory/<id>.md`.
+3. **The Verification Policy and AI Behavior files** (2B-3b's B1-M) — `<repo>/.bugpilot/{verification,ai_behavior}.md` → `.../settings/`, joining the settings 2B-3a moved.
+4. **The consumers** — the CLI, the MCP server, the agent-facing text and the VS Code extension.
+5. **Tests, goldens, baselines, the inventory and the documents** affected by the paths.
+
+**Existing work reused, unchanged:**
+
+| Work | Commits | What it gives 0.1.7 |
+|---|---|---|
+| Storage foundation, 2A, 2B-1 and its follow-up | `5222da7`, `e78a678`, `7b8914d`, `40865cf`, `147e1bd` | the data root, repository identity and record, the namespace accessors `work_item_dir`, `memory_file`, `work_items`, the checked deletion `remove_work_item`/`remove_memory_file`, `check()` |
+| 2B-2: global configuration | `7a1c891`, `0b7dd6c` | `config/` for credentials, User Instructions and user Fix Modes; the MCP per-call request scope |
+| 2B-3a: repository settings | `743f542` | `repository_settings`, the single way to the namespace's `settings/` |
+| Option C held reads, M3-R2A/B/C | `e789ce2`, `14528ff`, `aadeefa`, `3863488`, `9e5483c` | link-safe reads of settings; Windows held-folder validation; Fix Mode fail-closed selection; identity revalidation |
+| O-1 safe reads | `f977127`, `836f204` | `read_generated_file` and its siblings, and the extension's `workItemFiles.ts`: every work item and memory read stays link-safe, now with the repository's folder in the data folder as its base |
+
+**Removed, or not built, as unnecessary for a location change** (each earlier decision stays recorded as it was; this is how 0.1.7 applies it):
+
+- **The remaining batch split** (2B-3b B1-M and B2, 2B-4 to 2B-6, Batches 3 to 5): one pass instead.
+- **US-D17's extension machinery** (§8.9.1, points 4 and 6): no cache-freshness layer. The extension takes `storage.repository_dir` from each environment check's `doctor --json` and composes `work/<id>` and `settings/<name>` below it, with the existing link checks. A mismatch is simply re-read at the next check.
+- **US-D18** (the CLI writing `user_feedback.md`): not built. The extension still writes it, with its existing link checks, but never creates a work folder; a missing one is refused.
+- **US-D14's legacy-folder note in `task.md`**: not added. Protected Rules v2 are unchanged.
+- **US-D30's per-golden allowance record**: not needed. A = 0: the normalized median fits the original ceiling (below).
+- **The frozen §8.10 contract fixture**: not extended; the JSON fields are documented here.
+- **The dormant `.gitignore` notice in the extension**: left in place; it cannot appear, because `doctor` no longer reports `ai_artifacts_ignored*`. Its removal is a follow-up.
+- **US-D20's legacy-folder diagnostics and US-D38's cleanup tooling**: stay deferred.
+
+**Before and after:**
+
+| What | 0.1.6 | 0.1.7 |
+|---|---|---|
+| A work item's files | `<repo>/.ai/<id>/` | `~/.bugpilot/repositories/<repository id>/work/<id>/` |
+| Bug memory | `<repo>/.ai_memory/bugs/<id>.md` | `.../memory/<id>.md` |
+| Verification Policy, AI Behavior | `<repo>/.bugpilot/` | `.../settings/` |
+| Project Instructions, project settings, Repository Profile, project Fix Modes | `<repo>/.bugpilot/` (released 0.1.6) | `.../settings/` (2B-3a, reused) |
+| Credentials, User Instructions, user Fix Modes | `~/.bugpilot/` (released 0.1.6) | `~/.bugpilot/config/` (2B-2, reused) |
+
+`BUGPILOT_HOME` moves the data folder; it must be absolute and outside every repository and Git working tree.
+
+**The implementation changes:**
+
+- **Python, the chokepoints** (`config.py`): `data_dir`, and `issue_dir`, `memory_dir`, `writable_issue_dir` and `writable_memory_file` delegating to storage; `shown`, `shown_work` and `shown_memory` for messages; `prompt_path` for agent instructions (forward slashes; a backtick, a control character or a line or paragraph separator is refused, never altered, §9.8.1).
+- **Python, the readers**: every safe read (`issue`, `run`, `retrieval`, `fix_report`, `memory`, `attachments`, `workflow`, `mcp_server`, `cli list`, `task_preview`, `context_preview`) has the repository's folder in the data folder as its base. The base comes from `config.readable_data_dir`, which storage checks first, through `check()`, as every read of a namespace is checked (§8.3): the data folder and the repository kept apart, no Git working tree, no link from the data root down, and an identity record that is this repository's. The safe readers then check every component below it.
+- **Python, deletion**: `clean` and `bug --fresh` use storage's checked deletion. Both targets are checked before either is deleted: first by `safe_paths.owned_path`, as in 0.1.6, so a refusal keeps its words ("Refusing to delete work/<id>: work is a symbolic link or junction. … Nothing was deleted."); `owned_path` takes the `boundary` parameter `writable_dir` has had since 0.1.6, with the defaults unchanged. Then storage's own checks.
+- **Python, a run's first check** (O-1): `writable_issue_dir(create=False)` refuses a link at `work` or `work/<id>` in the write refusal's words, as O-1 decided ("BugPilot cannot write work/<id>: … Nothing was written."), then storage checks the rest. Without this, storage's read wording would have arrived first.
+- **Python, the settings files**: `verification.py` and `ai_behavior.py` go through `repository_settings`, as 2B-3a's files do, and the unused `PROJECT_CONFIG_DIR` is gone.
+- **Python, storage failures** (C-1, F2-S): `config`'s work-item and memory chokepoints, the readers' base and `clean` carry a data folder that cannot be examined right now as `StorageAccessError`, in storage's own sentence, through 2B-3a's `repository_settings.guarded`. So it is `INTERNAL_ERROR`, never `INVALID_INPUT`, as for the settings since 2B-3a.
+- **Python, `check-results`:** `workflow.check_results_step` returns the missing files' names. `check-results --json` gives each one's absolute, native path in `missing`, as MCP's `check_results` does; its text and warnings use the display form, and the log `work/<id>/…`.
+- **Python, the help texts:** `verification` and `ai-behavior` keep their 0.1.6 sentences, with `.bugpilot/` replaced by `settings/`. *(Superseded in the review of 2026-10-28, below: the approved W-3 texts apply.)*
+- **Python, symbols left without a caller, removed:** `agent_runner.HANDOFF_PROMPT` (the first launch's sentence is `handoff.work_item_handoff`) and `instructions.read_text_document` (the settings documents are read through storage; its rules now document `_document_of`).
+- **Python, `doctor`**: a `storage` object (`data_root`, `data_root_display`, `data_root_source`, `repository_id`, `repository_dir`, `config_dir`, `state`, `problem`) and the capability `unified-storage`. `ai_artifacts_ignored*` and their git probe are removed.
+- **What an agent is told** (US-D10 and US-D13, the hybrid contract):
+  - `task.md` states its work folder once, in Execution Location, and its report's destination absolutely; every other file by its plain name.
+  - The retry prompt states the folder in Required Reading, the report absolutely, and its handoff `Read <folder>/agent_retry_prompt.md and continue the workflow.`
+  - The handoff is `Read <folder>/task.md and complete the workflow.`
+  - The review prompt and MCP's `next_step` name files absolutely; the skill says to read the files in the folder the command prints.
+- **The path forms** (US-D22, as applied here):
+  - absolute, native paths in the JSON fields whose job is a path (`issue_dir`, `agent_task`, `fix_report`, a report's path, `feedback_file`, `retry_prompt`, MCP's `missing`);
+  - `~/.bugpilot/…` (or `BUGPILOT_HOME/…`) in messages;
+  - repository-folder-relative (`work/<id>/…`, `memory/<id>.md`, `settings/<name>`) in persisted records, logs and parse errors: `run.json`'s `generated_files`, memory entries, `search_memory`'s `file`.
+- **The extension:**
+  - `dataFolder.ts` reads `storage.repository_dir` from `doctor --json` and composes the two allowed paths.
+  - A CLI without `unified-storage` is incompatible; a refused data folder blocks the panel with the CLI's sentence.
+  - The controller, Reset Session, History, the readers, the settings rows and the policy watcher use the repository's folder in the data folder.
+  - The two handoff sentences name their files absolutely, matching `prompt_path`.
+  - A `doctor` INVALID_INPUT is shown in the CLI's words.
+  - The UI texts name the new places.
+- **The rest:** `scripts/send-via-outlook.ps1` asks `doctor` for the folder and validates the id (SF-10); README, the extension README, `docs/safety.md`, `docs/notifications.md`, the Verification Policy paragraph of `docs/architecture.md` and the changelog (0.1.7, unreleased) document the change and the upgrade (nothing is migrated).
+
+**Tests** (changes follow the designed path change only; no security assertion was weakened):
+
+- **Mechanical:** expected paths built through the helpers (`issue_dir`, `memory_dir`, `data_dir`); `generate_task` called with its now-required `work_folder`; settings files written where BugPilot reads them; `.bugpilot/<name>` texts as `settings/<name>`.
+- **Restored meaning:** the protected-rules test's helper now writes repository settings where they are read, so its hostile-settings cases test the task again; since 2B-3a they had been writing ignored files.
+- **Updated to the contract, not loosened:** "no absolute path reaches the task" now requires the work folder in Execution Location and the report target, and still refuses every other absolute path.
+- **Replaced:** the four `.gitignore`-probe tests, for the removed probe, by a `doctor` storage test.
+- **Linked settings, as 2B-3a's:** a link at the namespace's `settings/` folder, or at `verification.md` or `ai_behavior.md`, is refused by storage on a read and a write alike, and the command fails (G-6). This is what a linked project instructions file has done since 2B-3a. In 0.1.6 a linked `<repo>/.bugpilot` was reported as the file's problem, and AI Behavior fell back to the defaults. The four tests say so, and check that the file outside is byte-identical.
+- **Superseded evidence, retargeted** (E-3): the approved pairs DD-5 → DD-13 and DD-9 → DD-15 now name **U7-10** and **U7-12**: the same record and pointer, a `from` equal to the earlier `to`, and evidence of their own. *(Corrected in the review of 2026-10-28, below: U7-10's value is DD-13's intended `[]`, but U7-12's `[]` is a superset of DD-15's intended 20 lines. It also removes the `.ai/` lines, because 0.1.7 moves the work items too.)* 2B-3b was folded into 0.1.7, and its record never existed. Both pairs are **pending**: the approval gate reports `DD-5 -> U7-10` and `DD-9 -> U7-12` with the 142 unapproved entries, and `supersession` reports no problem. As the pending stage allows, `test_dd5_…` and `test_dd9_…` are retired; their historical evidence stays in the approved 2B-3a record, `743f542`, CI run `39675645316`. **The owner confirms this retargeting with the U7 approval.**
+- **Bulk-conversion mistakes, reverted:** `test_storage_safety.py` is identical to 0.1.6 again, since its message tests exercise `safe_paths` with a repository base. `test_review_changes.py`'s legacy-exclusion test again plants `.ai/` and `.ai_memory/` in the repository. `test_retrieval_regression.py` was restored earlier.
+- **Fixtures:** where a test made a work folder by hand, it now makes the namespace as a first run does (`ensure()`), so `clean`'s record check and the readers' storage check see what a real run leaves.
+- **Two tests narrowed to their target:** the swapped-file test's `fstat` fake now changes only the report's answer, since the storage check before the read opens the identity record too. The MCP and CLI parity test replaces each side's own work folder before comparing; everything else must still match byte for byte.
+- **Refusal sentences:** the link-safety suites (`test_cleanup_safety.py`, `test_write_boundaries.py`, `test_batch4_file_safety.py`, `test_file_safety_baseline.py`) keep every assertion: the canary outside, nothing deleted or written, one sentence and no traceback. Only the folder names in the expected sentences changed, `.ai` and `.ai_memory` to `work` and `memory`. Their fixtures make the repository's namespace as a first run makes it. With no `bugs` level left, the case for a link one level below the memory folder puts the link at the memory entry.
+- **The storage API boundary:** `config.py`, `cleanup.py` and `doctor.py` join the approved importers, each with its reason.
+- **Smaller updates:** `run.json`'s records say `work/<id>/…`; JSON path fields are absolute; `context.md` names `retrieval.json` "beside this file"; the read-count test counts the Verification Policy's storage read; the capabilities end with `unified-storage`; row 11 pins exactly what a run makes in the namespace (`memory`, the record, `work`), and that the reads add nothing.
+- **New** (`tests/test_work_item_storage.py`, 8 tests):
+  - no command writes into the repository;
+  - where the files are;
+  - two repositories with one id;
+  - a legacy `.ai/`, `.ai_memory/` or `.bugpilot/` never read, written or deleted;
+  - the absolute handoff;
+  - `prompt_path`'s refusal;
+  - a data folder inside the repository, or a relative one, refused before anything is written.
+- **The size gate** (US-D30, §9.8.2) measures the normalized task: the golden's work folder replaced by `<WORK>`. The ceiling is unchanged at 3,096; the normalized median is 3,088 (raw 3,127). Per golden, the normalized growth is +0 to +18 tokens.
+- **The goldens:** 17 task goldens regenerated; the diff is the path text alone. Their work folder is `/home/user/.bugpilot/repositories/repo-0123456789abcdef/work/<id>`, a generic home folder the publishability scan allows.
+- **The storage baselines:** the frozen records are untouched; `tests/baselines/0.1.7/designed_differences.json` lists U7-1 to U7-142 (from `8d69f6f`), each with its evidence test, `approved` empty. The collector reads the new places and records absolute paths with `/`. Regenerated after the last changes, the same 142 pointers remain; 36 values changed (U7-53 now absolute; the task sizes, from the golden folder's shorter home).
+- **The inventory record**, regenerated. `.ai` references 245 → 22, `.ai_memory` 39 → 15, a repository `.bugpilot` 103 → 8, agent instructions naming `.ai/` 17 → 1 (a docstring). What remains: the protected staging rule, the legacy-folder exclusions of code search and the review diff, docstrings, and the dormant `.gitignore` notice. The increases are the path helpers' calls, which now resolve into the data folder, and `~/.bugpilot` in two docstrings. Path helpers: 109 occurrences in 26 files.
+
+**Verification** (2026-10-28, Windows 11, isolated homes, Jira variables unset; the final runs after the last change):
+
+| Check | Result |
+|---|---|
+| Python, the whole suite (`tests/`), isolated | 4,110 passed, 91 skipped (POSIX-only and macOS-only cases, and the subst drive deferred since 0.1.6), 1 failed: the owner-approval gate, by design. An earlier full run lost one Git History corpus case while the integration suite ran beside it; it passed on its own and in this run |
+| The new tests (`tests/test_work_item_storage.py`) | 8 passed |
+| The link-safety suites (`test_cleanup_safety.py`, `test_write_boundaries.py`, `test_batch4_file_safety.py`, `test_storage_safety.py`, `test_file_safety_baseline.py`) | all pass; on this machine both the symbolic-link and the junction cases run |
+| The storage baselines | every check passes except the owner-approval gate, which reports U7-1 to U7-142 and the pending pairs `DD-5 -> U7-10` and `DD-9 -> U7-12` (by design); `supersession` reports no problem |
+| The task size gate (US-D30) | the normalized median is 3,088, within the 3,096 ceiling; raw median 3,125 |
+| The extension's unit tests | 2,366 passed, 1 skipped; the typecheck is clean |
+| The extension's CLI integration tests (the real CLI, an isolated home) | 21 of 21. One run beside the full Python suite lost one test to a 120-second `doctor` timeout; the run on its own passed all 21 |
+| MCP over stdio (the official SDK client; the working tree as the server) | 18 of 18 |
+| VS Code Extension Host (a standalone build, a disposable profile, the development VSIX and wheel built from the working tree) | the managed runtime's first start, installed offline from the wheel: 11 of 11; the main workflow: 26 of 26; the clipboard: the copied handoff equals the CLI's sentence; a restart: 3 of 4 (see blocker 6) |
+| A fresh install | in a fresh profile the managed runtime installs, `doctor` reports the namespace `uninitialized`, and the repository holds no BugPilot folder |
+| Lint (pyflakes) | no new warning; the 13 reported are all present at `8d69f6f` |
+| Cross-platform CI | not run: it needs the owner's push and dispatch |
+
+**Remaining release blockers:**
+
+1. **The owner's review of the uncommitted implementation**, then its commit (organizational policy: no autonomous code commit).
+2. **The owner's approval of U7-1 to U7-142, and of the two retargeted pairs DD-5 → U7-10 and DD-9 → U7-12.** `test_every_designed_difference_is_approved_by_the_owner` fails, by design, until then, and names both pairs.
+3. **Cross-platform CI** (Linux, macOS, Windows; Python 3.10 and 3.13): needs a push and a dispatch, both the owner's.
+4. **The 0.1.7 version bump** in both manifests and both licences' Licensed Work line: a licence parameter, the owner's to approve.
+5. **What stays unverified** without real agent runs (§9.8.1): whether each agent reads and writes the absolute work folder, how agents handle forward-slash Windows paths, spaces and non-ASCII characters, and their permission prompts outside the repository. The extension's prompt gate refuses a path with characters outside its class (non-ASCII, `~`, brackets) for a terminal handoff; Copy Handoff Prompt still works.
+6. **The VS Code check this harness cannot run:** restoring the shown work item after a restart. The test host persists no workspace state (its workspace storage holds no `state.vscdb` after a run), so this is left for a manual check in a real window. The clipboard check, a limitation in the first run, passed in the final one.
+7. **One behaviour change to confirm:** a linked settings folder or file now fails the Verification Policy and AI Behavior commands, as 2B-3a's settings do, instead of being reported as the file's problem (AI Behavior used to fall back to the defaults).
+8. **Security review:** O-1 and the earlier hardening carry over; 0.1.6's M3 waiver was release-specific, so whether 0.1.7 needs an independent review is the owner's decision.
+9. **Follow-ups:** removing the dormant `.gitignore` notice; updating the rest of the developer documents (`docs/architecture.md` beyond its Verification Policy paragraph, `docs/adapter_design.md`); the pyflakes warnings that predate 0.1.7; OBS-1, OBS-2 and DOC-1.
+
+**The states:** implementation complete, uncommitted; locally verified on Windows; CI not run; baseline approvals pending; not released; 0.1.6 unchanged.
+
+#### Review of 0.1.7: final verification and approval package (2026-10-28)
+
+**Status: REVIEWED AND VERIFIED LOCALLY ON WINDOWS ON `verify/0.1.7-storage`; THE IMPLEMENTATION AND THE 0.1.7 VERSION BUMP ARE UNCOMMITTED, FOR THE OWNER'S REVIEW; NOTHING PUSHED; CROSS-PLATFORM CI NOT RUN; U7-1 TO U7-142 AND THE TWO RETARGETED PAIRS PENDING THE OWNER'S DECISION; NOT RELEASED. NOT READY TO CREATE THE 0.1.7 RELEASE CANDIDATE.** Released 0.1.6 (`7feeaf7`) and `main` are untouched.
+
+**The owner's direction** (2026-10-28): review the implementation, resolve the remaining verification gaps, and prepare one approval package. No redesign, no further batches; no commit, push, CI dispatch, release or acceptance of baseline changes.
+
+**Preflight.** Branch `verify/0.1.7-storage`, HEAD `8d69f6f` (the local merge of the released 0.1.6), nothing staged. The owner's files are untouched: `docs/bugpilot_prototype_development_plan.md` (modified by the owner), the untracked `.bugpilot/` and `.vscode/extensions.json`. One file of this work showed as modified with identical content, because of line endings only (`tests/test_storage_safety.py`, restored to 0.1.6 the day before). It was restored from `HEAD`.
+
+**The implementation review.** Two reviews were made: one independent read-only review of the production diff, and one against the approved 2B-3b contract (E-1 to E-10).
+
+- **Confirmed:**
+  - no production path reads, writes or deletes `.ai/`, `.ai_memory/` or `<repository>/.bugpilot/`. The exceptions are deliberate: the protected staging rule, the code-search and review-diff exclusions, the lint pattern, docstrings, and the extension's `.gitignore` notice, which can no longer trigger;
+  - CLI, MCP and the extension resolve one repository identity and data folder. The extension takes `storage.repository_dir` from `doctor`;
+  - file formats are unchanged.
+- **Found and fixed in this review:**
+  - **The approved 2B-3b texts had not been applied.** E-1 is applied: V, A and I reach 9 lines of 6 task goldens, exactly as part 2 predicted, and VF, AF, VN and AN reach no golden. Also applied: E-2's display form for every shown location, W-1 and W-2, W-3's help texts (checked word for word against part 3), E-9's display-form `path` for `verification`/`ai-behavior show --json` (U7-36 and U7-71), and E-5's `repository_settings.remove_file`, with its four contract tests.
+  - **Storage errors were re-labelled by the readers.** `load_issue`, `load_run` and `load_retrieval` resolved storage's checked base inside their own `try`, so an unreadable identity record became "run.json could not be read" (`ARTIFACT_NOT_FOUND`). MCP's `_read_artifact` reported it as a file that is not there. The base is now resolved first, so storage's errors keep their codes (C-1, F2, F2-S): `INVALID_INPUT` for a refusal, `INTERNAL_ERROR` for unavailability. New test: `test_c1_a_work_item_read_with_an_unreadable_record_is_internal_error_never_a_missing_file`.
+  - **The previews bypassed storage.** `task-preview` and `context-preview` read a work item's files after link checks only, and context-preview turned a namespace refusal into a problem line while it went on reading. Both now check storage first, and read with the O-1 reader. New test: `test_a_namespace_storage_refuses_is_not_previewed`.
+  - **Memory matches could not be opened by an agent.** context.md's Similar Fixes, and MCP's `search_memory` `file`, named `memory/<id>.md`, which resolves nowhere an agent works. The report now names BugPilot's folder absolutely, with each file name still kept to one line. MCP's `file` is the absolute native path.
+  - **The extension could hand over a relative path.** Without a known data folder (after a check that blocked), the path helpers joined onto `""`, so Copy Handoff Prompt copied `Read work/<id>/task.md …`, which an agent resolves inside the repository. The helpers now refuse with `DATA_FOLDER_UNKNOWN`, and Copy Handoff Prompt says why. New test in `controller.test.ts`.
+  - **The task's path check came late.** The check that the work folder can be named in an agent's instructions came after files were written, and after `--fresh` had deleted. It now comes first, so "Nothing was written." stays true.
+  - **The Outlook helper** now requires `storage.state == "usable"`, refuses a link or junction from `work` to the draft, and reads with `-LiteralPath`.
+  - **The prompt gate is unchanged.** Its refusal now names the work folder's path and the way out (`BUGPILOT_HOME`, or Copy Handoff Prompt).
+  - **Comments damaged by the mechanical replacement** (13 places), and two that still said BugPilot writes into the repository, are reworded.
+  - **The upgrade notes** now say to update the CLI and the extension together. The changelog states how an old CLI is reported.
+- **Not changed, recorded:** the dormant `.gitignore` notice; `read_review_report` and `read_verification_report`, which have no production callers; the memory entry's own text, which names `work/<id>/retrieval.json` relative to the data folder (a record); `doctor`'s absolute paths in local output.
+
+**The affected files** (177, besides the owner's): production Python 35, extension 28, script and skill 2, version and licence 5, Python tests 59, extension tests 14, goldens 24, records 2 (`designed_differences.json`, `storage_inventory.json`), documents 8. Of the 65 production files, 19 change only comments or docstrings: the moved locations named correctly, checked by comparing ASTs, and comments stripped for TypeScript. They are kept: removing them would leave comments naming `.ai/` as the active location. No unrelated functional change was found.
+
+**The approval review.** `docs/bugpilot_0.1.7_baseline_approval_review.md`, generated from the record, lists every entry with its old and new value, its reason and its evidence test:
+
+| Group | Count |
+|---|---|
+| A. Path relocation | 34 |
+| B. Absolute-path output (including the 71 task-size values) | 94 |
+| C. Message change (display form) | 9 |
+| D. Intentional compatibility or contract change | 5 |
+| E. Unexpected or unexplained | 0 |
+
+Sorted lists now begin with `memory/<id>.md`, which explains why every index of `generated_files` changes. Since the record was first written: 15 values updated (U7-36 and U7-71 to display form, 13 task sizes); no pointer added or removed; every `approved` field still empty.
+
+**DD-5 and DD-9:**
+
+| Pair | `from` = the earlier `to` | Value against 2B-3b's intent |
+|---|---|---|
+| DD-5 → U7-10 | yes (2 entries) | **identical**: `[]`, as DD-13 was to set |
+| DD-9 → U7-12 | yes (22 lines) | **not identical, a superset**: DD-15 was to leave 20 `.ai/` lines; U7-12 is `[]`, because 0.1.7 moves the work items too |
+
+Approving U7-12 approves that wider value as DD-9's successor. The earlier statement of exact equivalence is corrected above.
+
+*(Wording corrected on 2026-10-29, at the owner's direction; the values are unchanged. Neither pair is identical:*
+- *DD-5 → U7-10 is **equivalent to the value DD-13 intended**, `[]`, and U7-10 still needs its own approval;*
+- *DD-9 → U7-12 is **intentionally wider than DD-15**, because the work-item files have also moved outside the repository.*
+
+*See "0.1.7: final fixes and release-candidate readiness (2026-10-29)".)*
+
+**Validation:**
+
+| | Check | Result |
+|---|---|---|
+| A | Python, the whole suite, isolated | 4,116 passed, 91 skipped (POSIX- and macOS-only cases), 1 failed: the owner-approval gate, by design |
+| A | The extension's unit tests; typecheck | 2,367 passed, 1 skipped; clean |
+| B | The extension's CLI integration tests (the real CLI) | 21 of 21 |
+| B | MCP over stdio (the official SDK client) | 18 of 18 |
+| C | The extension's own `dataFolder.ts` against the real CLI | 7 of 7: the capability, the work folder, `task.md`, the handoff sentence, the settings path, the retry folder |
+| D | VS Code, the final VSIX and wheel: the managed runtime's first start, the main workflow, the clipboard | 11 of 11; 26 of 26; the copied handoff equals the CLI's sentence |
+| D | **A real restart.** A normal window, driven by a scratch extension, quit through VS Code's own command, then reopened, alternating two work items | **passed in both directions**, three times. The selected work item returns, from the data folder. A test-host window never writes its workspace state (no `state.vscdb` after 4 minutes), which is why the earlier runs could not check this |
+| E | **A real agent.** Claude Code on a disposable synthetic repository, with an isolated data folder and no credentials | read the absolute `task.md` without asking. **Under `--permission-mode acceptEdits`, the write of `fix_report.md` to the work folder was denied.** With `--add-dir <work folder>`, the workflow completed: a one-line fix, the report written, no commit, and nothing of BugPilot's in the repository; `check-results` found the report. The captured review (`dontAsk`, Read/Grep/Glob) read every file it was given, with no denial. Copilot: NOT TESTED |
+| F | Refusals through the real CLI: a junction at `settings/`, `work/` and `memory/`; a symbolic link at `work/<id>`; a foreign and a corrupt identity record; a data folder in the repository; a relative `BUGPILOT_HOME`; an unreadable record | 62 of 62: each fails closed in one sentence with the approved code, and every canary is byte-identical |
+| G | The two failures seen when suites ran at the same time | **No shared-state bug.** Git History's lost case is its designed degradation: a 20-second per-command cap. Forcing the cap down reproduces the exact `[]`, and nothing is cached. The integration stalls (three unrelated tests, 80 to 143 seconds) did not reproduce in three concurrent runs. An independent probe beside them measured `doctor` at 2.2 seconds at most, and the suites share no data folder, port or lock |
+| — | Scratch copies of the private test lists | none remain: 153,633 files checked by name and by content; both originals are git-ignored |
+
+**Version and licence, prepared, not committed:** `bugpilot/__init__.py`, `extension/package.json` and both version fields of `extension/package-lock.json` go from 0.1.6 to 0.1.7. In `LICENSE` and `extension/LICENSE.txt`, only the Licensed Work's version line changes, 0.1.6 to 0.1.7. The Licensor, the Additional Use Grant, the Change Date (2030-10-11) and the Change License are unchanged. The changelog keeps "0.1.7 — unreleased".
+
+**Security assessment** (no independent review has taken place):
+
+- **The trust boundary moved.** The repository is no longer read or written by BugPilot, which removes the cloned-repository vector. BugPilot's files are now in a same-user folder.
+- **Every component is checked:** links and junctions are refused from the data root down; a data folder in a Git working tree is refused; a foreign or corrupt record is refused and never repaired.
+- **A same-user race** between a check and its use remains §10.3's stated limit.
+- **Newly exposed operations:** the agent reads and writes outside the repository, in the work folder; the extension writes `user_feedback.md` there, and creates no folder; `clean` deletes there only through storage's checked deletion.
+- **Newly exposed data:** the absolute work folder, which includes the operating system's user name, now reaches the agent and its provider in every task and handoff. 0.1.6 sent `.ai/<id>/`.
+
+**Decisions for the owner:**
+
+1. Approve or reject U7-1 to U7-142 as a set (`docs/bugpilot_0.1.7_baseline_approval_review.md`), including U7-12 as a superset of DD-15.
+2. Approve the version and licence diff above, or set another Change Date.
+3. The agent's access to the work folder. Either launch Claude with `--add-dir <work folder>` (the extension and `--launch-agent`), or accept one approval prompt per run in an interactive terminal, documented. Non-interactive runs fail without it.
+4. The prompt gate: keep it strict (a non-plain home path needs `BUGPILOT_HOME`, or Copy Handoff Prompt) or relax it for the path part.
+5. The user name in agent prompts: accept and document it, or recommend a neutral `BUGPILOT_HOME`.
+6. Confirm that a linked settings folder or file now fails the Verification Policy and AI Behavior commands (2B-3a's rule).
+7. Version skew: a 0.1.6 extension with a 0.1.7 CLI finds nothing. It is documented, with no technical guard.
+8. E-7's real-window check of Edit, Reset, the watcher and the strings for the two policy files. The integration tests cover the ports through the real CLI. Manual steps: in a disposable `BUGPILOT_HOME`, Edit each policy, check the namespace file and that nothing appears in the repository, Reset it, check the file is gone, and change it on disk to confirm "Needs rebuild".
+9. Whether 0.1.7 needs an independent security review.
+10. The commit of this work, then a push and a CI dispatch.
+
+**Readiness:** NOT READY to create the 0.1.7 release candidate. Decisions 1, 2 and 10, and cross-platform CI, come first. Decision 3 is recommended before the candidate.
+
+#### 0.1.7: final fixes and release-candidate readiness (2026-10-29)
+
+**Status: FINAL FIXES IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS ON `verify/0.1.7-storage`; EVERYTHING SINCE `8d69f6f` UNCOMMITTED, FOR THE OWNER'S REVIEW; U7-1 TO U7-142 PENDING THE OWNER'S APPROVAL (NONE APPROVED); NOTHING PUSHED; CROSS-PLATFORM CI NOT RUN; NOT RELEASED. NOT READY TO CREATE THE 0.1.7 RELEASE CANDIDATE** until the owner approves the baseline set, the work is committed, and CI passes on Linux, macOS and Windows. Released 0.1.6 (`7feeaf7`) and `main` are untouched.
+
+**The owner's direction** (2026-10-29): finish the remaining 0.1.7 work in one pass, with no redesign and no new batches.
+- Claude Code gets the work item's folder with `--add-dir`, narrowly: the owner selected it, resolving decision 3 of the review above and US-D11 for 0.1.7.
+- A minimal check for a 0.1.6 extension with a 0.1.7 CLI (decision 7).
+- The approval package is verified, and DD-5 → U7-10 and DD-9 → U7-12 are stated as they are.
+- Version 0.1.7 is prepared with the licence terms preserved.
+- The final tests are run.
+
+No push, CI dispatch, merge to `main`, publication, unapproved baseline edit or autonomous commit.
+
+**Preflight.** Branch `verify/0.1.7-storage`, HEAD `8d69f6f`, nothing staged; 174 modified and 6 untracked entries, the owner's three among them (`docs/bugpilot_prototype_development_plan.md`, `.bugpilot/`, `.vscode/extensions.json`), untouched.
+
+##### The final fixes
+
+1. **Claude Code's access to the work folder** (`bugpilot/core/agent_runner.py`, `extension/src/app/agents.ts`, `controller.ts`).
+   - **What it adds:** when BugPilot starts Claude Code, it adds one word, `--add-dir=<the work item's folder>`, forward slashes, as the prompt names it. Never the data folder or `settings/`; nothing else is widened (no permission mode, tool or sandbox change).
+   - **Why one `=` word:** `--add-dir` takes several folders, so `--add-dir <folder> "<prompt>"` would read the prompt as a second folder.
+   - **The CLI's `--launch-agent claude`:**
+     - always adds it, after the developer's own `BUGPILOT_CLAUDE_ARGS` and before the prompt;
+     - skips it when those arguments already name the same folder (`--add-dir X`, `--add-dir=X`, other separators, other case on Windows);
+     - checks the folder through storage (`writable_issue_dir(create=False)`: the id, and no link or junction on the way) and requires it to be there;
+     - when the check refuses or the folder is missing, starts nothing and says why.
+   - **The extension's Fix with AI (and its resume line):**
+     - adds it to Claude CLI's command line, quoted, only when the installed `claude --help` lists `--add-dir` (the existing flag probe), so an older Claude starts as before;
+     - refuses a folder that is not absolute, or holds anything but letters, digits, spaces and `. , : # / _ -`.
+   - **What is unchanged:** Codex CLI, the extension bridges, a custom command, Review with AI (it writes nothing), the captured review and the hint improver.
+2. **A 0.1.6 extension with a 0.1.7 CLI** (`bugpilot/core/extension_compat.py`, `cli.py`, `errors.py`, `extension/src/runner.ts`, `errors.ts`).
+   - **The problem:** the released 0.1.6 extension cannot change, and tells the CLI nothing about itself.
+   - **The marker:** 0.1.7 and later extensions now set `BUGPILOT_CLIENT_STORAGE=unified` in every process they start.
+   - **The check:** a 0.1.7 CLI whose environment carries a VS Code extension host's `VSCODE_CRASH_REPORTER_PROCESS_TYPE=extensionHost` without that marker refuses `doctor --json` and `bug --json`/`--json-lines`, before anything is prepared, with a new error code, `EXTENSION_OUTDATED` (an appended code: a contract change), and one sentence: *"This bugpilot (0.1.7) keeps work items in BugPilot's data folder, and the BugPilot extension that started it is older than 0.1.7 and looks for them in the repository. Update the BugPilot extension and the bugpilot CLI together, to the same version."*
+   - **What 0.1.6 shows:** it does not know the code, so it shows that sentence as its environment check failing, with its own "updating it may help", and blocks the panel.
+   - **What is not affected:** text output, every other command, a terminal (VS Code does not pass the variable to one), scripts, CI and the MCP server.
+   - **It is a heuristic:** another program started from inside a VS Code extension — an AI agent running `bugpilot doctor --json` — is told the same unless it sets the marker (documented in the README).
+   - **No fallback:** the old `.ai/` is not read, written or migrated.
+   - **The other direction:** a 0.1.7 extension with an older CLI was already reported (the `unified-storage` capability, E-7).
+   - **Test isolation:** the test session removes both variables, so the suite gives one answer wherever it runs.
+3. **The policy watcher missed the first policy file** (`extension/src/host/ports.ts`), found in the real window.
+   - **The miss:** the settings folder is outside the workspace and is created with the first file written into it. A watcher on `settings/` itself never reported that file, so a first Verification Policy or AI Behavior file written by another tool (a terminal, `bugpilot verification set`) went unnoticed; later changes were seen. The panel's own Edit rereads by itself and was not affected.
+   - **The fix:** watch `settings/{names}` from the repository's folder in the data folder, which exists once anything was prepared or saved. Verified in the same window below.
+
+##### The baseline approval package
+
+`docs/bugpilot_0.1.7_baseline_approval_review.md` was checked against the record and against today's outputs, and regenerated:
+
+- **The record is unchanged** since 2026-10-28: 142 entries, U7-1 to U7-142 without gaps, every `approved` empty.
+- **The groups are confirmed by an independent classification** of each entry's own values: A 34 (path relocation), B 94 (absolute-path output), C 9 (display-form message), D 5 (contract), E 0 (unexplained).
+  - U7-29 and U7-34, the skill's own text, sit in B as part of the hybrid agent contract, though their text names no absolute path: they point the agent at the absolute folder the command prints. Their reason text is corrected.
+- **Every entry matches today's output.** `test_the_compared_baselines_match_todays_behaviour` applies every entry to the frozen 0.1.6 records and passes.
+- **Every evidence test exists and passes.** There are six distinct evidence tests.
+- **The approval gate fails as designed:** `test_every_designed_difference_is_approved_by_the_owner` names the 142 pending entries and the two pending pairs.
+- **The DD pairs:**
+  - **DD-5 → U7-10** is *equivalent to the value DD-13 intended*: `[]`. U7-10 still needs its own approval.
+  - **DD-9 → U7-12** is *intentionally wider than DD-15*: DD-15 was to leave the 20 `.ai/` lines in `git status`, and U7-12 is `[]`, because the work-item files have also moved outside the repository. Neither pair is called identical.
+- **No new baseline changes.** The final fixes change no frozen or designed record, and no golden: no entry is added, changed or removed.
+- **The owner's position.** The owner is prepared to accept the intended `git status` behaviour, subject to the verified diff. That is not an approval: the gate stays pending until the owner approves the verified set.
+
+##### Version and licence
+
+As prepared on 2026-10-28, re-checked, no further bump:
+- `bugpilot/__init__.py`, `extension/package.json` and both version fields of `extension/package-lock.json` are 0.1.7.
+- `LICENSE` and `extension/LICENSE.txt` change only the Licensed Work's version line.
+- The Licensor, the Additional Use Grant, the Change Date (2030-10-11), the Change License and every other term are unchanged.
+- The changelog keeps "0.1.7 — unreleased".
+
+##### Security
+
+- **Preserved:**
+  - O-1;
+  - strict refusal of a linked settings folder or file (2B-3a);
+  - every path check, the prompt gate and the captured review's restrictions.
+- **New, release-relevant findings** (separate from the accepted 0.1.6 risks):
+  - **N-1. The user name in agent prompts.** The absolute work-folder path, under the default data folder, contains the operating-system user name, which reaches the agent, its provider and its logs in every task and handoff. Documented (README, `docs/safety.md`, changelog); `BUGPILOT_HOME` avoids it. Nothing changes the storage root automatically.
+  - **N-2. The `--add-dir` grant.**
+    - It widens Claude Code's edit permission to the work item's folder, a same-user folder BugPilot writes.
+    - Claude Code also loads a `.claude/` configuration (skills, commands, agents) it finds in a granted folder. BugPilot never writes one, but a same-user process could plant one, as it could change any file there: §10.3's same-user limit.
+    - The grant is never the data folder, and storage's checks gate it.
+  - **N-3. The compatibility check is a heuristic.**
+    - It wrongly refuses another tool's `doctor --json` or `bug --json*` run from inside a VS Code extension without the marker.
+    - In an extension host without the variable (a remote, WSL or container host: not tested), it does not fire and the old behaviour remains.
+  - **N-4. No grant for some npm installs.** The extension's flag probe cannot inspect an npm `claude.cmd` shim without a shell, so on such a Windows install Fix with AI gives no `--add-dir`, as it gives no session flags. Claude then asks before writing outside the repository. Functional, not a widening.
+- **Previously accepted risks are unchanged:** 0.1.6's RL-1 to RL-4 and the M3 waiver.
+- **No independent security review has taken place.**
+
+##### Tests and evidence (Windows)
+
+| Check | Result |
+|---|---|
+| Python, the whole suite, isolated | 4,145 passed, 91 skipped, 1 failed: the approval gate, by design. An earlier full run of this pass failed four more, each resolved: `test_cli_json`'s code-page test (a relative `PYTHONPATH` in this environment, not the product); publishability (personal-looking home folders in the new extension tests, replaced by the synthetic `C:\path\to\...`); the storage inventory (the grant's one storage-checked lookup, recorded); and `test_storage_held_read.py`'s final-path test, a pre-existing flake: Windows reuses a closed handle's value, so a folder opened later inherited the file's injected failure; the test now forgets a handle when it is closed |
+| The extension's unit tests; typecheck | 2,374 passed, 1 skipped, 0 failed; typecheck clean |
+| The extension's CLI integration tests, against the real CLI, run with an extension host's variable present | 21 of 21: the extension's own declaration lets every call through |
+| MCP over stdio | the official SDK client against the working tree: 18 of 18; `test_mcp_stdio.py`: 5 of 5 |
+| The extension's path code against the real CLI | 7 of 7 |
+| The refusal matrix through the real CLI | 62 of 62 |
+| Extension × CLI, real processes | 5 of 5: 0.1.7 + 0.1.7 ready; 0.1.7 extension + released 0.1.6 CLI "Update bugpilot"; 0.1.6 extension + 0.1.7 CLI `EXTENSION_OUTDATED`; 0.1.6 + 0.1.6 unchanged; a terminal unchanged |
+| The extension's Claude command line in four real shells (PowerShell 7, Windows PowerShell 5.1, cmd, Git Bash), through an argument-echo `claude` | 36 of 36: `--add-dir=<folder>` one argument with spaces, `,` and `#`; the prompt its own |
+| **A real Claude Code workflow** (2.1.214, the npm `claude.cmd` through `cmd.exe`, a disposable synthetic repository on a feature branch, a data folder whose path has a space, no credentials) via `bugpilot bug --launch-agent claude`, with `-p` and a narrow pytest allow rule added for the unattended run | completed in 11 turns: a one-line fix, `fix_report.md` written in the work folder with **no write denial**, no commit, nothing of BugPilot's in the repository; `check-results`: nothing missing. One unrelated denial: a compound Bash command outside the run's allow rule, after which the agent ran pytest directly. It used the owner's Claude account and left an entry in its history |
+| Real VS Code, managed runtime first start (final wheel, offline) | 13 of 13, including: the extension host passes `VSCODE_CRASH_REPORTER_PROCESS_TYPE=extensionHost`, and a CLI it starts without the declaration is refused with `EXTENSION_OUTDATED` |
+| Real VS Code, the main workflow | 28 of 28 (twice, the second on the final VSIX) |
+| Real VS Code, the clipboard | Copy Handoff Prompt leaves the CLI's sentence |
+| Real VS Code, Fix with AI with a stand-in `claude` | the extension asked the stand-in's `--help`, found `--add-dir` and the session flags, and handed the work item to Claude CLI (its log); the terminal never started (see "Not tested") |
+| Real VS Code, the Verification Policy and AI Behavior (E-7), from a missing `settings/` | 19 of 19 on the final VSIX: Edit's and Reset's CLI commands write and remove the file in the data folder, it opens in an editor, the watcher sees the creation, an edit saved in the editor and the removal, and the panel rereads each (the lint count it logs goes 1, then 2). The previous build missed the creation: fix 3 |
+| Real VS Code, the released 0.1.6 VSIX (checksum verified) with the 0.1.7 CLI | 9 of 9: its Doctor shows "FAILED (EXTENSION_OUTDATED): This bugpilot (0.1.7) keeps work items in BugPilot's data folder … Update the BugPilot extension and the bugpilot CLI together, to the same version." and "Next: … updating it may help."; its run is refused before anything is prepared; no `.ai/` fallback |
+| Real VS Code, a real restart (a normal window, quit through VS Code's own command, reopened) | the selected work item returns, alternating two items: 12 of 12, then 8 of 8 on the final VSIX |
+| The approval package | the record unchanged; groups confirmed independently; every entry matches today's output; no new baseline change |
+| The plan's structural check; publishability | the plan checker: 0 problems; `test_publishable.py` passes |
+
+**Not tested here** (manual steps given):
+- **The extension's Claude CLI command line typed into a real terminal.** The disposable VS Code's terminal host does not start inside this environment's sandbox ("No ptyHost heartbeat"), and a launch outside it was refused.
+  - **Covered instead:** the exact command line (unit tests); its arguments through four real shells (36/36); and, in the real window, the extension's flag probe and handoff decision (its log: "claude: its --help lists --add-dir", "Handing … to Claude CLI in a terminal").
+  - **Manual steps:**
+    1. With a native `claude.exe` on PATH and a prepared work item, press Fix with AI.
+    2. In the terminal, check the line reads `claude --add-dir="<work folder>" --session-id <uuid> "Read <work folder>/task.md and complete the workflow."`.
+    3. Let Claude write `fix_report.md` without a prompt for the folder.
+- **Pressing the Edit and Reset buttons in the webview.** No extension API reaches them. Their CLI commands, the editor and the watcher are tested above.
+  - **Manual steps:**
+    1. Advanced Settings → Guidance & Verification → Verification Policy → Edit: the file opens from `~/.bugpilot/repositories/<id>/settings/`.
+    2. Save a change: the row shows the change, and "Needs rebuild" when it differs from the prepared one.
+    3. Reset → Delete File: the file is gone.
+    4. Repeat for AI Behavior.
+- **Copilot and Codex** (unchanged by these fixes), **a remote, WSL or container extension host**, and **Linux and macOS**: the CI below.
+
+##### Remaining cross-platform CI work
+
+- **What CI runs:** the existing workflow (9 required checks: Linux, macOS, Windows; Python 3.10 and 3.13; the extension) on a pushed commit of this work.
+- **New tests it has not yet run** on Linux or macOS:
+  - the launcher grant (`test_agent_runner.py`, POSIX symlink branch);
+  - `test_extension_compat.py`;
+  - the agent and runner tests.
+- **What the owner pushes and dispatches.** Neither is done here.
+
+##### Decisions for the owner
+
+1. Approve or reject U7-1 to U7-142 as a set (`docs/bugpilot_0.1.7_baseline_approval_review.md`), knowing U7-10 is equivalent to DD-13's intent and U7-12 intentionally wider than DD-15.
+2. Accept `EXTENSION_OUTDATED` and the heuristic of fix 2 (N-3), or ship 0.1.7 with the documented skew only.
+3. Accept N-1 to N-4, or ask for changes.
+4. Decide whether 0.1.7 needs an independent security review.
+5. Review and commit this work: the reviewed list of paths, never a broad staging command. Then push and dispatch CI.
+6. After CI, the release candidate.
+
+**Readiness:** NOT READY to create the 0.1.7 release candidate. Ready for the owner's review and commit once decision 1 is made; the candidate needs decisions 1, 2 and 5 and a green CI run.
+
+#### 0.1.7: owner approval and integration (2026-10-29)
+
+**Status: U7-1 TO U7-142 APPROVED BY THE OWNER AS A SET (2026-10-29); THE 0.1.7 WORK COMMITTED ON `verify/0.1.7-storage` FOR CROSS-PLATFORM CI; NOT RELEASED; NOT A RELEASE CANDIDATE.** Cross-platform CI and a final review come before any release-candidate decision. The commit's hash, the local results from its staged tree and the CI outcome are recorded after it, outside it. Released 0.1.6 (`7feeaf7`), `main`, tags, PyPI and the Marketplace are untouched.
+
+**The owner's decisions** (2026-10-29), answering the previous section's list:
+
+1. **U7-1 to U7-142 approved as a set**, on the verified package:
+   - DD-5 → U7-10, equivalent to DD-13's intent;
+   - DD-9 → U7-12, intentionally wider than DD-15.
+2. **`EXTENSION_OUTDATED` kept.** The fail-closed check for a 0.1.7 CLI started from a VS Code extension without `BUGPILOT_CLIENT_STORAGE=unified` stays, with its heuristic and its documented limit. It is not replaced by documentation alone.
+3. **N-1 to N-4 accepted for 0.1.7**, and they stay documented:
+   - the user name in agent prompts unless `BUGPILOT_HOME` is neutral;
+   - Claude Code loading a `.claude/` folder found in a granted folder;
+   - the heuristic compatibility check;
+   - no `--add-dir` for an npm `claude.cmd` on Windows.
+
+   No permission is broadened and no workaround is added to remove them.
+4. **No independent security review is required before this commit and CI phase.** None has taken place, and none is claimed. 0.1.7 is not called release-ready or a release candidate on the strength of this approval.
+
+**The approval, recorded:**
+- Each entry of `tests/baselines/0.1.7/designed_differences.json` carries `approved: 2026-10-29`. Only those 142 fields changed, as text: every value, pointer, decision and evidence is byte-for-byte as reviewed.
+- The earlier slices' records, the frozen 0.1.6 records and every golden are unchanged; there are still no unexplained entries.
+- `test_every_designed_difference_is_approved_by_the_owner` passes.
+- DD-5 → U7-10 and DD-9 → U7-12 are active, their old tests retired as before.
+- `docs/bugpilot_0.1.7_baseline_approval_review.md` is regenerated with the approved status.
+
+**The integration procedure:**
+1. Check the branch and HEAD, and that `main` and 0.1.6 are untouched.
+2. Inventory the change set against the reviewed path list. The owner's three paths stay out: `docs/bugpilot_prototype_development_plan.md`, `.bugpilot/` and `.vscode/extensions.json`.
+3. Stage by an explicit path list, never a broad staging command.
+4. Re-inspect the staged list and diff.
+5. Run the full local verification from the staged tree. The approval gate is no longer expected to fail.
+6. Make one commit with the owner's GitHub no-reply identity.
+7. Push the branch and let the repository's CI run on it.
+
+No tag, release, package upload or merge to `main`.
+
+#### 0.1.7: the commit, the push and cross-platform CI run 40936578232 (2026-10-29)
+
+**Status: COMMITTED AND PUSHED; CROSS-PLATFORM CI 8 OF 9 — THE MACOS FULL PYTHON SUITE FAILED ONE TEST, A NONDETERMINISTIC DEFECT OF THE BASELINE TEST'S NORMALIZER (NOT OF THE PRODUCT); ITS FIX IS LOCAL AND UNCOMMITTED; NOT READY FOR RELEASE-CANDIDATE REVIEW.** Not released; not a release candidate.
+
+**The commit.**
+- `59db0b4ec5ad31a14d7cc136e5ecb28f74aa1404` on `verify/0.1.7-storage`, parent `8d69f6f`, with the owner's GitHub no-reply identity.
+- 186 files (180 modified, 6 added), staged from the explicit reviewed list; the owner's three paths were excluded and untouched.
+- Its tree, `d69d96474f7060f7a1c39a43c2acd9bed2360fcd`, is the tree verified locally before the commit:
+
+| Check, on the staged tree (Windows) | Result |
+|---|---|
+| Python, the whole suite | 4,146 passed, 91 skipped, 0 failed (the approval gate passes) |
+| The extension's unit tests; typecheck | 2,374 passed, 1 skipped; clean |
+| CLI integration; MCP over stdio | 21 of 21; 5 of 5 and 18 of 18 |
+| The extension's paths against the CLI; the refusal matrix; extension × CLI | 7 of 7; 62 of 62; 5 of 5 |
+| The plan checker; publishability | 0 problems; passes (in the suite) |
+
+**The push.**
+- The owner chose the public origin, knowing it publishes for the first time 13 older local-only commits: the O-1 fix commits `f977127` and `836f204`, and the plan's O-1, private-mirror, M3-waiver and RL-1 to RL-4 records.
+- `refs/heads/verify/0.1.7-storage` on origin is `59db0b4`.
+- `main` is still `7feeaf7`. No tag, release, package upload or Marketplace change, and no merge.
+
+**The CI run.** `ci.yml` runs only on pushes or pull requests to `main`, or a manual dispatch. The owner dispatched run 40936578232 (`workflow_dispatch`, attempt 1) on `59db0b4`:
+
+| Job | Result |
+|---|---|
+| Full Python suite (ubuntu-latest) | success |
+| Full Python suite (windows-latest) | success |
+| **Full Python suite (macos-latest)** | **failure**: 1 failed, 4,090 passed, 95 skipped, 1 deselected |
+| Safety and baselines (ubuntu-latest, Python 3.10) | success |
+| Safety and baselines (ubuntu-latest, Python 3.13) | success |
+| Safety and baselines (macos-latest, Python 3.13) | success |
+| Safety and baselines (windows-latest, Python 3.13) | success |
+| Extension unit tests (ubuntu-latest) | success |
+| Extension evidence boundary (ubuntu-latest) | success |
+
+The results were read through the public API, without signing in: job conclusions and the jobs' own annotations. The job logs need a signed-in download, so the failing assertion is known only as far as its annotation shows it.
+
+**The macOS failure.**
+- **What failed:** `tests/test_storage_baseline.py::test_the_compared_baselines_match_todays_behaviour`, where a `handoff.json` value was not the approved `to`.
+- **The same test passed elsewhere on this commit and platform:** the "Safety and baselines (macos-latest)" job runs it and passed, so the cause is not deterministic.
+- **The diagnosis:**
+  - The records' normalizer replaced a temporary folder's four spellings (plain and canonical, native and POSIX) in the order of a Python `set`, and that order changes with the process's hash seed.
+  - On macOS the canonical spelling, `/private/var/folders/...`, contains the plain one, `/var/folders/...`. Storage prints the canonical one, because its data root is a realpath.
+  - So when the plain spelling was replaced first, a path came out as `/private<data>/...` instead of `<data>/...`.
+  - Ubuntu's `/tmp` and the Windows paths do not nest, which is why only macOS was affected. 0.1.6's records held no absolute data-folder path, which is why this is new in 0.1.7.
+- **Reproduced:**
+  - With macOS-style spellings, the old loop's result depends on the seed: 7 of 12 seeds fail.
+  - A regression test reproduces it on every platform with a canonical spelling that contains the plain one (Windows' `\\?\` form), and fails under 6 of 8 seeds with the old normalizer.
+  - The exact macOS values are not confirmed, since the log was not read.
+- **The fix, local and uncommitted:**
+  - `tests/storage_baseline.py` replaces the longest spelling first, so the order cannot matter.
+  - `tests/test_storage_baseline.py` gains `test_a_canonical_spelling_that_contains_the_plain_one_is_labelled_whole`.
+  - Results: 8 of 8 seeds pass; the whole module 55 of 55 under three seeds; publishability and the storage inventory pass.
+  - No approved record, golden or product file changes: the test is made deterministic, not weaker.
+
+*(Later on 2026-10-29: the owner's reading of the job log named the 10 mismatches. The investigation in the next section confirms this diagnosis, gives the actual values, reproduces the failure end to end, and refines the fix (ties in text order) and its test (16 folder names). Its results supersede the fix's results above.)*
+
+**Linux and macOS observations.** The new tests ran on Linux and macOS for the first time; only the normalizer failure above was reported:
+- the Claude launcher grant, including its POSIX symbolic-link refusal;
+- the `EXTENSION_OUTDATED` tests;
+- the storage, data-root and containment tests;
+- the extension's tests, on Ubuntu.
+
+The policy watcher has no CI test (it is VS Code API); it was checked in a real window on Windows only.
+
+**Next, for the owner:**
+1. Review and approve the two-file test fix as a follow-up commit on `verify/0.1.7-storage`.
+2. Push it and dispatch CI again.
+3. Optionally, read the failed job's log to confirm the diagnosis.
+
+**Readiness: NOT READY FOR RELEASE-CANDIDATE REVIEW** until a CI run of the branch is green on all 9 jobs.
+
+#### 0.1.7: the macOS baseline failure — root cause, fix and verification (2026-10-29)
+
+**Status: ROOT CAUSE FOUND AND REPRODUCED — A NONDETERMINISTIC DEFECT OF THE BASELINE TEST'S NORMALIZER, NOT A PRODUCT REGRESSION; THE FIX IS LOCAL AND UNCOMMITTED; NO APPROVED VALUE, GOLDEN OR RECORD CHANGED; NOT READY FOR RELEASE-CANDIDATE REVIEW** until the corrected commit passes cross-platform CI. Not released; not a release candidate.
+
+*(Later on 2026-10-29: the owner approved this fix as described, with the spellings replaced longest first, ties in alphabetical order, the normalization otherwise unchanged and the regression test kept. The owner also approved one follow-up commit on `verify/0.1.7-storage` of exactly `tests/storage_baseline.py`, `tests/test_storage_baseline.py` and this plan, pushed for a manually dispatched CI run. This record is part of that commit. Its CI run is pending; no CI result is claimed here; **NOT READY FOR RELEASE-CANDIDATE REVIEW**.)*
+
+**The failure.**
+- On `59db0b4`, CI run 40936578232's job "Full Python suite (macos-latest)" (123668595248) failed `tests/test_storage_baseline.py::test_the_compared_baselines_match_todays_behaviour`.
+- It reported exactly 10 mismatches, all in `handoff.json`: U7-19, U7-25, U7-26, U7-27, U7-28, U7-30, U7-31, U7-32, U7-33 and U7-35.
+- The IDs come from the owner's reading of the job log; the public annotation shows only ``assert ['handoff.jso...ot `to`', ...] == []``.
+
+**What the 10 have in common.** They are exactly the `handoff.json` entries whose approved `to` names the data folder (`<data>/repositories/<repository-id>/work/JR-12345/...`):
+- Of the 142 approved 0.1.7 entries, 19 name `<data>`: these 10, and 9 in `cli_paths.json` (U7-37, U7-44, U7-51, U7-52, U7-53, U7-58, U7-59, U7-60 and U7-70), none of which failed.
+- No frozen Batch 0A record and no earlier slice's `to` names `<data>`. `<input>` appears only in `pollution.json`'s commands, which `portable_path` writes from the plain spelling.
+- So 0.1.7, which names work folders absolutely, is the first to put a canonical temporary path into a compared record.
+
+**Root cause.**
+1. `generate()` creates its sessions under `tempfile.TemporaryDirectory()`, which is not resolved, so on macOS the folder is `/var/folders/...`. The test isolation does not move `TMPDIR`, and pytest's `tmp_path`, which the other tests use, is already resolved.
+2. BugPilot's data root is canonical (`storage.data_root()` is a realpath), so on macOS every path the product prints under it begins `/private/var/folders/...`.
+3. `Session.normalize` replaced each root's spellings, plain and canonical, by iterating a Python `set`. On macOS that set holds two strings, and the canonical one contains the plain one.
+4. A set's order follows its strings' hashes, which change with the process's hash seed and with the temporary folder's random name. When the plain spelling came first, `/private/var/folders/.../data/...` became `/private<data>/...`, and the canonical spelling was no longer there to replace.
+5. The order is decided once per session in a process, so a session's values are all right or all wrong:
+   - In the failed job, the `handoff.json` session got the bad order, which gives exactly the 10.
+   - The `cli_paths.json` session got the good one: its folder differs, and so do its hashes.
+   - The macOS "Safety and baselines" job runs the same test on the same commit and passed.
+6. On Linux (`/tmp`) and Windows, the temporary folder is already canonical, so the plain and canonical spellings are one string and nothing nests. Only macOS was exposed.
+
+**`/var` and `/private/var`.**
+- This is the cause: `tempfile` spells the temporary folder `/var/...` and storage's realpath spells it `/private/var/...`, and the replacement depended on order.
+- The product prints the canonical data folder, as the storage contract requires; no product path was wrong.
+
+**The actual and expected values.** In each of the 10, the actual value is the approved `to` with each `<data>` written `/private<data>`; nothing else differs. For example, U7-25 (`/python/handoff_prompt`):
+- approved: `Read <data>/repositories/<repository-id>/work/JR-12345/task.md and complete the workflow.`
+- macOS: `Read /private<data>/repositories/<repository-id>/work/JR-12345/task.md and complete the workflow.`
+
+| Entry | Pointer | Where `/private<data>` stands for `<data>` |
+|---|---|---|
+| U7-19 | `/cli_text/bug/7` | once (`task.md`) |
+| U7-25 | `/python/handoff_prompt` | once (`task.md`) |
+| U7-26 | `/python/mcp_next_step_fix` | twice (`task.md` and `context.md`) |
+| U7-27 | `/python/mcp_next_step_investigation` | twice (`task.md` and `context.md`) |
+| U7-28 | `/python/retry_handoff_prompt` | once (`agent_retry_prompt.md`) |
+| U7-30 | `/retry_prompt_lines` | in items 1, 7 and 8 of its 9 (counted from 0) |
+| U7-31 | `/review_prompt_lines/0` | once (`context.md`) |
+| U7-32 | `/review_prompt_lines/1` | once (`retrieval.json`) |
+| U7-33 | `/review_prompt_lines/2` | once (`fix_report.md`) |
+| U7-35 | `/task_md_lines` | in items 0 and 5 of its 8 (counted from 0) |
+
+These values are derived, not read from the log. They come from `59db0b4`'s real `Session.normalize`, given:
+- macOS's spellings: a synthetic `/var/folders/...` folder and its `/private` form;
+- the approved values as storage prints them.
+
+**Reproduced on Windows.** No macOS machine was available, and nothing was installed.
+- **macOS's spellings, through the real normalizer:** across 12 hash seeds, `59db0b4`'s normalizer got all 10 wrong under 8 seeds and all 10 right under 4. The fix got all 10 right under all 12.
+- **End to end, through the real generator, CLI, storage and `differences()`:**
+  - The Windows analogue of `/var` inside `/private/var` is the data folder's spelling without its drive letter, which its realpath contains.
+  - Only the `<data>` label's plain spelling was set to it. The data folder, the CLI and everything they printed were as usual.
+  - Under 8 seeds, `59db0b4`'s normalizer gave each of four outcomes twice: no problem; the 9 `cli_paths.json` entries; exactly CI's 10 `handoff.json` entries; all 19.
+  - `differences()` reported nothing else, and each wrong value kept the drive letter before `<data>`, the analogue of `/private<data>/...`.
+  - The fix: no problem under any of the 8 seeds, rerun on the final fix.
+- **Control:** the generator as committed, on Windows. `differences()` is empty with both normalizers, as it was on the Windows and Linux CI jobs.
+
+**The fix (local, uncommitted).** One line of `Session.normalize` in `tests/storage_baseline.py` changes. The spellings are replaced longest first, and spellings of equal length in text order:
+- A canonical spelling is labelled whole before any spelling it contains, and no order depends on the hash seed.
+- Spellings of equal length cannot contain one another, so the tie order does not change any result; it removes the last dependence on the set.
+- **Not changed:**
+  - product code and the storage and security contracts;
+  - the approved 0.1.7 record (U7-1 to U7-142 and their approvals) and the earlier slices' records;
+  - the frozen records and the goldens.
+- **Not taken:** resolving `generate()`'s temporary folder would hide the nesting on macOS, but leave the normalizer order-dependent for any other caller.
+- **The only other loop over a set of spellings in the tests**, `_no_absolute_path` in `tests/test_global_config_storage.py`, asserts that each spelling is absent, so its order cannot matter.
+
+**Regression coverage.** `tests/test_storage_baseline.py::test_a_canonical_spelling_that_contains_the_plain_one_is_labelled_whole`:
+- **What it does:** it passes a canonical spelling that contains the plain one through `Session.normalize`. On POSIX the canonical spelling is `/private` before the folder; on Windows it is the `\\?\` long form.
+- **Why 16 names:** it runs for 16 data-folder names, since the old order changed with the name as well.
+- **Against `59db0b4`'s normalizer:** it failed under 8 of 8 seeds, each time with the intended assertion (`\\?\<data>` where `<data>` was expected). Its first form, with one name, failed under 6 of 8.
+- **Against the fix:** it passed under 8 of 8.
+
+**Verification (Windows).**
+
+| Check | Result |
+|---|---|
+| `tests/test_storage_baseline.py`, hash seeds 0, 1 and 2 | 55 passed under each |
+| The regression test, seeds 0 to 7 | fails 8 of 8 against `59db0b4`'s normalizer; passes 8 of 8 against the fix |
+| End to end with the nested spelling, seeds 0 to 7 | `59db0b4`'s normalizer as above; the fix: 0 problems under each |
+| Python, the whole suite | 4,147 passed (`59db0b4`'s 4,146 and the new test), 91 skipped, 0 failed |
+| The extension's unit tests; typecheck | 2,374 passed, 1 skipped, 0 failed; clean |
+| The plan checker; publishability | 0 problems; passes |
+
+macOS itself was not run here: the corrected commit's CI run is the confirmation.
+
+**Next, for the owner:**
+1. Review the root cause and the fix.
+2. If approved: a follow-up commit on `verify/0.1.7-storage` of `tests/storage_baseline.py`, `tests/test_storage_baseline.py` and this plan, then a push and a CI dispatch.
+3. Judge readiness only on a run green on all 9 jobs.
+
+**Readiness: NOT READY FOR RELEASE-CANDIDATE REVIEW.**
+
+#### 0.1.7: the macOS fix's commit and cross-platform CI run 40969753479 (2026-10-29)
+
+**Status: CROSS-PLATFORM CI 9 OF 9 ON `d05c025`; READY FOR 0.1.7 RELEASE-CANDIDATE REVIEW.** Not released; not a release candidate; nothing merged, tagged or published.
+
+**The commit.**
+- `d05c0253943785b328fa12a280c34bef3b1554e5` on `verify/0.1.7-storage`, parent `59db0b4`, with the owner's GitHub no-reply identity, by the owner's approval.
+- It holds exactly three files, staged by explicit path: `tests/storage_baseline.py`, `tests/test_storage_baseline.py` and this plan. The owner's three unrelated paths were left out and untouched.
+- Its tree, `0b80a3d05b693756612d61d554c12249d6b513af`, is the tree verified locally before the commit:
+
+| Check, on the staged tree (Windows) | Result |
+|---|---|
+| The regression test against `59db0b4`'s normalizer | fails under 8 of 8 hash seeds, each time with the intended assertion |
+| The regression test against the fix | passes under 8 of 8 |
+| The baseline, publishability and storage inventory tests | 79 passed |
+| Python, the whole suite | 4,147 passed, 91 skipped, 0 failed |
+| The extension's unit tests; typecheck | 2,374 passed, 1 skipped, 0 failed; clean |
+| The plan checker | 0 problems |
+
+**The push.** A fast-forward of origin's `verify/0.1.7-storage` from `59db0b4` to `d05c025`. `main` is still `7feeaf7`; no tag, GitHub release, package upload or Marketplace change.
+
+**The CI run.** The owner dispatched run 40969753479 (`workflow_dispatch`, attempt 1) on `d05c025`. It read through the public API, as before:
+
+| Job | Result | On `59db0b4` (run 40936578232) |
+|---|---|---|
+| Full Python suite (ubuntu-latest) | success: 4,088 passed, 99 skipped | 4,087 passed, 99 skipped |
+| Full Python suite (windows-latest) | success: 4,144 passed, 93 skipped | 4,143 passed, 93 skipped |
+| **Full Python suite (macos-latest)** | **success: 4,092 passed, 95 skipped** | **1 failed**, 4,090 passed, 95 skipped |
+| Safety and baselines (ubuntu-latest, Python 3.10) | success: 2,066 passed, 92 skipped | 2,065 passed, 92 skipped |
+| Safety and baselines (ubuntu-latest, Python 3.13) | success: 2,066 passed, 92 skipped | 2,065 passed, 92 skipped |
+| Safety and baselines (macos-latest, Python 3.13) | success: 2,070 passed, 88 skipped | 2,069 passed, 88 skipped |
+| Safety and baselines (windows-latest, Python 3.13) | success: 2,114 passed, 93 skipped | 2,113 passed, 93 skipped |
+| Extension unit tests (ubuntu-latest) | success: 2,373 passed, 2 skipped | the same |
+| Extension evidence boundary (ubuntu-latest) | success: 27 passed | the same |
+
+Each Python job ran one deselected test, as before.
+
+**What the counts show.**
+- Every Python job gained exactly one passed test, the new regression test, and no skip.
+- On macOS, the baseline test that failed on `59db0b4` now passes: 1 failed and 4,090 passed became 4,092 passed.
+- The jobs' annotations are notices only: no failure and no warning.
+
+**Readiness: READY FOR 0.1.7 RELEASE-CANDIDATE REVIEW.**
+- This is a state for the owner's review, not a release candidate.
+- Nothing is merged into `main`, tagged or published.
+- The limitations and untested items recorded in "0.1.7: final fixes and release-candidate readiness (2026-10-29)" still stand.
+- No independent security review has taken place.
+
+#### 0.1.7: release-candidate review of `d05c025` (2026-10-29)
+
+**Status: RC BLOCKED — DOCUMENTATION DEFECTS IN THE SHIPPED READMES, AND THE OWNER'S ACCEPTANCE RUNS OUTSTANDING; NO CRITICAL, HIGH OR MEDIUM SECURITY OR CODE FINDING. PUBLIC DISTRIBUTION: UNRESOLVED (RELEASE GOVERNANCE IS THE OWNER'S).** Not released; not a release candidate.
+- Nothing was staged, committed, pushed, merged, tagged or published.
+- The full report is `docs/bugpilot_0.1.7_rc_review.md`. This is an internal review, not an independent audit.
+
+**What was verified:**
+- **The starting point:**
+  - HEAD `d05c025`, tree `0b80a3d`, and origin's branch the same; `main` still `7feeaf7`; no tags or GitHub releases.
+  - U7-1 to U7-142 unchanged and approved; the approval gate passes.
+- **CI:** run 40969753479, 9 of 9 on `d05c025`.
+- **Artifacts built from a clean export of `d05c025`:** the wheel `98c646cc…`, the sdist `bfa04e49…` and the VSIX `c64985af…`.
+  - Each identifies itself as 0.1.7.
+  - `twine check` and the package check pass.
+  - The publishability scan of every member finds nothing.
+- **Clean installs:**
+  - the CLI from the wheel: 38 of 38;
+  - `bugpilot[mcp]`: 11 of 11;
+  - the VSIX in a disposable VS Code;
+  - the managed runtime, offline from the candidate wheel: 13 of 13.
+- **Compatibility:**
+  - the extension × CLI matrix: 5 of 5;
+  - the released 0.1.6 VSIX with the candidate CLI in a real window: 9 of 9 with the CLI on `PATH`.
+  - `EXTENSION_OUTDATED` changes nothing in the data folder or the repository.
+- **Real Claude Code (2.1.139):** with BugPilot's one-word `--add-dir=<folder>` a write into the work folder is allowed; without it, it is denied.
+  - These were four print-mode runs on synthetic files using the owner's account. They are disclosed for §20, which asks for an owner approval per account-using run.
+- **Internal read-only reviews:** security, the storage contract and the documentation.
+
+**Findings** (evidence and remediation in the report):
+- **Documentation:**
+  - D-1 to D-6, Medium:
+    - the README says BugPilot "writes its files" in the repository;
+    - three documents expect `bugpilot 0.1.5`;
+    - `--add-dir` is overstated;
+    - no guidance for a moved repository or a home path outside the plain character class;
+    - `docs/architecture.md` is stale.
+  - D-7 to D-15, Low.
+- **Security:**
+  - S-1, Low: the Python launcher's T-S12 plain-prompt gate is not implemented; it matters on the deprecated `cmd /c` path.
+  - S-2, Low: the data root's privacy is checked for credentials only.
+  - S-3, Low: the managed runtime pins the version, not the hash.
+  - S-4 to S-7: Informational.
+- **Storage:** all twelve contract points match.
+  - ST-1, ST-2, ST-3 and ST-7: Low.
+  - ST-4 to ST-6 and R-1: Informational.
+- **Real window:** U-1, Low. A Verification Policy save during an in-flight policy reread is not reread, so the settings row stays stale until the next refresh. Tasks are unaffected.
+- **Re-checked:**
+  - N-1 to N-4 and US-D12's prompt-gate limitation hold as accepted.
+  - T-S16's conditional dot-entry check is not implemented, which N-2's acceptance covers.
+
+**Not tested here:**
+- Fix with AI in a real terminal: no terminal host can start in this sandbox.
+- The webview's buttons and forms.
+- Copy Handoff Prompt: the test window's clipboard was unavailable.
+- The managed runtime from PyPI, and `pipx`.
+- Copilot, Codex and custom agents end to end.
+- macOS and Linux desktops.
+- Remote, WSL and container hosts.
+- §20's real-use items, which stay open.
+
+**Next, for the owner:**
+1. Decide the fix scope:
+   - the documentation fixes, required;
+   - S-1, S-2, U-1, ST-1 and ST-2, recommended.
+2. Then:
+   - a new candidate commit;
+   - cross-platform CI;
+   - rebuilt artifacts;
+   - a short re-review.
+3. The owner's acceptance runs (the report's §12) and the governance decisions G-1 to G-6 (its §13).
+
+#### 0.1.7: RC remediation batch — D-1 to D-6, S-1, S-2, U-1, ST-1, ST-2 (2026-10-29)
+
+**Status: FIXED LOCALLY AND VERIFIED ON WINDOWS; UNCOMMITTED; CROSS-PLATFORM CI AND THE FOLLOW-UP REVIEW PENDING; RC BLOCKED; PUBLIC DISTRIBUTION UNRESOLVED.**
+- The owner approved this batch, and only this scope, on 2026-10-29.
+- The full record, per finding, is the review report's §15 (`docs/bugpilot_0.1.7_rc_review.md`).
+- Not released; not a release candidate. Nothing staged, committed, pushed, merged, tagged or published.
+
+**What changed:**
+- **S-1 (T-S12):**
+  - `--launch-agent` refuses, before any process starts, a batch-file launch through `cmd.exe` whose words hold anything outside the plain-prompt gate's set.
+  - Native executables keep their argument vector, as §9.9's table states for Python (`native: yes; shim: no`).
+  - Reading US-D12's parity clause as covering native launches too is an owner decision, not taken here.
+- **S-2:**
+  - **Storage:** `RepositoryStorage.check_private_for_agent` applies `private_folder`'s `data-root` rule to the data folder and every folder down to `work/<id>`; `unverifiable` fails closed. The CLI runs it before every Claude grant.
+  - **`doctor --json`:** its `storage` object gains `privacy` and `privacy_problem`, an additive contract change. 0.1.7's own field list (above) gains these two keys.
+  - **Extension:** it asks the CLI before every grant, including Open AI Session's restart of a session that carries the grant, and starts nothing on anything but `private`.
+- **U-1:** a policy reread requested while one is in flight runs once more after it, shared by every request meanwhile: at most two reads, no loop.
+- **ST-1:** a run's `attachments/` folder comes from storage's `attachments_dir(create=True)`.
+- **ST-2:** data-folder writers name BugPilot's data folder in their link refusals (`safe_paths.DATA_FOLDER_BOUNDARY`). The repository defaults are unchanged.
+- **D-1 to D-6:** the README, extension README, changelog, `docs/safety.md` and `docs/architecture.md`, as the report's §15 lists.
+
+**Verification (Windows):** full Python suite 4,201 passed, 91 skipped, 0 failed; the extension 2,384 passed, 1 skipped, typecheck clean; CLI integration 21 of 21; compatibility 5 of 5; CLI clean install 38 of 38; MCP 11 of 11; the refusal matrix 62 of 62; end to end through a real `cmd.exe` and a real access list 8 of 8; with each fix switched off, its new tests fail; the plan checker and publishability pass. No account-using AI session was run.
+
+**Baselines:** none changed: `tests/baselines/`, `tests/golden/` and the approval review are identical to `d05c025`, and every compared baseline matches. The storage inventory gains one path-helper reference (`attachments.py`, ST-1).
+
+**Next, for the owner:**
+1. Review the changes and approve a corrected candidate commit (scope in the report's §15).
+2. Push it, dispatch cross-platform CI, and hold the follow-up review.
+3. Make the open owner decisions: §12's acceptance runs, governance G-1 to G-6, and S-1's native-launch reading.
+
+**Readiness: RC BLOCKED** until a corrected candidate commit passes cross-platform CI and its follow-up review.
+
+#### 0.1.7: conditional commit approval — stopped on S-8 (2026-10-29)
+
+**Status: STOPPED BEFORE THE COMMIT; A NEW OWNER DECISION IS NEEDED ON S-8; RC BLOCKED; PUBLIC DISTRIBUTION UNRESOLVED.** Nothing staged, committed or pushed.
+- The owner conditionally approved the 28-file remediation commit.
+- The full record is the review report's §16.
+
+**The owner's decisions (2026-10-29):**
+- **US-D12, as read for Python (S-1):**
+  - The plain-prompt gate applies where a shell parses the command line: a Windows batch file that runs through `cmd.exe`.
+  - Native executables keep their argument vector without a character restriction, so valid Unicode paths still launch.
+  - This reading of §9.9.1, point 3 ("an equivalent validation policy before any subprocess runs") is the approved one. §9.9's table already recorded it: "native: yes; shim: no … the shim path keeps the gate (T-S12)".
+- **S-2:**
+  - **The gate:** fail-closed, kept.
+  - **The `doctor` fields:** `storage.privacy` and `storage.privacy_problem` are additive, part of 0.1.7's field list.
+  - **Accepted limitations:**
+    - the folders above the data folder are not checked;
+    - macOS extended ACLs are not read;
+    - a volume without access lists gets no grant;
+    - one `doctor --json` call before each grant;
+    - agents given no folder are not gated.
+
+**The conditions, as checked:**
+- **S-2: all met.** One of them, after a fix within S-2's scope: Open AI Session's asynchronous restart now ignores a second press while the CLI is asked, and starts nothing after the window closed, another work item opened, a new attempt started or the session was restarted. It is mutation-checked.
+- **S-1: not met.** S-8 below.
+
+**S-8 (new; High by impact, conditional, likelihood low; pre-existing).**
+- **What:** `find_executable` returns a `.bat`/`.cmd` for `git` or `rg` when one comes first on `PATH`, and Windows runs it through `cmd.exe`.
+- **What reaches it:** text from an issue — quoted-phrase search terms, `--grep` terms and file names — unvalidated.
+- **Status:** verified by code reading; not exercised.
+- **Recommended remediation:** never start `git` or `rg` as a batch file; on Windows, look only for native executables for them.
+
+**The remaining findings** (D-7 to D-15, S-3 to S-7, ST-3 to ST-7, R-1) are classified in the report's §16: Low or Informational, none blocking this RC. D-10 is resolved by D-3's documentation.
+
+**Next, for the owner:** decide S-8 (fix it in this commit, or accept and document it), then the commit and push as approved. Then a CI dispatch and the follow-up review.
+
+#### 0.1.7: S-8 fixed; the RC remediation commit (2026-10-29)
+
+**Status: S-8 FIXED; EVERY CONDITION MET; COMMITTED WITH THIS RECORD AND PUSHED TO `verify/0.1.7-storage`; CROSS-PLATFORM CI AND THE FOLLOW-UP REVIEW PENDING; RC BLOCKED; PUBLIC DISTRIBUTION UNRESOLVED.**
+- Not merged, tagged, published or released.
+- The full record is the review report's §17.
+
+**The owner's decision (2026-10-29):** fix S-8 in this commit.
+- **The fix:** `executables.find_program` starts `git` and `rg` only as native executables on Windows. A `.bat` or `.cmd` earlier on `PATH` is passed over; a batch-file-only tool is not found, and the warning says why.
+- **Scope:** every start of `git` or `rg`, and `doctor`'s and the steps' availability checks, use it. Agents keep the general lookup, gated by S-1.
+- **S-1's condition now holds:** the extension has no shell, and the launcher's shim path is gated.
+
+**The commit's 36 paths:**
+- the 28 reviewed;
+- `bugpilot/core/executables.py`, `git_ops.py`, `search.py`, `git_history.py` and `review_changes.py`;
+- `tests/test_executables.py`, `tests/test_git_history.py` and `tests/test_workflow.py`.
+
+**Verification (Windows):** full Python suite 4,210 passed, 91 skipped, 0 failed; the extension 2,386 passed, 1 skipped, typecheck clean; CLI integration 21 of 21; compatibility 5 of 5; CLI clean install 38 of 38; MCP 11 of 11; the refusal matrix 62 of 62; end to end 8 of 8; S-8's tests fail with its lookup switched off; the plan checker and publishability pass. No baseline, golden or approval record changed; no account-using AI session was run.
+
+**Next:** the owner dispatches cross-platform CI on `verify/0.1.7-storage`; then the follow-up review. **RC BLOCKED** until all nine jobs pass and that review is complete.
+
+#### 0.1.7: final RC follow-up review of `35040af` (2026-10-31)
+
+**Status: RC BLOCKED BY ONE NEW FINDING, F-1; A MINIMAL REMEDIATION AWAITS THE OWNER'S APPROVAL. CI RUN 41068475707 9 OF 9 ON `35040af`; THE REBUILT ARTIFACTS, CLEAN INSTALLS AND REAL-WINDOW CHECKS PASS; MANUAL ACCEPTANCE INCOMPLETE; PUBLIC DISTRIBUTION UNRESOLVED.**
+- Not merged, tagged, published or released. The review implemented, staged, committed and pushed nothing.
+- The full record is the review report's §18.
+
+**CI run 41068475707**, dispatched by the owner on `verify/0.1.7-storage` at `35040af`. All 9 jobs succeeded:
+
+| Suite | Windows | macOS | Ubuntu |
+|---|---|---|---|
+| Full Python (passed / skipped / deselected) | 4,207 / 93 / 1 | 4,155 / 95 / 1 | 4,151 / 99 / 1 |
+| Safety (passed) | 2,120 | 2,076 | 2,072, on Python 3.10 and on 3.13 |
+
+- The extension: 2,385 passed, 2 skipped. The evidence boundary: 27 passed.
+- S-2's open condition, "normal private folders stay usable", now holds on Linux and macOS too.
+
+**Artifacts.** Built from a clean export of `35040af`, not published. The full hashes are in the report:
+- wheel `4a7c9f61…d384`;
+- sdist `467ba15a…b7c8`;
+- VSIX `a397c878…925f`.
+
+The version is 0.1.7 throughout, and the contents, licence and metadata are as expected. There is no private data. The members differ from the first RC build only where the commit changed files.
+
+**Installs and real VS Code:**
+
+| Check | Result |
+|---|---|
+| CLI acceptance | 38 of 38 |
+| MCP (a new venv, dependencies from PyPI) | 11 of 11 |
+| End to end | 8 of 8 |
+| Compatibility | 5 of 5 |
+| Refusals | 62 of 62 |
+| Managed runtime | 13 of 13 |
+| Main window | 26 of 28 (the clipboard is unavailable in the test window) |
+| Policy | 19 of 19: U-1 is fixed in a real window |
+| Fix with AI | 5 of 9: no terminal host; S-2's allowed path works in a real Extension Host |
+| Restart | 2 of 2, twice |
+| The released 0.1.6 extension | 9 of 9 |
+
+**The commit's review.** This review's own reading, plus one independent read-only AI reviewer; every finding was verified. No Critical or High finding.
+- **F-1 (Low in the code, Medium as documented; blocks):**
+  - **The gap:** the extension's privacy answer (`doctor --json`'s `storage.privacy`, from `RepositoryStorage.privacy()`) judges the data folder down to `work/`, but not `work/<id>`. The CLI launcher judges `work/<id>` too.
+  - **Measured:** with only `work/JR-12345` opened to Everyone, `doctor` answers `private` and the launcher refuses.
+  - **Stated otherwise:** the owner-approved S-2 condition, README:290 and :292, the extension README (lines 135–136) and `docs/safety.md:114` all state the full coverage.
+  - **§16's record:** "unsafe privacy refuses the grant: met" holds for the CLI but not for the extension's work-item folder. This is recorded in §18; §16 is unchanged.
+- **F-2 (Low; new in this commit):** Open AI Session's restart types into a terminal whose state it read before the privacy wait.
+- **F-3 (Low):** `bugpilot setup` reports a batch-file-only `git` or `rg` as present.
+- **F-5 (Low; pre-existing since 0.1.4 at the latest):** `--launch-agent` fails through a batch file whose path holds a space.
+- **F-4, F-6, F-7:** Informational.
+- **The earlier Low and Informational findings:** none became blocking, and none was reclassified.
+
+**Proposed remediation, awaiting approval.**
+- **Option A (recommended):**
+  - `RepositoryStorage.privacy()` runs the containment check and also judges every existing folder directly under `work/`, with tests;
+  - README:290 is reworded;
+  - F-2 and F-3 are fixed in the same commit;
+  - then a new candidate commit, the owner's CI dispatch, rebuilt artifacts and a short follow-up review.
+- **Option A′:** `doctor --json --work-item <id>`; recorded in the report.
+- **Option B:** documentation only. It narrows S-2, which is the owner's decision; recorded in the report.
+
+**Manual acceptance.** Report §18's checklist has the exact steps.
+- **PASS:** M-8.
+- **NOT TESTED:** M-1, M-4's buttons, M-5 as written, M-6, and M-9 steps 1–3.
+- **BLOCKED:** M-2, M-3 steps 1–4, M-7, and M-9 step 4.
+
+**Next:** the owner's decision on F-1's remediation. RC BLOCKED. Public distribution UNRESOLVED: G-1 and G-3 are unresolved, and G-2 awaits the owner's confirmation.
+
+#### 0.1.7: F-1, F-2 and F-3 remediated with Option A′ (2026-11-01)
+
+**Status: IMPLEMENTED, VERIFIED ON WINDOWS, AND COMMITTED WITH THIS RECORD ON THE OWNER'S APPROVAL OF 2026-11-01; PUSHED TO `verify/0.1.7-storage` FOR CI. RC BLOCKED until all nine CI jobs pass on this commit and a short final RC review is done. MANUAL ACCEPTANCE INCOMPLETE. PUBLIC DISTRIBUTION UNRESOLVED.**
+- The owner approved Option A′, with F-2 and F-3 in the same batch, and ruled out Options A and B.
+- Committed from an explicit list of 28 paths and pushed to `verify/0.1.7-storage` only; nothing merged, tagged, released or published. The full record is the review report's §19.
+
+**F-1. `bugpilot doctor [--json] --work-item <id>`.**
+- **CLI:**
+  - `storage` gains `work_item_id`, `work_item_privacy` and `work_item_privacy_problem`, answered by `RepositoryStorage.work_item_privacy`. That is the launcher's chain from the data folder down to `work/<id>`, plus `work_item_dir`'s link, record and containment checks, answered rather than raised.
+  - A link or junction on the way is `not-private`; a missing folder, an invalid id or a refused namespace is `unverifiable`.
+  - It reads only and never lists `work/`.
+  - Without the option, `doctor` is byte-for-byte as before. Every existing key, value and error code is kept.
+- **Extension:**
+  - It asks with `--work-item` just before it gives Claude CLI the folder (now the last wait), and again before Open AI Session gives it again.
+  - It accepts only a yes for the same work item id, in the repository folder the CLI reports, resolving to the folder it is about to give.
+  - `storage.privacy`, the repository-level answer, decides no grant.
+- **Launcher:** `check_private_for_agent` keeps its full chain, unchanged in behaviour.
+
+**F-2. Open AI Session's restart.**
+- The host's terminals gain a per-terminal token, and `sendToTerminal` types only into the terminal its token names.
+- The restart holds the token, the work item, the session, the restart count and the work-item generation while the CLI is asked. It checks them again in the turn that types or starts.
+- If the terminal closed, was replaced or had something started in it, or another work item was shown, nothing is typed or started, and the panel says so.
+
+**F-3.** `bugpilot setup` finds `git` and `rg` with `program_available`, as every run does. On Windows a batch file alone is not reported as present; a program later on `PATH` is.
+
+**F-5** is documented as a known limitation with its workarounds; the S-1 gate is unchanged. **F-4 and F-7** stay Informational.
+
+**The approval's compatibility condition** is met, and **F-6 is resolved**:
+- With a 0.1.7 CLI that has no `--work-item` (the 35040af RC and earlier builds), the extension refuses every Claude CLI grant. It never falls back to `storage.privacy`.
+- It now says to update bugpilot: `askWorkFolderPrivacy` recognizes only argparse's error for that option, with focused tests.
+- No compatibility mechanism was added.
+
+**Verification on Windows, the working tree:**
+
+| Check | Result |
+|---|---|
+| Full Python suite | 4,238 passed, 91 skipped, 0 failed; after the compatibility correction, 4,238 passed, 91 skipped, 0 failed |
+| Extension | Unit tests 2,402 passed, 1 skipped, 0 failed; typecheck clean; build succeeds |
+| CLI integration | 22 of 22, including extension and CLI together on the work folder's privacy |
+| Compatibility | 16 of 16 |
+| Refusals | 79 of 79 (17 new for `--work-item`) |
+| Installed-CLI argv contract | All 40 command lines accepted |
+| Mutations | 21 of 22 killed; one is equivalent |
+
+- **Unchanged:** the U7 baselines, approvals, goldens, the normalizer and the storage inventory.
+- **The argv contract fixture** gains the one new command line, by its documented procedure.
+- **Committed:** one commit of 28 explicit paths, with §18's records, on the owner's approval.
+
+**Next:** the owner's CI dispatch on this commit (9 of 9 required), rebuilt artifacts and a short final RC review. RC BLOCKED until then. Public distribution UNRESOLVED: G-1 and G-3 are unresolved, and G-2 awaits the owner's confirmation.
+
+#### 0.1.7: final RC acceptance of `9fe8a8a` (2026-11-01)
+
+**Status: RC REVIEW INCOMPLETE — NO BLOCKER FOUND. CI RUN 41351728876 9 OF 9 ON `9fe8a8a`; REPRODUCIBLE ARTIFACTS; CLEAN INSTALLS, F-1, F-2 AND F-3 AND THE REAL PANEL PASS WHEREVER THIS ENVIRONMENT CAN OBSERVE THEM; THREE REQUIRED SCENARIOS NEED THE OWNER'S DESKTOP; PUBLIC DISTRIBUTION UNRESOLVED.**
+- A verification and documentation phase. Nothing implemented, staged, committed, pushed, merged, tagged, published or released; no account-using AI session; no Jira site.
+- The full record is the review report's §20.
+
+**CI run 41351728876**, dispatched by the owner on `verify/0.1.7-storage` at `9fe8a8a` (attempt 1). All 9 jobs succeeded:
+
+| Suite | Windows | macOS | Ubuntu |
+|---|---|---|---|
+| Full Python (passed / skipped / deselected) | 4,235 / 93 / 1 | 4,183 / 95 / 1 | 4,179 / 99 / 1 |
+| Safety and baselines (passed) | 2,120 | 2,076 | 2,072, on Python 3.10 and on 3.13 |
+
+- The extension: 2,401 passed, 2 skipped. The evidence boundary: 27 passed.
+- Against `35040af`'s run, +28 in every full Python job (the commit's F-1 and F-3 tests) and +16 in the extension.
+
+**Artifacts**, from a clean export of `9fe8a8a`; not published. Full hashes in the report:
+- wheel `c6679c08…14a4`;
+- sdist `9caf49f4…6f2f`;
+- VSIX `abc29a8d…844f`.
+
+They are 0.1.7 throughout, `twine check --strict` passes, and the licence and metadata are as expected. There is no private data. Every package file equals the commit's. A second, independent build has identical member contents. Against the `35040af` build only the commit's files changed.
+
+**Installs and acceptance** (the installed wheel, or a new disposable VS Code profile):
+
+| Check | Result |
+|---|---|
+| `--version`, `doctor --json`, `doctor --json --work-item` | 11 of 11 |
+| Installed-CLI argv contract | All 40 command lines accepted |
+| CLI acceptance; MCP (a new venv, `mcp` 2.3.0 from PyPI); end to end | 38 of 38; 11 of 11; 8 of 8 |
+| Compatibility | 16 of 16 |
+| Refusals | 92 of 92 (13 new: parent folders, an unreadable access list) plus 4 of 4 for symbolic links |
+| F-3 (`setup` and `doctor` agree on Git and ripgrep) | 12 of 12 |
+| Managed runtime from the wheel alone | 13 of 13; its 65 package files equal the wheel's |
+| Storage, baseline, golden, F-1 and F-3 suites from the export | 1,297 passed, 44 skipped, 0 failed |
+| The extension from the export | PASS: typecheck clean; unit tests 2,402 passed, 1 skipped, 0 failed; CLI integration 22 of 22 |
+
+**The real panel**, driven through VS Code's remote-debugging port in a disposable VS Code with the stand-in `claude`. Passed:
+- **The workflow:** Run from a bug description, Build Context, Advanced Settings, and Fix with AI up to the terminal.
+- **F-1:** the privacy refusal, on Fix with AI and on the restart; and the old CLI's update sentence.
+- **F-2, Open AI Session:** focusing, and a restart in a new terminal. A double press, a terminal replaced, a work-item switch, a new run and Reset Session during the check each start nothing.
+- **Settings and messages:** Reset Session; Verification Policy Edit, Preview and Reset, with VS Code's own confirm; watcher freshness for two saves 300 ms apart and for an outside write; the refusal messages; Reload Webviews; quit and reopen.
+
+Every failed runner check is explained in the report: harness, expectation, environment or the shared project's untouched canaries. None is a product failure.
+
+**Not observable here (NOT TESTED or BLOCKED)**, so they are on the owner's desktop checklist (report §20, A-1 to A-7):
+- **A-1, A-2:** what a real terminal runs, and Open AI Session typing into the same terminal (an account-using run, approved per run).
+- **A-4:** Copy Handoff Prompt (the clipboard reads back nothing here).
+- **Also:** A-3, A-5, A-6 (Jira) and A-7.
+
+**Regression and security.**
+- **Unchanged:** the U7-1 to U7-142 approvals (2026-10-29), `tests/golden/`, the normalizer and the storage inventory.
+- **Preserved:** the storage contracts, identity and containment, the Claude grant rules, shell safety and executable discovery, and fail-closed version handling.
+- **No Critical, High or Medium finding,** here or in the independent read-only review.
+- **New:** F-8 (Low, UX): a refused handoff's card is headed "AI agent unavailable"; the row states the real reason. F-9 to F-13 are Informational. None blocks.
+
+**Recommendation.** Run A-1 to A-5, and A-7's steps 1–3, on the owner's desktop with these exact artifacts. If they pass, `9fe8a8a` can be classified RC TECHNICALLY READY without a new commit. F-8 is the owner's choice: fixing it before release means a new commit, CI and a short review. Public distribution stays UNRESOLVED: G-1 and G-3 are unresolved, and G-2 awaits the owner's confirmation.
+
+#### 0.1.7: technical RC approval of `9fe8a8a` (2026-11-01)
+
+**Status: RC TECHNICALLY READY — `9fe8a8a379c9e9cf83ed8c7f84fbb6c73be1c525` APPROVED BY THE OWNER AS BUGPILOT 0.1.7'S TECHNICAL RELEASE CANDIDATE; CI RUN 41351728876 9 OF 9; A-6 AND A-7 STEP 4 NOT TESTED; PUBLIC DISTRIBUTION UNRESOLVED; THE CANDIDATE IS FROZEN.**
+- The approval does not authorize public distribution, a merge into `main`, a tag, a release, or publication to PyPI or the VS Code Marketplace.
+- A documentation phase. No product code, U7 baseline, golden file, test or packaging configuration changed. Nothing was merged, tagged, released or published.
+- **The approved source commit is `9fe8a8a`.** These records were committed afterwards, on the owner's approval, in one documentation-only commit whose parent is `9fe8a8a`, and pushed. That commit is not the release candidate, and no CI run was dispatched for it.
+- The full record is section 21 of `docs/bugpilot_0.1.7_rc_review.md`.
+
+**The evidence, by source:**
+- **Agent-observed** (the final RC acceptance above; report §20):
+  - CI run 41351728876, 9 of 9 on `9fe8a8a`;
+  - the artifacts, rebuilt with identical contents (wheel `c6679c08…14a4`, sdist `9caf49f4…6f2f`, VSIX `abc29a8d…844f`; not published);
+  - clean installs;
+  - F-1, F-2 and F-3;
+  - the real panel in a disposable VS Code;
+  - the regression and security review: no Critical, High or Medium finding.
+- **Owner-reported:** on the owner's desktop, A-1, A-2, A-3, A-4, A-5 and A-7's steps 1–3 PASS. They cover what §20 could not observe: a terminal running the agent, Open AI Session typing into the same terminal, and the clipboard. This review did not observe or re-run them, and which build was installed for them is not confirmed.
+
+**Outstanding manual coverage**, not tested and not counted as passed:
+- A-6, the Jira workflow: it needs a Jira test site.
+- A-7 step 4: the installed agents on the owner's list (§9.10).
+- The real VS Code acceptance ran on Windows only; Linux and macOS have CI's coverage.
+
+**Accepted for 0.1.7 as known limitations**, with `9fe8a8a` unchanged:
+- F-8 (Low, UX): a refused handoff's card headline; the remediation proposal is kept for a later release.
+- F-5 (Low, documented).
+- F-4, F-7 and F-9 to F-13 (Informational).
+- The earlier Low and Informational findings, as recorded.
+
+**Governance, unchanged:**
+- G-1 (ownership and employment policy) and G-3 (a qualified review of the licence parameters) are unresolved.
+- G-2 awaits the owner's confirmation for 0.1.7.
+- No ownership, employment-policy clearance or licence approval is claimed.
+
+**The freeze:** no change to 0.1.7's product code, baselines, goldens, tests or packaging configuration. A new development batch only for a demonstrated release-blocking issue.
+
 ### 14.4 Batch 3 — Extension and Agent Handoff
 
 **1. Scope.**
@@ -5665,6 +12802,7 @@ The contract fixture, `tests/test_storage_identity.py` and `storage.py` stay unt
 - Batch 2 is on the branch, and its ledger is recorded.
 - These decisions are approved: US-D11 (the review recommends deferring), D12, D17 and D19.
 - Batch 0B records exist for P6, P7, P9 and P10, and for P11 if it ran, each as PASS, FAIL or UNKNOWN.
+- *(2026-10-21, E-7: Batch 3 fixes the Verification Policy's and AI Behavior's Edit, Reset, watcher and strings for the files' new place, and its compatibility verification against a 0.1.6 CLI is required before any integration into `main` or activation; §14.3, "Batch 2B-3b — decision gate and implementation contract", part 9.)*
 
 **4. Explicit exclusions.**
 
@@ -5948,7 +13086,7 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 **How to read it.**
 
 - **Owner status** is the decision's state: APPROVED, PROPOSED, OPEN or DEFERRED.
-  - Beyond the requirements R1–R8, the APPROVED decisions are US-D32 and US-D33, for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions ratified at the Batch 1 decision gate (2026-10-16): US-D1, D3, D5, D6, D7, D23, D24, D26 and D34. On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract (§16.5.11), US-D14 with conditions, as Refined Option A′ (§16.4.1), US-D13 with conditions, as the hybrid task-document contract (§9.8.1), US-D30 with conditions, as Option D (§9.8.2), US-D10 with conditions, as Option D for the agent handoff, with the probe gap accepted for design only (§9.5.1; "Accepted evidence gaps" below), US-D12 with conditions, as Option C, the prompt gate kept and tightened (§9.9.1), and US-D17 with conditions, as Option B, the CLI as the only path resolver (§8.9.1). On 2026-10-19, at the Batch 2B-2 decision gate, the owner approved US-D2 with conditions, and US-D29 and US-D22 in part (§14.3, "Batch 2B-2 — decision gate"). No other decision is approved.
+  - Beyond the requirements R1–R8, the APPROVED decisions are US-D32 and US-D33, for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions ratified at the Batch 1 decision gate (2026-10-16): US-D1, D3, D5, D6, D7, D23, D24, D26 and D34. On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract (§16.5.11), US-D14 with conditions, as Refined Option A′ (§16.4.1), US-D13 with conditions, as the hybrid task-document contract (§9.8.1), US-D30 with conditions, as Option D (§9.8.2), US-D10 with conditions, as Option D for the agent handoff, with the probe gap accepted for design only (§9.5.1; "Accepted evidence gaps" below), US-D12 with conditions, as Option C, the prompt gate kept and tightened (§9.9.1), and US-D17 with conditions, as Option B, the CLI as the only path resolver (§8.9.1). On 2026-10-19, at the Batch 2B-2 decision gate, the owner approved US-D2 with conditions, and US-D29 and US-D22 in part (§14.3, "Batch 2B-2 — decision gate"). On 2026-10-20, at the Batch 2B-3 decision gate, the owner approved US-D9, US-D4 with conditions and US-D8 in part, and widened US-D22's approved part to Batch 2B-3's user-facing messages (§14.3, "Batch 2B-3 — owner decisions and final contract gate"). Later that day B-1 approved T-15 as option A, which completed US-D8 (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract"). No other decision is approved.
   - An approval may be qualified, in the status column:
     - **APPROVED — with conditions**: the decision stands; the named conditions must be met before the gate the row names (for Batch 1's decisions: activation in Batch 2, §14.3). Code may exist before then; it is not activated.
     - **APPROVED — in part**: only the stated part is approved. Every other part stays OPEN or PROPOSED, is named in the row, and is listed in "Open parts of approved decisions" below. It is decided on its own, before it is built.
@@ -5968,8 +13106,8 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 
 | | Count | Decisions |
 | --- | ---: | --- |
-| APPROVED by the owner | **21** | <ul><li>US-D32, US-D33 (Batch 0A's scope, 2026-10-15)</li><li>US-D1, D3, D6, D7, D24; with conditions US-D5, D23, D34; in part US-D26 (Batch 1 decision gate, 2026-10-16)</li><li>with conditions US-D28 (an amended design contract), US-D14 (Refined Option A′), US-D13 (the hybrid task-document contract), US-D30 (Option D), US-D10 (Option D, design only), US-D12 (Option C) and US-D17 (Option B), 2026-10-18</li><li>with conditions US-D2; in part US-D29 and US-D22 (Batch 2B-2 decision gate, 2026-10-19)</li></ul> |
-| Await the owner | **14** | 7 OPEN, 7 PROPOSED |
+| APPROVED by the owner | **24** | <ul><li>US-D32, US-D33 (Batch 0A's scope, 2026-10-15)</li><li>US-D1, D3, D6, D7, D24; with conditions US-D5, D23, D34; in part US-D26 (Batch 1 decision gate, 2026-10-16)</li><li>with conditions US-D28 (an amended design contract), US-D14 (Refined Option A′), US-D13 (the hybrid task-document contract), US-D30 (Option D), US-D10 (Option D, design only), US-D12 (Option C) and US-D17 (Option B), 2026-10-18</li><li>with conditions US-D2; in part US-D29 and US-D22 (Batch 2B-2 decision gate, 2026-10-19)</li><li>US-D9; with conditions US-D4; in part US-D8; US-D22's part widened (Batch 2B-3 decision gate, 2026-10-20); US-D8 in full later that day (B-1)</li></ul> |
+| Await the owner | **11** | 5 OPEN, 6 PROPOSED |
 | DEFERRED | **4** | US-D35 to US-D38 |
 | Review: *Accept* | 28 | |
 | Review: *Accept conditionally* | 2 | US-D5, US-D26 |
@@ -5981,14 +13119,14 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D1 | Layout: `config/` and `repositories/<id>/{repository.json, settings/, work/, memory/}`; `memory/<id>.md`; no `cache/` | **APPROVED** | **Accept** | §6.1; alt: the brief's draft with `memory/bugs/` and `cache/` | 1 | 2026-10-16: approved by the owner at the Batch 1 decision gate: the unified layout, version 1; no `cache/` |
 | US-D2 | Global config moves into `<root>/config/`. Users re-run `setup`; extension users re-enter the site. | **APPROVED** — with conditions | **Accept** (move) | a clean, uniformly checked tree, which resolves the B4-2 inconsistency; alt: keep the 0.1.5 files at the root (no reconfiguration, but 0.1.5 files are then loaded) | 2 | 2026-10-19: approved with conditions by the owner at the Batch 2B-2 decision gate (D-2): `<root>/config/config.toml`, with user instructions and user Fix Modes at `GlobalStorage`'s places; no migration, fallback or deletion; users re-run `setup` once the feature is activated. Conditions: §14.3, "Batch 2B-2 — decision gate" (its specification, and Q-1 to Q-6). Q-1 to Q-6 were answered later that day, which leaves choices C-1 to C-5 (§14.3, "Batch 2B-2 — final contract resolution"). The owner approved C-1 to C-5 the same day; DD-1 to DD-3's exact values are reviewed before the implementation commit. The extension's half, re-entering the site, is Batch 3's (§15.4) |
 | US-D3 | `BUGPILOT_HOME` names the data root; `BUGPILOT_CONFIG_DIR` is no longer honoured | **APPROVED** | **Accept**, with a **safe warning**: when `BUGPILOT_CONFIG_DIR` is set, text mode prints one line on stderr ("BUGPILOT_CONFIG_DIR is no longer used; set BUGPILOT_HOME to choose BugPilot's data folder"), and `doctor --json` sets `storage.legacy_config_dir_variable` (§8.10). The variable's *value* is never read, shown or used, and nothing goes to `--json` stdout except that field. | §8.2, §13.2; alt: `BUGPILOT_DATA_DIR`; no warning | 1 | 2026-10-16: approved by the owner at the Batch 1 decision gate: `BUGPILOT_HOME` defines the entire data root. The handling of the deprecated `BUGPILOT_CONFIG_DIR` remains Batch 2 work. 2026-10-19 (D-3, Batch 2B-2 decision gate): the warning's direction is set: at most one stderr line per CLI invocation; the value never read, used or shown; machine-readable stdout unchanged. Its exact text awaits Q-4, and `legacy_config_dir_variable` is deferred to the `doctor` slice. Later that day, Q-4 approved the text: "BUGPILOT_CONFIG_DIR is no longer used; set BUGPILOT_HOME to choose BugPilot's data folder", in text mode only |
-| US-D4 | The repository root stays the directory BugPilot runs in, with no git top-level discovery | OPEN | **Accept**, plus the diagnostic of §7.1 (`doctor`'s `below_git_toplevel`; one panel line in Batch 5). No git-root discovery, no relocation. | §7.1; alt: git top-level for identity only | 2 | — |
+| US-D4 | The repository root stays the directory BugPilot runs in, with no git top-level discovery | **APPROVED** — with conditions | **Accept**, plus the diagnostic of §7.1 (`doctor`'s `below_git_toplevel`; one panel line in Batch 5). No git-root discovery, no relocation. | §7.1; alt: git top-level for identity only | 2 | 2026-10-20: approved with conditions by the owner at the Batch 2B-3 decision gate (G-2): the existing root and identity rules unchanged, including the home-folder refusal. Conditions: T-1 to T-16 implemented as tests passing on Windows, Linux and macOS (verified as classifications, with T-13 corrected), and the unresolved choices named: T-15 (with US-D8), `below_git_toplevel` (not decided by this), `subst` NOT VERIFIED (§14.3, "Batch 2B-3 — owner decisions and final contract gate"). Later that day T-15 was decided (B-1, option A). The remaining condition: the T-1 to T-16 tests passing on three systems (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract") |
 | US-D5 | Identity algorithm: `realpath(strict)`, `normcase` on Windows only, a versioned SHA-256 prefix, `<slug≤24>-<16 hex>`; prefer split over merge | **APPROVED** — with conditions | **Accept conditionally**: pending the cross-platform verification of §7.3's unverified rows (CI observations in Batch 0A, tests in Batch 1). A row that behaves otherwise returns US-D5 to the owner. | §7.2, §7.3; alt: git remote; inode; full-length hash | 1 | 2026-10-16: approved with conditions by the owner at the Batch 1 decision gate: the canonical identity algorithm, with Batch 1's accepted refinements (B1-2, B1-13, B1-16). Condition: Batch 1's cross-platform CI passes before activation |
 | US-D6 | `repository.json` records the canonical root path | **APPROVED** | **Accept** | §7.4; alt: digest only | 1 | 2026-10-16: approved by the owner at the Batch 1 decision gate: the deterministic identity record, published without replacement (B1-14) |
 | US-D7 | One namespace per git worktree | **APPROVED** | **Accept** | §7.3; alt: key by `--git-common-dir` (merges worktrees) | 1 | 2026-10-16: approved by the owner at the Batch 1 decision gate: distinct git worktrees use distinct namespaces |
-| US-D8 | A moved or renamed repository starts a new namespace; no relocation tooling in 0.1.6 | PROPOSED | **Accept** (relocation DEFERRED) | §7.1, §7.3 | 2 | — |
-| US-D9 | Repository settings become per-user per-repository, with no team sharing through the repository. Section names are kept; intro and help wording stop claiming "shared" or "committed". | OPEN | **Accept** (team sharing DEFERRED) | §13.3; alt: rename to "Repository Instructions" everywhere (more golden and doc churn) | 2 | — |
+| US-D8 | A moved or renamed repository starts a new namespace; no relocation tooling in 0.1.6 | **APPROVED** | **Accept** (relocation DEFERRED) | §7.1, §7.3 | 2 | 2026-10-20: approved in part by the owner at the Batch 2B-3 decision gate (G-3): a moved or renamed repository may start a new namespace, with no automatic migration. Not approved: T-15, a different repository reusing a former repository's path and inheriting its namespace (options A, B and C, §14.3, "Batch 2B-3 — owner decisions and final contract gate", part 3). Later on 2026-10-20 (B-1): T-15 approved as option A, an accepted limitation (§7.3, §7.6, RK-20); option C deferred to a future design. US-D8 approved in full (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract") |
+| US-D9 | Repository settings become per-user per-repository, with no team sharing through the repository. Section names are kept; intro and help wording stop claiming "shared" or "committed". | **APPROVED** | **Accept** (team sharing DEFERRED) | §13.3; alt: rename to "Repository Instructions" everywhere (more golden and doc churn) | 2 | 2026-10-20: approved by the owner at the Batch 2B-3 decision gate (G-4): settings per user and per repository namespace; legacy `.bugpilot/` never read, migrated, copied or deleted; no import or export in 0.1.6; the loss of implicit Git-based team sharing is an intentional compatibility impact. The exact AI-facing texts are decided at the 2B-3b gate (G-13; §14.3, "Batch 2B-3 — owner decisions and final contract gate"). 2026-10-21 (E-1, Batch 2B-3b decision gate): those texts decided; the status is unchanged (§14.3, "Batch 2B-3b — decision gate and implementation contract") |
 | US-D10 | Agent handoff: Option D. <ul><li>The agent starts in the repository root and is told `Read <WORK>/task.md and complete the workflow.`; the retry is `Read <WORK>/agent_retry_prompt.md and continue the workflow.`.</li><li>`<WORK>` is resolved and validated by the CLI (US-D13, US-D17), with forward slashes.</li><li>The CLI, the extension and the retry prompt use the same wording; MCP follows US-D27.</li><li>No new permission mode, grant, sandbox bypass or shell-free launch (no US-D11 grant).</li><li>US-D12's gate is kept until US-D12 is decided. No rejected prompt reaches a shell. A refused, unlaunchable or bridge handoff uses the clipboard with an accurate notice.</li><li>Storage failures fail closed, with no legacy fallback.</li></ul>(§9.5.1) | **APPROVED** — with conditions | **Keep open** until the Batch 0B probes (§9.7) and the §9.10 acceptance criteria are met; Option D is the provisional recommendation | §9.5, §9.10; alt: B (inline only); C by default (violates R8) | 2 | 2026-10-18: approved with conditions by the owner, as Option D with amendments, as a design decision (§9.5.1). <ul><li>The owner accepts the Batch 0B real-agent evidence gap for design approval only (§9.7; "Accepted evidence gaps" below).</li><li>No agent combination is declared supported.</li><li>Conditions: §9.5.1's implementation conditions and release gates.</li></ul>This is not an approval to implement, verify or activate. |
-| US-D11 | An opt-in `--add-dir <work folder>` grant | OPEN | **Defer** past 0.1.6. Never automatic (R8); reconsider after Batch 5's live measurement. | §9.4 C, §9.5 point 8 | 3 | — |
+| US-D11 | An opt-in `--add-dir <work folder>` grant | OPEN for 0.1.6; **DECIDED for 0.1.7 by the owner (2026-10-29)**: automatic and narrow, the work item's folder for Claude Code only (§14.3, "0.1.7: final fixes and release-candidate readiness (2026-10-29)") | **Defer** past 0.1.6. Never automatic (R8); reconsider after Batch 5's live measurement. | §9.4 C, §9.5 point 8 | 3 | — |
 | US-D12 | The prompt gate keeps its character set (ASCII letters and digits, the ASCII space, `. , : # / _ -`), never broadened, and is tightened. <ul><li>No string passes through JavaScript's `\s` alone, and the handoff starts with its expected literal text.</li><li>The complete prompt is validated.</li><li>**Exact prompt preservation:** both the generated prompt and the final argument are validated, nothing is collapsed, trimmed, normalized or escaped into a different path, and the handoff is refused if preservation can't be guaranteed.</li><li>**Parity:** Python's `--launch-agent` gets an equivalent gate, checked against one shared corpus.</li><li>The gate stays on the terminal paths, the bridges and the captured review (US-D28). There is none on MCP JSON, Copy Handoff Prompt or the body of `task.md`, which rely on path validation (US-D13, US-D17) instead.</li><li>A refused handoff starts nothing and falls back to US-D10's manual handoff. A bridge copies and notifies without revealing its view.</li><li>No relaxation for any transport.</li></ul>(§9.9.1) | **APPROVED** — with conditions | **Accept**: retain the gate. Investigate a launch without a shell for native executables (§9.9, P11) without weakening the gate; adopting one needs P11 PASS on three systems and a separate owner approval; shims never | §9.5, §9.9; alt: widen the gate (per-shell quoting; security-sensitive) | 3 | 2026-10-18: approved with conditions by the owner, as Option C with the exact-prompt-preservation and cross-language-parity amendments, as a design decision (§9.9.1). <ul><li>No per-transport relaxation; P10 stays PASS only for the tested Windows configuration, and P11 stays NOT EXECUTED.</li><li>Conditions: §9.9.1's tests and release conditions.</li></ul>This is not an approval to implement or activate. |
 | US-D13 | `task.md` and the retry prompt use a hybrid path contract: <ul><li>the canonical, CLI-resolved work folder stated absolutely (Execution Location; the retry prompt's Required Reading);</li><li>other files by name relative to that folder;</li><li>the report's output destination absolute, with §9.6's cannot-write sentence;</li><li>US-D14's note in both;</li><li>the agent's cwd stays the repository;</li><li>forward-slash rendering on every OS;</li><li>a path unsafe to render is rejected, never altered;</li><li>fail closed, with no `.ai/` fallback;</li><li>Protected Rules v2 unchanged.</li></ul>(§9.8.1) | **APPROVED** — with conditions | **Accept** | §9.8; alt: absolute everywhere (token cost); relative only (an ambiguous write target) | 2 | 2026-10-18: approved with conditions by the owner, with amendments, as a design decision (§9.8.1). <ul><li>Amendments: the path counts are template observations; rendering validation is uniform and non-destructive; implementation waits for US-D30 and for separate golden and ratchet approvals.</li><li>Conditions: §9.8.1's implementation and activation conditions.</li></ul>This is not an approval to implement, activate or ship. |
 | US-D14 | Protected rule `stage-intended-files-only` stays unchanged (rules v2: id, title, text, `PROTECTED_RULES_VERSION` 2, `VERSION_2_SHA256`). A separate informational note, near `task.md`'s Execution Location and the retry prompt's Required Reading, says that a `.ai/`, `.ai_memory/` or `.bugpilot/` folder inside the source repository is legacy BugPilot data that 0.1.6 does not use. The note is not a staging rule and not an enforcement mechanism. Neither adds a repository write. BugPilot introduces no Git staging, commit, hook, cleanup or automatic `.gitignore` edit; the existing "Add to .gitignore" feature is US-D16's (OPEN) (§16.4.1). | **APPROVED** — with conditions | **Keep open**: the owner chooses among §16.4's options before Batch 2. The review does not authorize a protected-rule change; the rule's meaning (no BugPilot or legacy artifact is staged) is preserved under every option. | §16.4 | 2 | 2026-10-18: approved with conditions by the owner, as Refined Option A′ with two amendments (US-D16 independence; staging safety), as a design decision (§16.4.1). Conditions: §16.4.1's implementation conditions. This is not an approval to implement, to activate, or for BugPilot to stage anything. |
@@ -5999,15 +13137,15 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D19 | The extension's VS Code-owned storage (runtime, attachment staging, scratch) stays in `globalStorageUri` | PROPOSED | **Accept** | §6.2; alt: move attachment staging under the data root | 3 | — |
 | US-D20 | `doctor` reports *whether* legacy paths exist (`lstat` only, never read) | OPEN | **Defer**: no legacy-presence probing in 0.1.6. The change is explained by §13's documentation instead. | §6.3; alt: one `doctor` line | 5 | — |
 | US-D21 | Diagnostics surface: `doctor`'s `storage` object (and the panel's Diagnostics); no new command | OPEN | **Accept** | §8.10; alt: a read-only `bugpilot storage` command | 2 | — |
-| US-D22 | Absolute paths only in designated JSON fields, the handoff and `task.md`'s work line; the display form (`~/.bugpilot/…`) everywhere else | **APPROVED** — in part (Batch 2B-2's configuration messages) | **Accept** | §8.8, §8.10 | 2 | 2026-10-19: approved in part by the owner at the Batch 2B-2 decision gate (D-9): the display form for 2B-2's configuration messages; no environment variable's value in any message; no unrelated message change; no JSON contract expansion. The rest stays PROPOSED |
+| US-D22 | Absolute paths only in designated JSON fields, the handoff and `task.md`'s work line; the display form (`~/.bugpilot/…`) everywhere else | **APPROVED** — in part (Batch 2B-2's configuration messages; Batch 2B-3's user-facing messages) | **Accept** | §8.8, §8.10 | 2 | 2026-10-19: approved in part by the owner at the Batch 2B-2 decision gate (D-9): the display form for 2B-2's configuration messages; no environment variable's value in any message; no unrelated message change; no JSON contract expansion. The rest stays PROPOSED. 2026-10-20 (G-11, Batch 2B-3 decision gate): the approved part also covers Batch 2B-3's user-facing messages, with no unnecessary wording change; the JSON fields stay J-2's staging (G-7). The rest stays PROPOSED (§14.3, "Batch 2B-3 — owner decisions and final contract gate"). 2026-10-21 (E-2): the approved part covers Batch 2B-3b's user-facing messages, confirmed; the rest stays PROPOSED (§14.3, "Batch 2B-3b — decision gate and implementation contract") |
 | US-D23 | New folders `0700`; an existing data root's mode is never changed | **APPROVED** — with conditions | **Accept** | §8.3; alt: `chmod` the root (touches a legacy folder) | 1 | 2026-10-16: approved with conditions by the owner at the Batch 1 decision gate: private folder creation, existing permissions unchanged. Condition: Windows privacy is claimed only after verification, and credential-bearing writes need Q1's verified access-list check (G-3, §14.3) |
 | US-D24 | An identity record that mismatches or is corrupt is refused, never repaired | **APPROVED** | **Accept** | §7.5; alt: overwrite | 1 | 2026-10-16: approved by the owner at the Batch 1 decision gate: mismatched or corrupt records refused without repair; temporary unreadability distinguished (B1-15) |
 | US-D25 | `run.json` `generated_files` and JSON-lines `path` are relative to the namespace; `schema_version` stays 1 | PROPOSED | **Accept** | §8.10; alt: absolute; a schema bump | 2 | — |
-| US-D26 | The storage JSON contract | **APPROVED** — in part (the `STORAGE_UNAVAILABLE` code is OPEN) | **Accept conditionally**: only once the exact, independently testable contract (§8.10, frozen as `tests/fixtures/storage_cli_contract.json` in Batch 1) is approved at the Batch 1 gate | §8.10 | 2 | 2026-10-16: approved in part by the owner at the Batch 1 decision gate: §8.10's defined contract semantics and the fixture's typed entries. Still OPEN: `STORAGE_UNAVAILABLE`. Not approved by this: the rows that follow US-D4, US-D16, US-D18, US-D25 and US-D3's Batch 2 handling. 2026-10-19 (D-4, Batch 2B-2 decision gate): `STORAGE_UNAVAILABLE` stays OPEN; the direction for errors is recorded, and its mapping waits for Q-1 and Q-2. Later that day, Q-1 was approved in principle (an internal classification, with no new code), and the 2B-2 mapping became choice C-1 (§14.3, "Batch 2B-2 — final contract resolution"). C-1 then approved M-1, which keeps every existing public code; `STORAGE_UNAVAILABLE` stays OPEN |
+| US-D26 | The storage JSON contract | **APPROVED** — in part (the `STORAGE_UNAVAILABLE` code is OPEN) | **Accept conditionally**: only once the exact, independently testable contract (§8.10, frozen as `tests/fixtures/storage_cli_contract.json` in Batch 1) is approved at the Batch 1 gate | §8.10 | 2 | 2026-10-16: approved in part by the owner at the Batch 1 decision gate: §8.10's defined contract semantics and the fixture's typed entries. Still OPEN: `STORAGE_UNAVAILABLE`. Not approved by this: the rows that follow US-D4, US-D16, US-D18, US-D25 and US-D3's Batch 2 handling. 2026-10-19 (D-4, Batch 2B-2 decision gate): `STORAGE_UNAVAILABLE` stays OPEN; the direction for errors is recorded, and its mapping waits for Q-1 and Q-2. Later that day, Q-1 was approved in principle (an internal classification, with no new code), and the 2B-2 mapping became choice C-1 (§14.3, "Batch 2B-2 — final contract resolution"). C-1 then approved M-1, which keeps every existing public code; `STORAGE_UNAVAILABLE` stays OPEN. 2026-10-20 (G-5, G-14, Batch 2B-3 decision gate): O2 approved in principle for 2B-3, subject to exact error-contract verification; no public `STORAGE_UNAVAILABLE` code for 2B-3; the applicable contract is resolved before 2B-3a. Not fully resolved: the matrix's row 1 waits on F2-S (§14.3, "Batch 2B-3 — owner decisions and final contract gate", part 4). Later that day (B-2): F2-S approved as an explicit contract clarification and verified, with no fixture or public-code change. For 2B-3a the applicable contract is resolved; the public `STORAGE_UNAVAILABLE` question stays OPEN for later slices (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract", part 3) |
 | US-D27 | MCP keys unchanged; values absolute (`issue_dir`, `agent_task`, `next_step` paths); `search_memory` relative | PROPOSED | **Accept**: preserve the keys | §8.10; alt: return the task text inline | 2 | — |
 | US-D28 | Captured review reads `context.md`, `retrieval.json` and `fix_report.md` by absolute, CLI-resolved, validated work-folder paths, under the unchanged read-only restrictions. There is no automatic inline fallback. A separately identified, developer-initiated Partial Review uses at most 2,400 characters of `fix_report.md` (§16.5.11). | **APPROVED** — with conditions | **Keep open** until probe P2 (Batch 0B) | §9.5 point 5; §16.5 (P2 evidence, the decision review and the approved contract) | 2 | 2026-10-18: approved with conditions by the owner, with amendments, as a design contract (§16.5.11). The review's narrow Option C was not approved verbatim. Conditions: §16.5.11's activation gates. This is not an approval to implement, activate or ship. |
 | US-D29 | Integration: Batches 0A and 1 on `main`; Batches 2–4 on `verify/0.1.6-storage` until integration is complete; owner-dispatched CI; owner-approved fast-forward after Batch 4 | **APPROVED** — in part (the integration branch) | **Accept** the isolated integration branch, with §15.4's gates | §15.2, §15.4; alt: push Batches 2 and 3 together from `main` | 2 | 2026-10-19: approved in part by the owner at the Batch 2B-2 decision gate (D-1): `verify/0.1.6-storage`, based on `73ee57e`, is the isolated integration branch. It is not created yet, and no partial consumer migration reaches `main` without separate authorization. Still OPEN: the owner-dispatched CI and the fast-forward after Batch 4. Later that day (C-5 (a)): the branch is based instead on the verified `main` commit that carries this record |
-| US-D30 | The task-size gate with an absolute work path. <ul><li>Measure: the 17-case matrix, `round(chars / 4)` and the fixed `<work>` normalization.</li><li>Task gate: `median ≤ 3,096 + A`, plus `normalized size ≤ frozen 0.1.5 size + that golden's approved delta` for every golden.</li><li>Retry: per-golden deltas under a separate A_retry, with no median gate and no shared allowance.</li><li>A and A_retry are fixed only from the owner-approved golden diff, and never recomputed (estimates about 116 and 108, not final).</li><li>Sizes with real paths are reported, not gated.</li><li>Frozen baselines stay byte-identical; a new reviewed budget record holds the numbers.</li></ul>(§9.8.2) | **APPROVED** — with conditions | **Accept** the normalized measurement (§9.8 (a)), keeping meaningful size-regression coverage: the median gate, a per-golden growth bound, a count of absolute-path occurrences, and the raw size reported | §9.8; alt: (b) re-baseline; (c) trim protected wording | 2 | 2026-10-18: approved with conditions by the owner, as Option D with amendments, as a design decision (§9.8.2). <ul><li>The allowance changes the future ceiling; it does not mean the original 20 % reduction still holds.</li><li>Conditions: §9.8.2's golden-diff prerequisites, the reviewed budget record, the reconciled compared-record test, and separately approved ratchet residue.</li></ul>It approves no golden change and no residue, and is not an approval to implement or activate. |
+| US-D30 | The task-size gate with an absolute work path. <ul><li>Measure: the 17-case matrix, `round(chars / 4)` and the fixed `<work>` normalization.</li><li>Task gate: `median ≤ 3,096 + A`, plus `normalized size ≤ frozen 0.1.5 size + that golden's approved delta` for every golden.</li><li>Retry: per-golden deltas under a separate A_retry, with no median gate and no shared allowance.</li><li>A and A_retry are fixed only from the owner-approved golden diff, and never recomputed (estimates about 116 and 108, not final).</li><li>Sizes with real paths are reported, not gated.</li><li>Frozen baselines stay byte-identical; a new reviewed budget record holds the numbers.</li></ul>(§9.8.2) | **APPROVED** — with conditions | **Accept** the normalized measurement (§9.8 (a)), keeping meaningful size-regression coverage: the median gate, a per-golden growth bound, a count of absolute-path occurrences, and the raw size reported | §9.8; alt: (b) re-baseline; (c) trim protected wording | 2 | 2026-10-18: approved with conditions by the owner, as Option D with amendments, as a design decision (§9.8.2). <ul><li>The allowance changes the future ceiling; it does not mean the original 20 % reduction still holds.</li><li>Conditions: §9.8.2's golden-diff prerequisites, the reviewed budget record, the reconciled compared-record test, and separately approved ratchet residue.</li></ul>It approves no golden change and no residue, and is not an approval to implement or activate. 2026-10-21 (E-8, Batch 2B-3b decision gate): 2B-3b's per-golden deltas are all negative, draw no allowance, and are recorded as the designed differences DD-19 to DD-26; the size gates are kept; the status is unchanged (§14.3, "Batch 2B-3b — decision gate and implementation contract") |
 | US-D31 | Batch outline deviation: MCP code and text switch in Batch 2; Batch 3 keeps MCP live verification | PROPOSED | **Accept** | §14.0 | 2 | — |
 | US-D32 | Test isolation: session-wide isolation before collection, plus a guard that fails closed (§11.1) | **APPROVED** (Batch 0A scope) | **Accept** the goal and the **revised design**. The r1 real-home listing is withdrawn; no default run lists or reads the real home. | §11.1; as built: §14.1.A; alt: per-test isolation only | 0A | 2026-10-15: approved by the owner for Batch 0A's scope |
 | US-D33 | CI keeps the nine blocking checks under their names; the isolated storage and isolation tests are added to the existing required jobs; `HOME` is set in the job environment | **APPROVED** (Batch 0A scope) | **Accept** | §11.7; as built: §14.1.A; alt: a new job (would change the pinned check names) | 0A | 2026-10-15: approved by the owner for Batch 0A's scope |
@@ -6017,15 +13155,16 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D37 | XDG or platform-native data folders | DEFERRED | Defer | — | — | — |
 | US-D38 | Retention and pruning of orphaned namespaces | DEFERRED | Defer | — | — | — |
 | US-D39 | SF-1: route the project-settings and repository-profile payloads through `scratchFile.ts` | OPEN | **Accept**: include in Batch 4 | the same class 0.1.5 fixed; alt: leave as is | 4 | — |
+| US-D40 | Repository work-item and memory read boundary (O-1): BugPilot reads a file it generated in a work item's folder or in bug memory only through one reader that judges every component and the file as they stand, never following a link or junction, takes a regular file only and bounds the read. A refusal returns nothing of the file and names no absolute path. No other reader of those folders exists, and after activation none of the data-root work folder either (T-S22, T-S30) | **APPROVED** — with conditions | **Accept** (proposed with the O-1 fix on 2026-10-25; the 2026-10-15 review did not cover it) | §14.3, "Batch 2B-3b — M3-R2E: O-1 implementation and local verification (2026-10-25)"; alt: per-reader checks (0.1.4's F13 pattern), which left these readers out | the 0.1.5.x maintenance release; 2B-4, 2B-5 and activation | 2026-10-26: approved by the owner as the requirement; its implementation, cross-platform CI and independent security validation are pending (§14.3, "Batch 2B-3b — M3-R2E: O-1 Python coverage completion and owner approvals (2026-10-26)"; 2026-10-26, later: implemented and committed locally (`f977127`, `836f204`), private cross-platform CI 9/9 (no Windows-only skip reason on Linux or macOS), independent security validation pending (§14.3, "Batch 2B-3b — M3-R2E: O-1 private cross-platform CI (2026-10-26)"); 2026-10-26, later: backported to `main`'s code on an isolated branch (`7844c8b`, local, not pushed) (§14.3, "Batch 2B-3b — M3-R2E: O-1 security backport to `main` (2026-10-26)"); 2026-10-26, later: the backport's private CI 9/9 (owner-reported), independent security validation pending (§14.3, "Batch 2B-3b — M3-R2E: O-1 backport private CI and 0.1.6 release readiness (2026-10-26)"); 2026-10-26, later: the 0.1.6 release candidate prepared, not committed (§14.3, "Batch 2B-3b — M3-R2E: 0.1.6 release candidate prepared (2026-10-26)"); 2026-10-26, later: the 0.1.6 release candidate committed locally, `bed66e0` (§14.3, "Batch 2B-3b — M3-R2E: 0.1.6 release candidate committed (2026-10-26)"); 2026-10-26, later: the RC's private CI 9/9 (owner-reported), functional acceptance on Windows and the M3 review package; release NO-GO (§14.3, "Batch 2B-3b — M3-R2E: 0.1.6 final acceptance and release approval package (2026-10-26)"); 2026-10-26, later: EG-1 resolved by the owner and the M3 reviewer handoff prepared; M3 OPEN (§14.3, "Batch 2B-3b — M3-R2E: M3 reviewer handoff and final release gates (2026-10-26)"); 2026-10-27: CHG-1 made as `7feeaf7` (changelog only) and the M3 handoff updated; M3 OPEN (§14.3, "Batch 2B-3b — M3-R2E: CHG-1 final changelog commit and the updated M3 handoff (2026-10-27)"); 2026-10-27, later: release preparation done locally; M3 not started; release NO-GO (§14.3, "Batch 2B-3b — M3-R2E: 0.1.6 coordinated release preparation (2026-10-27)"); 2026-10-27, later: RL-1 and RL-2 accepted by the owner for 0.1.6; M3 OPEN; release NO-GO (§14.3, "Batch 2B-3b — M3-R2E: 0.1.6 owner risk acceptance and final release gate (2026-10-27)"); 2026-10-27, later: M3 WAIVED BY OWNER FOR 0.1.6 — NOT VERIFIED; RL-1 to RL-4 accepted (§14.3, "Batch 2B-3b — M3-R2E: 0.1.6 owner M3 waiver and release readiness (2026-10-27)")) |
 
-**Open parts of approved decisions** (Batch 1 decision gate, 2026-10-16; US-D28, US-D14, US-D13, US-D30, US-D10, US-D12 and US-D17, 2026-10-18; US-D2, US-D29 and US-D22, 2026-10-19):
+**Open parts of approved decisions** (Batch 1 decision gate, 2026-10-16; US-D28, US-D14, US-D13, US-D30, US-D10, US-D12 and US-D17, 2026-10-18; US-D2, US-D29 and US-D22, 2026-10-19; US-D4, US-D8 and US-D22, 2026-10-20):
 
 | Approved decision | Part not approved | Its own status | Needed before |
 | --- | --- | --- | --- |
 | US-D3 | `doctor`'s `legacy_config_dir_variable` (§8.10), deferred to the `doctor` slice. The warning is decided: its direction by D-3 and its text by Q-4 (2026-10-19) | Batch 2 work | 2B-6 |
-| US-D26 | a separate `STORAGE_UNAVAILABLE` error code | OPEN as a public code. The classification was approved in principle (Q-1), and the 2B-2 mapping as M-1 (C-1), both on 2026-10-19 | the code: before 2B-4 |
+| US-D26 | a separate `STORAGE_UNAVAILABLE` error code | OPEN as a public code. The classification was approved in principle (Q-1), and the 2B-2 mapping as M-1 (C-1), both on 2026-10-19 | the code: before 2B-4 *(2B-3 decision gate, 2026-10-20, proposed: before 2B-3a, which reads `repository.json` first, unless an interim rule for 2B-3 is approved; §14.3, "Batch 2B-3 — decision gate and slice design")* *(G-14, 2026-10-20: approved, before 2B-3a. G-5: no public code for 2B-3; O2 in principle; row 1 waits on F2-S.)* *(B-2, 2026-10-20: F2-S approved and verified; resolved for 2B-3a; the public code stays OPEN for 2B-4 and 2B-5.)* |
 | US-D26 | removing `ai_artifacts_ignored*` | follows US-D16 (OPEN) | 2 |
-| US-D26 | `below_git_toplevel` | follows US-D4 (OPEN) | 2 |
+| US-D26 | `below_git_toplevel` | follows US-D4 (OPEN) *(US-D4 approved with conditions on 2026-10-20 (G-2), which does not decide this diagnostic)* | 2 |
 | US-D26 | `--feedback-file` | follows US-D18 (PROPOSED) | 2 |
 | US-D26 | `run.json`'s relative `generated_files`, `schema_version` 1 | follows US-D25 (PROPOSED) | 2 |
 | US-D5, US-D23, US-D34 | their conditions: cross-platform CI; Q1's access-list check; the G-1/G-2 gate | conditions, §14.3 | activation |
@@ -6038,7 +13177,9 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D17 | <ul><li>its conditions: §8.9.1's implementation conditions (US-D18, US-D22, US-D27 and US-D26's error code decided; US-D29)</li><li>its required tests</li><li>Batch 3's real-window checks and Batch 4's cross-platform validation</li></ul> | conditions, §8.9.1 | implementation; activation |
 | US-D2 | its conditions: §14.3, "Batch 2B-2 — decision gate" (the specification as corrected by its final contract resolution, with C-1 to C-5 approved; DD-1 to DD-3's exact values are reviewed before the implementation commit). The extension's half, re-entering the site, is Batch 3's (§15.4) | conditions | 2B-2's implementation |
 | US-D29 | the owner-dispatched CI on the branch, and the owner-approved fast-forward after Batch 4 | OPEN | the branch's CI; integration |
-| US-D22 | everything beyond Batch 2B-2's configuration messages | PROPOSED | 2B-3 to 2B-6; Batch 3 |
+| US-D22 | everything beyond Batch 2B-2's configuration messages *(and beyond Batch 2B-3's user-facing messages, approved on 2026-10-20, G-11)* | PROPOSED | 2B-3 to 2B-6; Batch 3 |
+| US-D4 | its conditions: T-1 to T-16 implemented as tests passing on Windows, Linux and macOS (§14.3, "Batch 2B-3 — owner decisions and final contract gate", part 2). The `below_git_toplevel` diagnostic is not decided by it | conditions | 2B-3a's implementation |
+| US-D8 | T-15: a different repository reusing a former repository's path inherits its namespace | OPEN: options A, B and C (§14.3, "Batch 2B-3 — owner decisions and final contract gate", part 3) *(decided on 2026-10-20, B-1: option A, an accepted limitation; option C deferred)* | 2B-3a |
 
 **Decisions that block Batch 2 on their own:**
 
@@ -6047,7 +13188,7 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D10 | Decided: APPROVED with conditions on 2026-10-18 as a design, with the probe gap accepted for design only (§9.5.1). It no longer holds Batch 2 back under §14.3's OPEN rule, but its implementation conditions and release gates remain. |
 | US-D14 | Decided: APPROVED with conditions on 2026-10-18, as Refined Option A′ (§16.4.1). It no longer holds Batch 2 back under §14.3's OPEN rule, but its implementation conditions remain. |
 | US-D28 | Decided: APPROVED with conditions on 2026-10-18, as a design contract (§16.5.11). It no longer holds Batch 2 back under §14.3's OPEN rule, but its activation gates remain. |
-| US-D26 | approved in part on 2026-10-16; still: the `STORAGE_UNAVAILABLE` code, and the rows that follow other decisions (below). For Batch 2B-2 this was Q-1 (§14.3, "Batch 2B-2 — decision gate"): approved in principle on 2026-10-19, and the mapping approved as M-1 (C-1). |
+| US-D26 | approved in part on 2026-10-16; still: the `STORAGE_UNAVAILABLE` code, and the rows that follow other decisions (below). For Batch 2B-2 this was Q-1 (§14.3, "Batch 2B-2 — decision gate"): approved in principle on 2026-10-19, and the mapping approved as M-1 (C-1). For 2B-3 (2026-10-20, G-5 and G-14): resolved before 2B-3a; O2 in principle; F2-S open. Later that day F2-S was approved and verified (B-2). |
 
 Every other Batch 2 decision may be approved on the review's advice alone, if the owner chooses.
 
@@ -6080,6 +13221,7 @@ Every other Batch 2 decision may be approved on the review's advice alone, if th
 | RK-17 | A stale legacy `.ai/<id>/task.md` in the repository confuses an agent | low–medium | medium | the Execution Location wording names the work folder; §16.4 option A′; F22 guards keep it out of evidence |
 | RK-18 | Owner decisions that block Batch 2 (US-D26; US-D28, US-D14 and US-D10 were decided on 2026-10-18) wait on evidence or review | medium | schedule | Batch 0A and Batch 1 proceed meanwhile; Batch 0B can run in parallel |
 | RK-19 | A red required CI job on the branch is normalized as "expected" | low | high | §15.4: only ledger entries are excused, CI is still reported red, and the ledger must be empty before Batch 3's gate |
+| RK-20 | A different repository created at a former repository's exact path inherits its namespace (T-15): its Project Instructions, policies, Fix Modes and Repository Profile (2B-3), and from 2B-4 its work items and memory | low | medium | accepted for 0.1.6 (B-1, 2026-10-20) and stated in §7.3, §7.6 and the release notes; visible through `show` and `task-preview`; removable with the existing commands or another `BUGPILOT_HOME`; an explicit reset (option C) deferred to a future design, not part of 0.1.6 *(2026-10-21, E-6: widened to the Verification Policy and AI Behavior, which are policy-bearing; restated in the activation review; §14.3, "Batch 2B-3b — decision gate and implementation contract", part 8)* |
 
 ### 16.3 Assumptions
 
@@ -6756,6 +13898,64 @@ These add to the gates that already apply; they do not replace them:
 | 2026-10-19 | 2B-2 | **Batch 2B-2 decision gate recorded and the slice specified; nothing implemented or activated (owner decision; plan only).** <ul><li>**D-1 to D-9:** design directions, subject to detailed contract verification.<ul><li>US-D2 APPROVED with conditions;</li><li>US-D29 and US-D22 APPROVED in part;</li><li>US-D3's warning direction set (its text is Q-4; `legacy_config_dir_variable` deferred);</li><li>US-D26's `STORAGE_UNAVAILABLE` stays OPEN.</li></ul></li><li>**Specified:** the scope, the allowlist (base, and a proposed expansion), the per-module changes, the MCP per-call scope, the error mapping, the designed-difference check, the import allowlist, the test matrix, the test-suite findings, the compatibility changes, exclusions, stop conditions and acceptance (§14.3, "Batch 2B-2 — decision gate").</li><li>**Conflicts recorded, not resolved:**<ul><li>blocker 5;</li><li>§8.6 against the frozen contract's generic code;</li><li>§14.3's batch-wide preconditions;</li><li>§14.3 step 3 against G-3.</li></ul></li><li>**Open questions:** Q-1 to Q-6.</li><li>**Counts:** 21 APPROVED, 7 OPEN, 7 PROPOSED, 4 DEFERRED.</li></ul> No branch was created, no test was run, and nothing was committed, pushed or dispatched. Batch 2B-2 to 2B-6 NOT STARTED. |
 | 2026-10-19 | 2B-2 | **Batch 2B-2 final contract resolution recorded; nothing implemented or activated (owner answers; plan only).** <ul><li>**Answers:**<ul><li>Q-1 approved in principle (an internal classification, with no new code);</li><li>Q-2 needed reconciliation, which is now presented;</li><li>Q-3 approved with conditions (per slice; the activation gates stay; missing evidence is never a pass);</li><li>Q-4 approved (the warning's text);</li><li>Q-5 approved as scope only;</li><li>Q-6 approved with conditions.</li></ul></li><li>**Reconciled:** the frozen rule that `StorageError` reports `INVALID_INPUT` (§8.10, the fixture) holds. The recommended M-1 keeps every 2B-2 surface's 0.1.5 code, through an `OSError`-family carrier in `errors.py`.</li><li>**Corrected in the gate's specification:**<ul><li>the error mapping;</li><li>the rule for reading user instructions;</li><li>a third designed difference (`handoff.json`);</li><li>the generator's per-session data root;</li><li>`jira.py`'s message (C-3).</li></ul></li><li>**Specified:** the MCP request-scope contract, the designed-difference check and approval procedure, and the per-slice prerequisites.</li><li>**Open:** C-1 to C-5.</li></ul> No register status changed (§14.3, "Batch 2B-2 — final contract resolution"). Nothing was branched, committed, pushed, dispatched or run. Batch 2B-2 to 2B-6 NOT STARTED. |
 | 2026-10-19 | 2B-2 | **C-1 to C-5 approved: the Batch 2B-2 design and implementation contract approved; implementation NOT STARTED (owner decision; plan only).** <ul><li>**C-1:** M-1. Existing public error codes are preserved, through `errors.StorageAccessError(OSError)`. US-D26's `STORAGE_UNAVAILABLE` stays OPEN.</li><li>**C-2:** (a). Storage's link refusal for the user scope stands, as `INVALID_INPUT`.</li><li>**C-3:** (a). Only the Jira not-configured message changes, to `~/.bugpilot/config/config.toml`.</li><li>**C-4:** approved with conditions. DD-1 to DD-3 are approved as expected categories, and their exact values and evidence are reviewed before the implementation commit.</li><li>**C-5:** (a). This record goes to `main` as a documentation-only commit. The branch is created from the resulting verified commit, only when authorized.</li><li>**Unchanged:**<ul><li>Batch 2B-1 is COMPLETED, NOT ACTIVATED;</li><li>Batch 0B and all activation gates stay mandatory;</li><li>no register status changed;</li><li>the version is 0.1.5.</li></ul></li></ul> (§14.3, "Batch 2B-2 — final contract resolution", "Owner approval of C-1 to C-5"). Batch 2B-2 to 2B-6 NOT STARTED. |
+| 2026-10-19/20 | 2B-2 | **Batch 2B-2 implemented and verified locally on Windows; uncommitted; NOT activated.** <ul><li>**Branch:** `verify/0.1.6-storage`, local only, at `ea9659c`, with the change uncommitted.</li><li>**Phase A:** neutral, with zero differences before any product change.</li><li>**Allowlist:** three test helpers added, owner-approved after a stop.</li><li>**S2 and G-3:** Option A, owner-approved after a second stop; two tests updated.</li><li>**Designed differences:** exactly DD-1 to DD-3 observed, with independent evidence tests. Approval is pending, so the approval-gate test fails by design.</li><li>**Tests:** focused suites ran inside the full-suite run, which included every focused file; full Python suite 3,755 passed, 57 skipped (POSIX-only and platform skips, not counted as passed), 1 failed: the approval gate, by design, naming DD-1 to DD-3; extension typecheck passed and 2,350 unit tests passed.</li><li>**Open:**<ul><li>two POSIX-only assertion decisions;</li><li>Linux and macOS verification;</li><li>review of the DD values;</li><li>commit authorization.</li></ul></li></ul> (§14.3, "Batch 2B-2 — implementation and local verification"). Batch 2B-3 to 2B-6 NOT STARTED. |
+| 2026-10-20 | 2B-2 | **DD-1 to DD-3 approved; two POSIX-only test changes approved and made; final local verification.** <ul><li>**DD values:** exact values verified, DD-2 differing only by the path. `approved` is set to 2026-10-20, and the approval gate passes.</li><li>**POSIX tests:** `test_a_folder_at_the_credentials_path_is_an_error_and_is_left_as_it_was` (POSIX: `StorageError`) and `test_a_dangling_link_planted_at_the_temp_name_is_never_written_through[credentials]` (POSIX: `StorageAccessError`). The POSIX branches are source-based and not run.</li><li>**Results:** full Windows suite 3,756 passed, 57 skipped (platform skips: POSIX and macOS cases, and one deferred subst-drive check; none counted as passed), 0 failed. Extension typecheck passed, and 2,350 unit tests passed.</li><li>**Open:**<ul><li>commit authorization;</li><li>CI 9/9 on the branch, Linux and macOS included;</li><li>integration.</li></ul></li></ul> (§14.3, "Batch 2B-2 — implementation and local verification"). Nothing staged, committed or pushed; NOT activated. |
+| 2026-10-20 | 2B-2 | **Batch 2B-2 committed on `verify/0.1.6-storage`; not pushed; not CI-verified; NOT activated.** <ul><li>**The commit:** one commit (`feat(storage): move global configuration onto unified storage (Batch 2B-2)`), parent `ea9659c`, by the noreply identity, holding the 32 approved files: nine production files, the approved tests and helpers, three new test and baseline entries, the inventory and this plan.</li><li>**Evidence (local Windows, as reported before the commit):** full suite 3,756 passed, 57 skipped, 0 failed. Extension typecheck passed, and 2,350 unit tests passed. DD-1 to DD-3 approved, with the gate passing.</li><li>**Not verified:** POSIX behaviour, until Linux and macOS CI runs.</li></ul> (§14.3, "Batch 2B-2 — implementation and local verification"). Pushing the branch and dispatching CI need separate authorization. |
+| 2026-10-20 | 2B-2 | **CI run 39463867534 on `7a1c891`: FAILURE; remediated by `0b7dd6c`.** <ul><li>**Results:** four jobs failed, four succeeded, and macOS safety was cancelled because its runner was not acquired.</li><li>**The failures:** the same two isolation-guard tests on Linux and macOS. The `decoy` fixture's new-layout `config/` and `config.toml` took the umask's bits, so G-3 refused the decoy's credentials, correctly, before any write, and the guard was never reached.</li><li>**What was not found:** a product defect, or an unauthorized write.</li><li>**The fix:** `0b7dd6c`, `tests/test_isolation_guard.py`'s `decoy` fixture only. On POSIX, `config/` is set to `0700` and `config.toml` to `0600`, before the snapshot. It was pushed by fast-forward with the owner's authorization.</li></ul> The run stays recorded as a failure (§14.3, "Batch 2B-2 — cross-platform CI verification"). |
+| 2026-10-20 | 2B-2 | **CI run 39486855193 on `0b7dd6c`: SUCCESS, 9/9. Batch 2B-2 — IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED.** <ul><li>**Safety:** Ubuntu 3.13 and 3.10 1,758 passed and 48 skipped each; macOS 1,760 passed, 46 skipped; Windows 1,772 passed, 59 skipped.</li><li>**Full suite:** Ubuntu 3,733 passed, 54 skipped; macOS 3,735 passed, 52 skipped; Windows 3,753 passed, 59 skipped.</li><li>**Deselected:** one per Python job.</li><li>**Extension:** 2,348 passed and 2 skipped; the evidence boundary 27 passed.</li><li>**POSIX:** the isolation guard, the G-3 rewrite expectations (`0o600` kept, `0o644` refused and left), the eight permission patterns, the two POSIX-only assertions, and every test of the two new test files ran and passed on Linux and macOS.</li></ul> DD-1 to DD-3 remain approved. Not integrated into `main`; not activated. Batch 2B-3 to 2B-6 NOT STARTED. |
+| 2026-10-20 | 2B-3 | **Batch 2B-3 decision gate and slice design recorded; Batch 2B-3 NOT STARTED.** <ul><li>**Nature:** documentation and a read-only review at `92efd66`. No code, test, fixture, golden, baseline or extension change, and no probe.</li><li>**Proposed:** <ul><li>the split into 2B-3a (namespace and identity access, and four settings) and 2B-3b (the Verification Policy, AI Behavior and every task-text change);</li><li>US-D26's `STORAGE_UNAVAILABLE`, or an interim rule (O1 to O3), needed before 2B-3a;</li><li>the storage-failure matrix, P-1, identity cases T-1 to T-16, and US-D9's semantics;</li><li>the JSON timing (J-1 or J-2), the profile contract (PC-1 to PC-3), and DD-4 to DD-12;</li><li>2B-3b's six goldens with per-golden approval;</li><li>both slice contracts.</li></ul></li><li>**Found:** <ul><li>today's extension Edit can overwrite relocated AI Behavior and Verification files (2B-3b, and a 0.1.5 extension with a 0.1.6 CLI);</li><li>the golden harnesses write `.bugpilot/` inputs directly;</li><li>a different repository later at a former path inherits its namespace (frozen behaviour, newly stated for settings).</li></ul></li><li>**Asked:** G-1 to G-14.</li></ul> No decision status changed; committed with the other 2B-3 records as `docs(storage): record Batch 2B-3 decision gate and 2B-3a contract` (not pushed) (§14.3, "Batch 2B-3 — decision gate and slice design"). |
+| 2026-10-20 | 2B-3 | **Batch 2B-3 owner decisions and final contract gate recorded; 2B-3a NOT READY; 2B-3a and 2B-3b NOT STARTED.** <ul><li>**Decisions:** <ul><li>G-1, G-4, G-6, G-11 and G-14 approved;</li><li>G-2 approved with conditions;</li><li>G-3 approved in part (T-15 not approved);</li><li>G-5, G-8, G-9 and G-10 approved in principle;</li><li>G-7 as a staging direction only;</li><li>G-12 for planning only;</li><li>G-13 deferred to the 2B-3b gate.</li></ul></li><li>**Register:** US-D4 APPROVED with conditions, US-D8 APPROVED in part, US-D9 APPROVED, and US-D22's approved part widened. US-D26 stays approved in part. Counts: 24 APPROVED, 5 OPEN, 6 PROPOSED, 4 DEFERRED.</li><li>**Analysis:** <ul><li>T-1 to T-16 verified, with T-13 corrected (Windows only);</li><li>T-15 is pinned by a frozen identity test, and cannot be detected without a record change; options A, B and C, A recommended with C deferred;</li><li>the 11-row US-D26 matrix reconciled per boundary;</li><li>J-2's interim discrepancies listed, and called non-compliant;</li><li>PC-1's exact values and M-P's exact behaviour specified;</li><li>no baseline or golden blocker.</li></ul></li><li>**Blocking:** <ul><li>B-1 (T-15) and B-2 (F2-S: O2 meets F2's letter only if F2 governs policy refusals and invalid configuration, not a translated `StorageUnavailable`);</li><li>B-3 (PC-1's values) and B-4 (M-P's behaviour) as approvals.</li></ul></li></ul> Documentation only; committed with the other 2B-3 records as `docs(storage): record Batch 2B-3 decision gate and 2B-3a contract` (not pushed) (§14.3, "Batch 2B-3 — owner decisions and final contract gate"). |
+| 2026-10-20 | 2B-3a | **B-1 to B-4 decided; the 2B-3a implementation contract recorded; 2B-3a's decisions complete; implementation NOT STARTED and not authorized.** <ul><li>**B-1:** T-15 option A, an accepted configuration-contamination limitation (§7.3, §7.6, RK-20); option C deferred; US-D8 approved in full.</li><li>**B-2:** F2-S approved as a dated contract clarification (§8.6, §8.10) and verified. No fixture or public-code change; exact CLI JSON, text and MCP assertions recorded; US-D26 stays approved in part, resolved for 2B-3a.</li><li>**B-3:** PC-1, one expected fixture line, `path` to `settings/repository_profile.json`; four tests.</li><li>**B-4:** M-P verified against MCP SDK 2.1.1 and the existing tests: no new envelope, codes kept, narrow catching, request scope unchanged.</li><li>**JSON:** J-2 kept; 2B-7, a dedicated contract-completion step for rows 18 to 21, proposed.</li><li>**Found:** R-PRE (`instructions set --scope user` and `verification set`, `clear` and `reset` must check the project namespace before writing), and recorded residue.</li></ul> Counts unchanged: 24 APPROVED, 5 OPEN, 6 PROPOSED, 4 DEFERRED. Documentation only; committed with the other 2B-3 records as `docs(storage): record Batch 2B-3 decision gate and 2B-3a contract` (not pushed) (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract"). |
+| 2026-10-21 | 2B-3a | **Batch 2B-3a implemented and verified locally on Windows; uncommitted; not CI-verified; NOT ACTIVATED.** <ul><li>**Push:** `5b66ffe` fast-forwarded to `origin/verify/0.1.6-storage` (owner-authorized); no CI.</li><li>**Approvals during implementation:** <ul><li>`test_cli_json.py`, one test's setup;</li><li>`test_storage_api_boundary.py`, `APPROVED_IMPORTERS`;</li><li>the removal of two unused chokepoint functions;</li><li>a third `test_global_config_storage.py` assertion, `["config", "repositories"]`.</li></ul></li><li>**Neutrality:** M-a and CH-1 matched every frozen record under DD-1 to DD-3 before any product change.</li><li>**Implementation:** <ul><li>the chokepoint `repository_settings.py`; the four settings through it;</li><li>R-PRE, M-P, row 22 and US-D9 help;</li><li>PC-1's one fixture line;</li><li>the new `test_repository_settings_storage.py` (41 passed, 2 macOS-only skips).</li></ul></li><li>**Phase D:** exactly DD-4 to DD-12, recorded with `approved` empty.</li><li>**Tests:** <ul><li>Python: 2 failed, 3,805 passed, 59 skipped. The failures were the then-unapproved old assertion and the approval gate; the approved line then passed on its own.</li><li>Extension: 2,350/2,350 from Git Bash. From PowerShell, one environment-dependent failure (`Path` against `PATH`), unrelated and recorded.</li></ul></li></ul> Awaiting the owner's review of the implementation and of DD-4 to DD-12 (§14.3, "Batch 2B-3a — implementation and local verification"). |
+| 2026-10-21 | 2B-3a | **DD-4 to DD-12 approved. Batch 2B-3a IMPLEMENTED LOCALLY; VERIFICATION COMPLETE ON WINDOWS; NOT COMMITTED; NOT ACTIVATED.** <ul><li>**DD values:** <ul><li>exact values verified against the frozen records under DD-1 to DD-3, with nothing missing or extra;</li><li>the nine evidence tests pass;</li><li>`approved` is set to 2026-10-21, and the approval gate passes.</li></ul></li><li>**DD-5:** `.bugpilot` now comes from the unchanged Verification Policy's own folder creation alone; R-PRE writes nothing.</li><li>**DD-9:** 26 lines to 22, exactly the four moved files removed, the order kept.</li><li>**DD-10 to DD-12:** one repository ID, the session's, so no foreign ID is hidden. They are approved under J-2 and stay noncompliant with §8.10 rows 18 to 21.</li><li>**PC-1:** only line 7's `path` differs; its consumer tests pass.</li><li>**Results:** <ul><li>fresh full Windows suite **3,807 passed, 59 skipped, 0 failed, 0 errors, 0 deselected**, exit code 0;</li><li>extension from Git Bash: typecheck passed, 2,350 passed;</li><li>from PowerShell, `executablePath.test.ts` 11/12 (`Path` against `PATH`), an unresolved environment observation.</li></ul></li><li>**Open:** <ul><li>the implementation review;</li><li>commit authorization;</li><li>a push;</li><li>CI 9/9, Linux and macOS included.</li></ul></li></ul> 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — implementation and local verification", "Owner approval of DD-4 to DD-12 and final local verification"). Nothing staged, committed or pushed. |
+| 2026-10-21 | 2B-3a | **Batch 2B-3a committed on `verify/0.1.6-storage`; not pushed; not CI-verified; NOT ACTIVATED.** <ul><li>**The commit:** one commit (`feat(storage): move project settings into repository storage (Batch 2B-3a)`), parent `5b66ffe`, by the noreply identity. It holds the 30 approved files: <ul><li>seven production files, one of them the new chokepoint `repository_settings.py`;</li><li>22 test, helper, fixture and record files;</li><li>this plan.</li></ul></li><li>**Evidence (local Windows, as reported before the commit):** <ul><li>full suite: 3,807 passed, 59 skipped, 0 failed, 0 errors, 0 deselected;</li><li>extension, from Git Bash: typecheck passed, and 2,350 passed;</li><li>DD-4 to DD-12 owner-approved, with the gate passing;</li><li>PC-1 approved and tested.</li></ul></li><li>**Still open:** <ul><li>Linux and macOS verification, until CI runs;</li><li>J-2's §8.10 rows 18 to 21, for the separate contract-completion step (the proposed 2B-7);</li><li>the PowerShell `Path`/`PATH` environment issue, unresolved.</li></ul></li></ul> 2B-3b NOT STARTED; Unified Storage NOT ACTIVATED (§14.3, "Batch 2B-3a — implementation and local verification", "Owner approval of DD-4 to DD-12 and final local verification"). Pushing the branch and dispatching CI need separate authorization. |
+| 2026-10-21 | 2B-3a | **CI run 39675645316 on `743f542`: SUCCESS, 9/9, on attempt 2. Batch 2B-3a — IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED.** <ul><li>**Push:** `5b66ffe..743f542`, fast-forward, owner-authorized.</li><li>**Attempt 1 (failure):** eight jobs succeeded with 0 failed tests. macOS safety was cancelled: its runner was not acquired (macOS arm64 capacity).</li><li>**Attempt 2:** the owner re-ran the failed job. macOS safety 1,770 passed, 46 skipped, 1 deselected. The other eight are attempt 1's results.</li><li>**Safety:** <ul><li>Ubuntu 3.13 and 3.10: 1,768 passed and 48 skipped each;</li><li>macOS: 1,770 passed, 46 skipped;</li><li>Windows: 1,782 passed, 59 skipped.</li></ul></li><li>**Full suite:** <ul><li>Ubuntu: 3,783 passed, 57 skipped;</li><li>macOS: 3,787 passed, 53 skipped;</li><li>Windows: 3,804 passed, 61 skipped.</li></ul></li><li>**Deselected:** one per Python job.</li><li>**Extension:** 2,348 passed and 2 skipped; the evidence boundary 27 passed.</li><li>**Linux and macOS:** <ul><li>T-10 and T-11 ran on macOS; T-13 matched each system;</li><li>the POSIX permission, link, containment and write-witness tests, R-PRE, M-P, DD-4 to DD-12, PC-1, the chained baselines and the goldens ran and passed;</li><li>the only new skips are the new file's platform-gated tests.</li></ul></li></ul> DD-4 to DD-12 remain approved. Not integrated into `main`; not activated. J-2's rows 18 to 21 pending; the PowerShell `Path` issue deferred to Batch 3; 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — cross-platform CI verification"). |
+| 2026-10-21 | 2B-3b | **Batch 2B-3b decision gate recorded: E-1 to E-10 decided; implementation NOT AUTHORIZED; NOT STARTED.** <ul><li>**Texts:** the seven AI-facing texts approved (E-1); three user-facing wording changes, and display form everywhere (E-2).</li><li>**Evidence:** <ul><li>DD-5 → DD-13 and DD-9 → DD-15 only, through an explicit supersession table. B1 relies on no intentionally failing old-state assertion: a pending pair is reported by the approval gate until the owner approves its successor, and only then is it active. The approved records and the historical CI evidence are unchanged (E-3).</li><li>DD-19 to DD-26 each get pointer-specific evidence measured from the goldens (E-8).</li></ul></li><li>**Security:** a link-race review in B1. A fix outside the allowlist needs a separate decision.</li><li>**Scope:** <ul><li>allowlists corrected (E-4);</li><li>`repository_settings.remove_file` specified (E-5).</li></ul></li><li>**Risks:** <ul><li>T-15 widened to the two policy-bearing files (E-6);</li><li>the extension's Edit and Reset restricted until Batch 3, whose compatibility verification is required before integration or activation (E-7).</li></ul></li><li>**Contracts:** <ul><li>DD-13 to DD-26 approved as categories (E-8);</li><li>J-2 for the two commands (E-9);</li><li>the golden approval protocol (E-10).</li></ul></li></ul> No code, test, golden or record changed; the register's statuses are unchanged (§14.3, "Batch 2B-3b — decision gate and implementation contract"). |
+| 2026-10-21 | 2B-3b | **Phase A implemented and verified locally on Windows; uncommitted; not CI-verified; B1 and B2 NOT STARTED; NOT ACTIVATED.** <ul><li>**Files:** the empty `tests/baselines/0.1.6-batch2b3b/designed_differences.json` (base `9311892`); `tests/storage_baseline.py` (`DESIGNED_CHAIN`, `SUPERSEDED` and the supersession check); `tests/test_storage_baseline.py` (the gate, the chain, the evidence rule, 17 new tests).</li><li>**Results:** <ul><li>54 baseline tests pass; `--check` "baselines match";</li><li>both pairs inactive, and DD-5's and DD-9's evidence still required and passing;</li><li>DD-1 to DD-12 approved and their 12 evidence tests pass;</li><li>236 golden, baseline and settings tests pass, with 2 macOS-only skips;</li><li>the 17 goldens and every frozen and approved record byte-identical.</li></ul></li><li>**For the owner:** the pending-state retirement wording, to confirm before B1. *(Confirmed on 2026-10-21.)*</li></ul> (§14.3, "Batch 2B-3b — Phase A: baseline neutrality"). Nothing staged, committed or pushed. |
+| 2026-10-21 | 2B-3b | **B1-S3 OPTION A CANDIDATE IMPLEMENTED LOCALLY; ADVERSARIAL SECURITY VALIDATION PENDING; NOT COMMITTED; NOT VERIFIED.** <ul><li>**B1-S:** every settings reader validated a path and then opened it with a call that follows links. This is a suspected race, from the code; no reproduction was performed.</li><li>**Option A:** `safe_paths.read_verified`: open (`O_NOFOLLOW` where the system has it), check again through the reader's own storage accessor, then compare identities. It is detection after the open, not a guarantee by construction.</li><li>**Readers moved to it:** project and user instructions, project settings, the Repository Profile, project and user Fix Modes, and `config.toml`. The Verification Policy and AI Behavior are unchanged.</li><li>**Tests:** <ul><li>27 new non-adversarial tests;</li><li>two existing tests' injections moved to `os.open` (owner-approved);</li><li>full Windows suite 3,851 passed, 59 skipped, 0 failed.</li></ul></li><li>**Protected files:** 11/11 and 213/213 non-exempt unchanged; `safe_paths.py` changed under the explicit authorization.</li><li>**Missing:** the adversarial tests, CI on Linux and macOS, and the owner's review.</li></ul> The TOCTOU risk is not resolved; B1-M NOT STARTED (§14.3, "Batch 2B-3b — B1-S security review and the Option A candidate"). Nothing staged, committed or pushed. |
+| 2026-10-21 | 2B-3b | **OPTION C M1 IMPLEMENTED LOCALLY; CONSUMER MIGRATION PENDING; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED.** <ul><li>**Option C:** chosen by the owner after B1-S (B1-S4), designed and probed on Windows (B1-S5), its M1 authorized (B1-S6).</li><li>**M1:** `storage` gains `SettingsContent` and seven readers that return a file's bytes, with every folder from the data root held open while the file is read (`_held_folders.py`: `dir_fd` on POSIX, held handles on Windows). The checks and refusal words are the path accessors'. No consumer uses them yet.</li><li>**Tests:** 73 new non-adversarial tests (72 run on Windows); full Windows suite 3,923 passed, 60 skipped, 0 failed.</li><li>**Protected files:** owner 11/11; the 2B-3a set 212/214 (`storage.py` under M1, `safe_paths.py` under B1-S3); the B1-S3 candidate 11/11; goldens and records 25/25.</li><li>**Missing:** the consumer migration, the adversarial suite (M3), CI on Linux, macOS and Windows, and the owner's review.</li></ul> The TOCTOU risk is not resolved (§14.3, "Batch 2B-3b — Option C M1: the storage safe-read foundation"). Nothing staged, committed or pushed. |
+| 2026-10-22 | 2B-3b | **OPTION C M2 IMPLEMENTED LOCALLY; FOCUSED VERIFICATION STOPPED ON ONE EXISTING TEST AWAITING THE OWNER; FULL SUITE NOT RUN; DD-27 PROPOSED, NOT APPROVED; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED.** <ul><li>**M1 compatibility gate** (read-only): Windows' atomic-write fallback is pre-existing and not newly reached; POSIX folders need read permission; the consumers' contracts were measured on `d834082`; six decisions were requested.</li><li>**The owner's decisions:** a final-file exception; one link issue (a proposal); a data root that is a file fails closed; POSIX read permission accepted; non-link reparse points refused; two test injections moved.</li><li>**M2:** project and user instructions, project settings, the Repository Profile, project and user Fix Modes and `config.toml` read through storage's held readers; `StorageFileReadError`; the data root opened by its long form and absent only for Windows' own not-found codes; Option A's verified read removed, `decode_text` kept; `is_saved` removed.</li><li>**Parity:** 32 of 33 contract cases byte-identical with `d834082`; the one difference is DD-27, proposed and not approved.</li><li>**Results:** 679 + 755 + 573 passed in the focused groups; one existing test (`test_row1_an_unreadable_record_is_one_sentence_with_each_surfaces_code`) fails because its injection point is no longer on the read path, and awaits the owner; the full suite was not run.</li></ul> The TOCTOU risk is not resolved (§14.3, "Batch 2B-3b — Option C M2: consumer migration"). Nothing staged, committed or pushed. |
+| 2026-10-22 | 2B-3b | **OPTION C M2 IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; DD-27 APPROVED; A SINGLE-MODE READ FINDING AWAITS THE OWNER; ADVERSARIAL VALIDATION PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED.** <ul><li>**Row 1:** `tests/test_repository_settings_storage.py`'s fixture `unreadable_record` refuses `repository.json` at both of its readers (storage's path read, which the writers' checks still use, and the held folder's `open_file`); the test asserts both fired; every earlier assertion unchanged. The held seam alone was tried first and failed the `set` handlers' assertions.</li><li>**DD-27 APPROVED** (owner, 2026-10-22), exactly as worded; surfaces: `fix-mode list` JSON and `WARN:` lines, MCP `list_fix_modes`, the extension through the CLI. No compared baseline record holds it, so the 2B-3b record has no entry for it and stays empty; "baselines match".</li><li>**Finding, not approved:** single-mode reads (`fix-mode show`, `update`, `delete`, `duplicate`) of a link to a sibling inside the Fix Mode folder now get the DD-27 issue; exit and error code unchanged; the owner's decision is needed (a proposed DD-28 or another rule).</li><li>**Results:** focused groups 680 + 755 + 573 passed; full Windows suite **3,969 passed, 60 skipped, 0 failed, 0 errors, 0 deselected**, exit 0, in 24 minutes. Against M1's run (3,923 passed, 60 skipped), 46 more pass: M2's new tests (34 more in the read-safety file, 12 in the held-read file); the 60 skips are the same platform skips.</li></ul> The link-race gate stays OPEN (§14.3, "Batch 2B-3b — Option C M2: Row 1 repair, DD-27 approval and verification"). Nothing staged, committed or pushed. |
+| 2026-10-22 | 2B-3b | **OPTION C M2 VERIFIED LOCALLY ON WINDOWS; DD-27 AND DD-28 APPROVED AND EVIDENCED; TOCTOU RISK UNRESOLVED; ADVERSARIAL VALIDATION (M3) PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED.** <ul><li>**DD-28 APPROVED** (owner, 2026-10-22), exactly as worded: one mode read by its id that is a link to a sibling inside the Fix Mode folder (a file, a folder, dangling, a Windows junction) gets the DD-27 text; exit 1, `INVALID_INPUT`, the JSON envelope and every non-link entry unchanged. Observed on `show`, `update` and `delete`; `duplicate` reads no mode by its id and is unchanged, so DD-28 is not expanded to it.</li><li>**Evidence against the literal** (written out in `tests/test_settings_read_safety.py`, never imported): 33 tests over `fix-mode list` JSON and `WARN:`, MCP `list_fix_modes`, `show`/`update`/`delete` (JSON and text), the user scope, and DD-28's boundaries (`duplicate`, non-link entries). No production change.</li><li>**Row 1:** both hooks kept; one explicit assertion per hook.</li><li>**Results:** the full Windows suite **4,000 passed, 60 skipped, 0 failed, 0 errors, 0 deselected**, exit 0, in 21 minutes; against the previous run (3,969 passed), 31 more pass: the new evidence tests; the 60 skips are the same platform skips.</li></ul> The 2B-3b record stays empty; the link race is unresolved (§14.3, "Batch 2B-3b — Option C M2: DD-28 approval and exact-message evidence"). Nothing staged, committed or pushed. |
+| 2026-10-22 | 2B-3b | **OPTION C M2 WITH THE CASE B FIX VERIFIED LOCALLY ON WINDOWS; THE POSIX PERMISSION TESTS NOT YET RUN (POSIX ONLY); PYTHON 3.10 CI COVERAGE ADDED, NOT YET RUN; TOCTOU RISK UNRESOLVED; M3 PENDING; NOT COMMITTED.** <ul><li>**Case B (POSIX):** a folder with read but no search permission made a file read fail as the file's own, so the settings readers fell back to defaults and the Fix Modes got an issue. Owner decision, option (a): fatal, as a folder-access failure.</li><li>**Fix:** `_held_folders.FolderDenied`, raised only when the open fails and the no-follow look at the entry (which needs search on the folder, nothing on the file) is refused; `storage._content` re-raises it as the plain folder `PermissionError`. Case C (an unreadable file in a searchable folder) unchanged; Windows, writers, identity and the record cache unchanged.</li><li>**Tests:** three POSIX-only permission tests (A, B, C) in `tests/test_storage_held_read.py`, skipped on Windows; not yet run anywhere.</li><li>**CI:** the four M1/M2 test files appended to the `safety-and-baselines` list (Python 3.10 included); nine jobs unchanged; not yet run.</li><li>**Results:** the full Windows suite **4,000 passed, 63 skipped, 0 failed, 0 errors, 0 deselected**, exit 0, in 21 minutes; the same 4,000 as before the fix, and 3 more skips: the new POSIX-only permission tests.</li></ul> The link race is unresolved; M3 is open (§14.3, "Batch 2B-3b — Option C M2: POSIX Case B fix and CI coverage"). Nothing staged, committed or pushed. |
+| 2026-10-23 | 2B-3b | **WINDOWS EXCLUSIVE-FILE READ CORRECTION IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; WINDOWS CI REVALIDATION PENDING; TOCTOU RISK UNRESOLVED; M3 OPEN.** <ul><li>**Before it:** M1/M2 committed as `e789ce2` and pushed; CI run 39892585420 failed 7/9, on two Windows exclusive-lock tests; the test-only diagnostic `c795db4` pushed.</li><li>**CI run 39989051086 on `c795db4`:** 7/9. Linux, macOS and Ubuntu Python 3.10 succeeded. On both Windows jobs, `open()` was refused, the reader's `CreateFileW` with `FILE_FLAG_BACKUP_SEMANTICS` opened the locked file, the same open without it got winerror 32, and the read returned the file's bytes (Python 3.13.16, Windows Server 2025, NTFS).</li><li>**The owner-approved correction:** a file's data is opened without `FILE_FLAG_BACKUP_SEMANTICS`; folders keep it. A failed data open is judged by an attributes-only look, as on POSIX, so a folder, a junction or a link at a file's name is reported as before. Only `bugpilot/core/_held_folders.py` changed in production.</li><li>**Tests:** two Windows regression tests (3 cases) in `tests/test_storage_held_read.py`; both diagnostic tests kept.</li><li>**Local:** the full Windows suite 4,003 passed, 63 skipped, 0 failed (exit 0); the literal correction alone failed 28 Option C tests, so a folder, junction or link at a file's name keeps its classification through the look; baselines match; goldens and records 25/25; plan checker 0 problems; `git diff --check` clean.</li><li>**Unchanged:** DD-27, DD-28, US-D29, the activation blockers, the version 0.1.5; B1-M and B2 NOT STARTED; Unified Storage inactive.</li></ul> |
+| 2026-10-23 | 2B-3b | **OPTION C M1/M2 — CROSS-PLATFORM FUNCTIONAL AND COMPATIBILITY CI VERIFICATION PASSED; ADVERSARIAL SECURITY VALIDATION (M3) OPEN; TOCTOU RISK UNRESOLVED; BATCH 2B-3b NOT COMPLETE; NOT ACTIVATED.** <ul><li>**The chain:** `e789ce2` → run 39892585420 (7/9, two Windows exclusive-file failures) → the diagnostics `c795db4` → run 39989051086 (7/9, the cause found) → the correction `14528ff` → run 40039289638 (**success, 9/9**).</li><li>**The correction:** file-data opens omit `FILE_FLAG_BACKUP_SEMANTICS`; folder opens keep it; an attributes-only look keeps the classification of links and non-files; a sharing violation stays the file's own read failure, never "absent".</li><li>**Run 40039289638** (`workflow_dispatch`, attempt 1, head `14528ff`): Windows safety 2,041 passed and full suite 4,000 passed; Ubuntu safety 1,982 passed on Python 3.13 and on 3.10; macOS safety 1,986; Ubuntu full 3,935; macOS full 3,939; no failure; the extension's two jobs passed (27 and 2,348 tests).</li><li>**Not shown by CI:** that the link race is closed. M3 stays OPEN; B1-M, B2 and Phase C remain.</li><li>**Unchanged:** DD-27, DD-28, US-D29, the eight activation blockers, the frozen records, the version 0.1.5; Unified Storage inactive.</li></ul> |
+| 2026-10-23 | 2B-3b | **M3-R2A (F1, F2) IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; LINUX AND MACOS CI PENDING; F1'S ANCESTOR-RACE PROOF PENDING; R3 NOT COMPLETE; M3 OPEN.** <ul><li>**M3-R1 (static review):** no demonstrated vulnerability. F1: the Windows final-path check compared two folded final paths read at different moments, a backstop conditional on an observed, undocumented NTFS behaviour. F2: a held folder's own query failure inside `open_file` was the file's own failure (defaults with a warning). F3 to F8 recorded only.</li><li>**F1:** the folder's part of the entry's final path compared exactly, the folder's own path read the same before and after the open, only the name folded; not containment by construction.</li><li>**F2:** `FolderFailed` for the held folder's own query failures; fatal `StorageAccessError` for every reader, and for the namespace while opening `repository.json`; the entry's own failures unchanged.</li><li>**Tests:** 24 cases in `tests/test_storage_held_read.py`; 20 fail against `HEAD`'s production files.</li><li>**Local:** the full Windows suite 4,027 passed, 63 skipped, 0 failed (exit 0); baselines match; goldens and records unchanged; plan checker 0 problems.</li><li>**Unchanged:** DD-27, DD-28, US-D29, the eight activation blockers, the Fix Mode selection policy, the version 0.1.5; B1-M and B2 NOT STARTED; Unified Storage inactive.</li></ul> |
+| 2026-10-24 | 2B-3b | **M3-R2A — CROSS-PLATFORM FUNCTIONAL AND REGRESSION CI VERIFICATION PASSED; F1'S ANCESTOR-RACE PROOF PENDING; R3 NOT COMPLETE; ADVERSARIAL SECURITY VALIDATION (M3) OPEN; BATCH 2B-3b NOT COMPLETE; NOT ACTIVATED.** <ul><li>**The commit:** `aadeefa` (parent `b472ed6`, 4 files), with the owner's approval of behaviour changes A, B and C; pushed by fast-forward.</li><li>**Run 40060798081** (`workflow_dispatch`, attempt 1, head `aadeefa`): 9/9. Windows safety 2,065 passed and full suite 4,024 passed (65 skipped each); Ubuntu safety 1,991 passed on Python 3.13 and on 3.10; macOS safety 1,995; Ubuntu full 3,944; macOS full 3,948; no failure; the extension's two jobs passed (27 and 2,348 tests).</li><li>**Verified:** F2's folder-failure classification functionally, on Windows; F1's comparison hardening by regression testing. Neither is adversarial validation.</li><li>**Evidence limit:** every Python job's skip list is cut, so this run does not show whether POSIX Cases A, B and C ran.</li><li>**Unchanged:** A, B and C as approved; F3 to F8 undecided; DD-27, DD-28, US-D29, the eight activation blockers, the version 0.1.5; B1-M, B2 and Phase C NOT STARTED; Unified Storage inactive.</li></ul> |
+| 2026-10-24 | 2B-3b | **M3-R2B (F3-A) IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; CROSS-PLATFORM CI PENDING; R3 NOT COMPLETE; M3 OPEN.** <ul><li>**F3:** an explicit or persisted selection whose project definition was on disk but could not be loaded ran the user's definition silently (the catalog's issues never reached resolution).</li><li>**F3-A (owner-approved):** such an id is refused with `INVALID_INPUT`; a genuinely absent project definition keeps today's behaviour; A2 and defect 5.6 deferred; DD-27 and DD-28 unchanged.</li><li>**The change:** `fix_mode_store.py` only (`FixModeIssue.file_name`, `FixModeCatalog.blocked_by`, `_CatalogRegistry`, `FixModeUnloadableError`); `duplicate` keeps its source resolution, as DD-28's evidence requires.</li><li>**Tests:** 23 cases in the store, CLI and MCP test files; 18 fail against `HEAD`'s behaviour.</li><li>**Local:** the full Windows suite 4,050 passed, 63 skipped, 0 failed (exit 0); baselines match; goldens and records unchanged; plan checker 0 problems.</li><li>**Unchanged:** the listings and picker, the error codes, the goldens and records, US-D29, the eight activation blockers, the version 0.1.5; B1-M, B2 and Phase C NOT STARTED.</li></ul> |
+| 2026-10-24 | 2B-3b | **M3-R2B (F3-A) — CROSS-PLATFORM FUNCTIONAL AND COMPATIBILITY CI VERIFICATION PASSED; F1'S ANCESTOR-RACE PROOF PENDING; R3 NOT COMPLETE; ADVERSARIAL SECURITY VALIDATION (M3) OPEN; BATCH 2B-3b NOT COMPLETE; NOT ACTIVATED.** <ul><li>**The commit:** `3863488` (parent `08a6c37`, 5 files), owner-approved with the `duplicate` exception; pushed by fast-forward.</li><li>**Run 40107435984** (`workflow_dispatch`, attempt 1, head `3863488`): 9/9. Full suites: Windows 4,047 passed (65 skipped), Ubuntu 3,965 (97), macOS 3,969 (93); safety jobs unchanged (Windows 2,065, Ubuntu 1,991 on 3.13 and 3.10, macOS 1,995); no failure; the extension's two jobs passed.</li><li>**Against run 40060798081:** Windows +23 passes; Ubuntu and macOS +21 passes and +1 skip (the Windows-only exclusive-hold test), by arithmetic. Every Python skip list is cut.</li><li>**Unchanged:** the genuine-absence fallback, `duplicate` under DD-28, DD-27 and DD-28 wording, A2, defect 5.6 and the macOS follow-up, F4 to F8, US-D29, the eight activation blockers; B1-M, B2 and Phase C NOT STARTED; Unified Storage inactive.</li></ul> |
+| 2026-10-24 | 2B-3b | **M3-R2C (F4, OPTION A) IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; CROSS-PLATFORM CI PENDING; R3 NOT COMPLETE; M3 OPEN.** <ul><li>**F4:** within one request scope, a `repository.json` rewritten in place with its size and modification time kept was not read again on Windows (the signature had no change time); reproduced in isolation.</li><li>**Option A (owner-approved):** every identity check reads and judges the record, on every system; only D2A-1's record-verdict reuse is superseded; containment and Git verdicts stay scope-bound.</li><li>**The change:** `storage.py` only (`_record_state`, `_held_record_state`; `_record_signature` removed). Three approved test updates and 8 new cases; 9 of the 11 fail against `HEAD`'s `storage.py`.</li><li>**Cost:** 3 to 6 checks per command; held re-reads unmeasurable, path re-reads +0.6 ms each.</li><li>**Local:** the full Windows suite 4,058 passed, 63 skipped, 0 failed (exit 0); baselines match; goldens and records unchanged; plan checker 0 problems.</li><li>**Unchanged:** identity words and codes, missing-record policy, retries, DD-27, DD-28, US-D29, the eight activation blockers, the version 0.1.5; B1-M, B2 and Phase C NOT STARTED.</li></ul> |
+| 2026-10-25 | 2B-3b | **M3-R2C (F4, OPTION A) — CROSS-PLATFORM FUNCTIONAL AND COMPATIBILITY CI VERIFICATION PASSED; F1'S ANCESTOR-RACE PROOF PENDING; R3 NOT COMPLETE; ADVERSARIAL SECURITY VALIDATION (M3) OPEN; BATCH 2B-3b NOT COMPLETE; NOT ACTIVATED.** <ul><li>**The commit:** `9e5483c` (parent `0641b72`, 5 files), owner-approved; pushed by fast-forward.</li><li>**Run 40219531790** (`workflow_dispatch`, attempt 1, head `9e5483c`): 9/9. Safety: Windows 2,073, Ubuntu 1,999 on 3.13 and 3.10, macOS 2,003 passed. Full: Windows 4,055, Ubuntu 3,973, macOS 3,977 passed. No failure; the extension's two jobs unchanged.</li><li>**Against run 40107435984:** +8 passes and unchanged skips in every Python job (arithmetic; every skip list is cut).</li><li>**Unchanged:** no atomic identity across operations; containment and Git verdicts scope-bound; F1, R3, M3, F5 to F8, A2, defect 5.6, the macOS follow-up, the `duplicate` boundary, DD-27, DD-28, US-D29, the eight activation blockers; B1-M, B2 and Phase C NOT STARTED.</li></ul> |
+| 2026-10-25 | 2B-3b | **O-1 RECORDED: A MEDIUM SECURITY FINDING (OWNER-APPROVED); REMEDIATION OPTION B SELECTED; 0.1.5.x MAINTENANCE PATCH APPROVED FOR PREPARATION; NOT IMPLEMENTED; AN ADDITIONAL GATE FOR M3, 2B-4, 2B-5 AND ACTIVATION.** <ul><li>**Found:** in the read-only F5/F6 review (M3-R2D), triaged read-only (M3-R2E); nothing executed.</li><li>**The finding:** the 0.1.5 layout's readers of `.ai/<id>/` and `.ai_memory/bugs/` follow a repository link at the file (and some at a folder); on `main`, in 0.1.5, and in MCP since 0.1.0.</li><li>**Recorded:** the section, T-S30, a §10.3 note, the F01 and F07 corrections, the O-1 gate beside the eight blockers, and the 2B-4 and 2B-5 notes.</li><li>**Open:** P-1 to P-7 and REL-1 to REL-4 (the owner's), then implementation; F1, R3, M3; F5 to F8.</li></ul> |
+| 2026-10-25 | 2B-3b | **O-1 FIX IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; CI AND INDEPENDENT SECURITY VALIDATION PENDING; THE 0.1.5.x RELEASE DECISION PENDING.** <ul><li>**The fix:** one safe reader in `safe_paths.py`; the readers in `fix_report`, `issue`, `run`, `retrieval` (added with the owner's approval), `memory`, `workflow` and `mcp_server` re-pointed.</li><li>**Tests:** 16 functions (41 cases) in the file-safety suite, 5 (9 cases) in the MCP suite.</li><li>**Results:** the full Windows suite 4,090 passed and 81 skipped, none failed (against the last full Windows run, 4,058 and 63: the 50 new cases, 32 run and 18 POSIX-only skipped); the gate 308 passed, 17 skipped; baselines match; the inventory ratchet and import boundary green.</li><li>**Proposed:** US-D40. **Open:** CI, independent validation, REL-1 to REL-4; F1, R3, M3.</li></ul> |
+| 2026-10-26 | 2B-3b | **O-1 PYTHON FIX EXTENDED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED; POSIX CASES, CI AND INDEPENDENT VALIDATION PENDING; RELEASE GATES OPEN; O-1 NOT RESOLVED.** <ul><li>**Approved by the owner:** `retrieval.py`, the run's order, P-6, P-4, and US-D40 as the requirement.</li><li>**Extended:** `attachments.py` (a linked attachments folder refused, a linked entry left out), `safe_paths.generated_file_names`, and the memory-existence check in `workflow._generated_files`.</li><li>**Tests:** 8 file-safety functions (21 cases) and 1 MCP case more.</li><li>**Results:** the full Windows suite 4,103 passed and 90 skipped, none failed (against the previous full run, 4,090 and 81: the 22 new cases, 13 run and 9 POSIX-only skipped); the gate 308 passed, 17 skipped.</li><li>**Release gates:** the extension's readers, `bugpilot list`, independent validation, the 0.1.5.x decisions.</li></ul> |
+| 2026-10-26 | 2B-3b | **O-1: `f977127` COMMITTED LOCALLY, NOT PUSHED; THE EXTENSION AND `bugpilot list` CORRECTIONS IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS, NOT COMMITTED; THE PRIVATE CI MIRROR PROVISIONAL; O-1 NOT RESOLVED.** <ul><li>**The owner:** one security release with both corrections; a security-only port to `main`; 0.1.6 tentatively (storage to 0.1.7); no detailed disclosure before a verified fix; O-1 in M3.</li><li>**The extension:** `workItemFiles.ts` (new), `ports.ts`, `controller.ts`; refusals said once, nothing used.</li><li>**`bugpilot list`:** a linked `.ai` refused, linked folders and `run.json` links never listed or prepared.</li><li>**Results:** Python 4,108 passed and 91 skipped, none failed (against 4,103 and 90 before: the 6 new cases, 5 run and 1 POSIX-only skipped); the extension 2,365 tests (2,364 passed, 1 skipped); the gate 308 passed, 17 skipped.</li></ul> |
+| 2026-10-26 | 2B-3b | **O-1: PRIVATE CROSS-PLATFORM FUNCTIONAL AND COMPATIBILITY CI VERIFICATION PASSED, 9/9, ON A PARENTLESS SNAPSHOT OF `836f204`; BOTH SECURITY COMMITS LOCAL, NOT PUSHED; M3, THE PORT TO `main` AND REL-1 TO REL-4 PENDING; O-1 NOT RESOLVED.** <ul><li>**The commits:** `f977127` (Python) and `836f204` (the extension and `bugpilot list`, 9 files), local only.</li><li>**The snapshot:** `b477fed` (tree `adb6838`, no parent) on `validation` in the owner's private mirror; no `main`; Release disabled.</li><li>**Run 40384259264:** seven jobs succeeded at the first attempt; both macOS jobs got no runner (GitHub capacity, an internal server error) and succeeded when the owner re-ran the failed jobs.</li><li>**The job logs** (the owner's review): the full suite passed on Windows, Ubuntu and macOS (4,105, 4,049 and 4,053 passed); no Windows-only skip reason on Linux or macOS; the extension's FIFO test ran on Ubuntu (`ok 2291`).</li></ul> |
+| 2026-10-26 | 2B-3b | **O-1: THE SECURITY BACKPORT TO `main`'S CODE IMPLEMENTED, VERIFIED LOCALLY ON WINDOWS AND COMMITTED LOCALLY (`7844c8b`, ISOLATED BRANCH FROM `ea9659c`); NOT PUSHED; `main` UNCHANGED; ITS PRIVATE CI, M3 AND REL-1 TO REL-4 PENDING; O-1 NOT RESOLVED.** <ul><li>**Scope:** the verified lines of `f977127` and `836f204`, plus `decode_text`; `cli.py`'s import line adapted; no storage change.</li><li>**Byte-identical to `836f204`:** 13 of the 17 files.</li><li>**Windows:** Python 3,753 passed, 86 skipped and 1 deselected, none failed; the extension 2,364 passed, 1 skipped; the gate 533 passed, 17 skipped.</li><li>**Next:** a parentless snapshot on a new mirror branch, never over `validation`.</li></ul> |
+| 2026-10-26 | 2B-3b | **O-1: THE BACKPORT'S PRIVATE CI 9/9 AT THE FIRST ATTEMPT (OWNER-REPORTED); LOGS AND ARTIFACTS NOT REVIEWED HERE; 0.1.6 RELEASE NO-GO TODAY; M3 AND REL-1 TO REL-4 OPEN; O-1 NOT RESOLVED.** <ul><li>**Verified here:** `validation-o1-main` is `1fa80a1` (tree `8033b5c`, no parent); `validation` unchanged.</li><li>**Cross-checks:** Windows' full-suite total equals the local run; the POSIX totals agree; the extension's reported total is one short of 2,365, for the log to settle.</li><li>**Release path:** the version and licence in one commit, its CI, a fast-forward of `main`, the Release workflow, PyPI, then the Marketplace.</li></ul> |
+| 2026-10-26 | 0.1.6 RC | **THE 0.1.6 RELEASE CANDIDATE PREPARED AND VERIFIED LOCALLY ON WINDOWS; NOT COMMITTED: ITS LICENCE CHANGE AWAITS THE OWNER'S APPROVAL; THE BACKPORT'S CI EVIDENCE COMPLETE (OWNER-VERIFIED); M3 OPEN; RELEASE NO-GO.** <ul><li>**Version:** 0.1.6 in `bugpilot/__init__.py`, `extension/package.json` and `package-lock.json`; a general 0.1.6 changelog entry.</li><li>**Licence:** with the version alone, exactly three licence tests fail; the proposal changes the two Licensed Work lines only, and needs the owner after a qualified review.</li><li>**Candidate checks:** Python 3,753 passed, 86 skipped and 1 deselected, none failed; the extension 2,364 passed, 1 skipped; publishability 20 passed with the private list in place.</li></ul> |
+| 2026-10-26 | 0.1.6 RC | **THE 0.1.6 RELEASE CANDIDATE COMMITTED LOCALLY (`bed66e0`, TREE `b3bf793`) AND VERIFIED ON WINDOWS; ITS PRIVATE CI SNAPSHOT `9aa6798` BUILT; UPLOAD AND CI AWAIT THE OWNER; M3, REL-3 AND REL-4 OPEN; NOT PUBLISHED.** <ul><li>**Licence:** the owner approved the Licensed Work's version only; one byte changed in each file; the Change Date (2030-10-11) and grant unchanged.</li><li>**Six files** on `7844c8b`; 23 against public `main`.</li><li>**Results:** Python 3,753 passed, 86 skipped, 1 deselected; the extension 2,364 passed, 1 skipped; publishability 20 passed.</li><li>**Next:** the owner's upload to `validation-o1-rc` and CI.</li></ul> |
+| 2026-10-26 | 0.1.6 acceptance | **THE RC'S PRIVATE CI RUN 40442766609 SUCCEEDED, 9/9 (OWNER-REPORTED; LOGS AND ARTIFACTS NOT REVIEWED HERE); FUNCTIONAL ACCEPTANCE ON WINDOWS PASSED WITH NO REGRESSION AGAINST `main`; THE M3 REVIEW PACKAGE AND THE RISK REGISTER WRITTEN; RELEASE NO-GO; NOTHING PUSHED OR PUBLISHED.** <ul><li>**CI:** `validation-o1-rc` is `9aa6798` (through Git); the owner's figures equal the backport run's.</li><li>**Acceptance:** the CLI 22 of 25 (the 3 misses are OBS-1, as in `main`) and the contract check 39 of 39; MCP 23 of 24 (the miss is the driver's wording); VS Code 20 of 20; the project unchanged.</li><li>**Release content:** 23 files; the licences differ in the version lines only.</li><li>**Recommendations:** a heading-only changelog commit; keep the commit messages; a short window.</li><li>**Next:** EG-1, M3, CHG-1, DISC-1, REL-3 and REL-4.</li></ul> |
+| 2026-10-26 | 0.1.6 M3 handoff | **EG-1 RESOLVED BY THE OWNER'S REVIEW (THE RUN, 9/9, AND ITS FOUR ARTIFACTS: TWELVE JSON FILES, NO CREDENTIALS OR SENSITIVE CONTENT); THE M3 REVIEWER HANDOFF PREPARED OUTSIDE THE REPOSITORY; THE INDEPENDENT REVIEW NOT STARTED; M3 OPEN; RELEASE NO-GO; NOTHING PUSHED OR PUBLISHED.** <ul><li>**The handoff:** a document with acceptance criteria and evidence requirements, PASS, FAIL and NOT TESTED fields, findings, the reviewer's sign-off and a separate owner decision; a Git bundle of the candidate (checked); the test builds; checksums.</li><li>**Decisions recorded as pending:** CHG-1 (a release-neutral heading preferred), DISC-1, REL-3, REL-4 and the residual risk.</li><li>**Next:** the owner delivers the handoff; gates 1 to 13.</li></ul> |
+| 2026-10-27 | 0.1.6 CHG-1 | **CHG-1 DECIDED BY THE OWNER AND MADE: `7feeaf7` (TREE `b651cbc`), ONE LOCAL COMMIT ON `bed66e0` CHANGING ONLY THE CHANGELOG HEADING TO "0.1.6"; LOCAL CHECKS PASS; NO CI ON ITS TREE YET; THE M3 HANDOFF UPDATED; M3 OPEN, NOT STARTED; RELEASE NO-GO; NOTHING PUSHED OR PUBLISHED.** <ul><li>**Verified locally:** the extension's typecheck, unit tests (2,364 passed, 1 skipped), evidence boundary (27) and package check; the Python publishability, version, licence and release-workflow tests; publishability against the private list.</li><li>**Attribution:** private CI run 40442766609 covers `bed66e0`'s tree, not `b651cbc`.</li><li>**The handoff:** the final and tested commits identified; a new bundle (checked); the test builds labelled with their source, `bed66e0`; checksums regenerated, 4 of 4.</li><li>**Next:** the owner delivers the handoff; DISC-1, REL-3, REL-4 and the residual risk.</li></ul> |
+| 2026-10-27 | 0.1.6 release preparation | **THE PREFLIGHT AND THE RELEASE-CONTENT CHECK PASS; THE FINAL WHEEL, SDIST AND VSIX BUILT FROM `7feeaf7` AND CLEAN-INSTALLED; THE RELEASE WORKFLOW AND LIVE CONFIGURATION AUDITED; THE RUNBOOK AND NOTICES PREPARED; M3 NOT STARTED; RELEASE NO-GO; NOTHING PUSHED, DISPATCHED OR PUBLISHED.** <ul><li>**Artifacts:** the VSIX `38131c90…` (the Marketplace candidate); the reference wheel `7efdd662…` and sdist `1af24f59…`.</li><li>**Clean installs:** CLI 25/25, MCP 24/24, VS Code 20/20, the managed runtime offline 7/7 and, after a restart, 5/5.</li><li>**Configuration:** the `pypi` environment requires the maintainer's review; `main` is not branch-protected; no tags or Releases; PyPI and the Marketplace at 0.1.5.</li><li>**Next:** M3, the residual-risk decision, DISC-1 and REL-3, then the runbook.</li></ul> |
+| 2026-10-27 | 0.1.6 risk acceptance | **THE OWNER ACCEPTS THE DOCUMENTED RESIDUAL RISKS RL-1 AND RL-2 FOR 0.1.6 (NO UNKNOWN VULNERABILITY, NO UNDISCLOSED CRITICAL OR HIGH FINDING, NO CLAIM OF INDEPENDENT VALIDATION); THE READ-ONLY GATE CHECKS PASS; M3, REQUIRED BY THE OWNER'S RELEASE GATES, NOT STARTED; RELEASE NO-GO; NOTHING PUSHED OR PUBLISHED.** <ul><li>**Release commit:** `7feeaf7` (tree `b651cbc`), unchanged.</li><li>**The minimum remaining action:** an authorized independent reviewer completes and signs the handoff for `7feeaf7`.</li><li>**The owner's items:** RL-3 and RL-4, DISC-1, REL-3 and the notices' review.</li></ul> |
+| 2026-10-27 | 0.1.6 M3 waiver | **M3: WAIVED BY OWNER FOR 0.1.6 — NOT VERIFIED (RELEASE-SPECIFIC; NO INDEPENDENT APPROVAL MAY BE CLAIMED); RL-1 TO RL-4 ACCEPTED; THE PREFLIGHT PASSES; THE DISCLOSURE DECISION RECORDED; NOTHING PUSHED OR PUBLISHED.** <ul><li>**The policy check:** no repository requirement found; whether an organizational, contractual or legal one applies is UNKNOWN, and the owner confirms it before the session.</li><li>**The notices:** reviewed; the security notice's assumptions of an independent review corrected.</li><li>**Next:** the owner confirms gates 5 and 7, then runs the release session (the runbook's Section 7).</li></ul> |
+| 2026-10-28 | 0.1.7 Simplified Unified Storage | **THE FILE LOCATION CHANGE, IN ONE PASS: WORK ITEMS, BUG MEMORY AND THE VERIFICATION POLICY AND AI BEHAVIOR FILES IN THE REPOSITORY'S FOLDER OF BUGPILOT'S DATA FOLDER; IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; UNCOMMITTED PENDING THE OWNER'S REVIEW; CI NOT RUN; NOT RELEASED.** <ul><li>**Reused:** the storage foundation, 2B-2, 2B-3a, Option C and the O-1 safe reads, unchanged.</li><li>**Not built:** the remaining batch split, US-D17's extension cache layer, US-D18, US-D14's note, US-D30's allowance record (A = 0).</li><li>**Next:** the owner's review, commit, approval of U7-1 to U7-142 and of the two retargeted pairs, cross-platform CI, the version bump.</li></ul> |
+| 2026-10-28 | 0.1.7 review and approval package | **REVIEWED AND VERIFIED LOCALLY ON WINDOWS; NOT READY TO CREATE THE RELEASE CANDIDATE.** <ul><li>**Fixed:** the approved 2B-3b texts applied (E-1, E-2, E-5, E-9); storage errors keep their codes in the readers; the previews check storage first; memory matches named absolutely; no relative handoff without the data folder; the task's path check first.</li><li>**Verified:** a real VS Code restart restores the selected work item; a real agent reads the absolute task, but needs `--add-dir` to write its report; 62 refusals.</li><li>**Pending:** the owner's decisions (U7-1 to U7-142, U7-12 a superset of DD-15, the version and licence, agent access), commit, CI.</li></ul> |
+| 2026-10-29 | 0.1.7 final fixes and release-candidate readiness | **FINAL FIXES VERIFIED LOCALLY ON WINDOWS; UNCOMMITTED; NOT READY TO CREATE THE RELEASE CANDIDATE.** <ul><li>**Fixed:** Claude Code given the work item's folder (`--add-dir=<folder>`, the CLI launcher always, the extension when `claude --help` lists it); a 0.1.6 extension with a 0.1.7 CLI told to update both (`EXTENSION_OUTDATED`, a heuristic); the policy watcher sees the first policy file.</li><li>**Verified:** a real Claude Code run through `--launch-agent` wrote its report with no denial; the released 0.1.6 VSIX shows the new sentence; Edit, Reset and the watcher in a real window; the restart; the approval package against today's outputs, with no new baseline change.</li><li>**Pending:** the owner's approval of U7-1 to U7-142, the decisions listed, commit, push, CI.</li></ul> |
+| 2026-10-29 | 0.1.7 owner approval and integration | **U7-1 TO U7-142 APPROVED AS A SET; COMMITTED ON `verify/0.1.7-storage` FOR CROSS-PLATFORM CI; NOT A RELEASE CANDIDATE.** <ul><li>**Approved:** the baseline set (only the `approved` fields changed); `EXTENSION_OUTDATED` kept; N-1 to N-4 accepted and documented; no independent review required before this phase (none has taken place).</li><li>**Procedure:** explicit path list, the owner's three paths excluded, full local verification from the staged tree, one commit, the branch pushed for CI.</li><li>**Pending:** the CI outcome and a final review before any release-candidate decision.</li></ul> |
+| 2026-10-29 | 0.1.7 commit, push and CI run 40936578232 | **COMMITTED `59db0b4` AND PUSHED; CI 8 OF 9; NOT READY FOR RELEASE-CANDIDATE REVIEW.** <ul><li>**Failed:** the macOS full Python suite, one test: the baseline normalizer replaced a canonical spelling's plain part first under some hash seeds (`/private<data>/...`); the same test passed in the macOS safety job.</li><li>**Fixed locally, uncommitted:** longest spelling first, with a regression test (fails under 6 of 8 seeds before, passes under all after).</li><li>**Pending:** the owner's approval of the follow-up commit, a push and a CI run green on all 9 jobs.</li></ul> |
+| 2026-10-29 | 0.1.7 macOS baseline failure: root cause and fix | **ROOT CAUSE FOUND AND REPRODUCED; FIX LOCAL AND UNCOMMITTED; NOT READY FOR RELEASE-CANDIDATE REVIEW.** <ul><li>**The 10 mismatches** (U7-19, U7-25 to U7-28, U7-30 to U7-33, U7-35) are exactly the `handoff.json` values that name the data folder. On macOS each came out as `/private<data>/...`: the normalizer replaced the plain `/var/...` spelling inside storage's canonical `/private/var/...` first, in a set order that follows the hash seed.</li><li>**Reproduced** on Windows, end to end, with the analogous nesting. The 10 fail together, as in CI; the fix: no problem under 8 seeds.</li><li>**The fix:** one line, longest spelling first with ties in text order, and a regression test over 16 folder names. No approved value, golden or product file changed.</li><li>**Pending:** the owner's review, a follow-up commit, a push and a CI run green on all 9 jobs.</li><li>**Later on 2026-10-29:** the owner approved the fix and the follow-up commit; committed with this record and pushed; the CI run is pending.</li></ul> |
+| 2026-10-29 | 0.1.7 macOS fix: commit `d05c025` and CI run 40969753479 | **COMMITTED AND PUSHED; CI 9 OF 9; READY FOR 0.1.7 RELEASE-CANDIDATE REVIEW.** <ul><li>**The commit:** exactly three files, on the tree verified locally (Python 4,147 passed, 0 failed; the extension 2,374 passed, 0 failed).</li><li>**The CI run:** every Python job gained one passed test, the regression test, and no skip. The macOS full suite went from 1 failed to 0 failed (4,092 passed).</li><li>**Not done:** no merge, tag, release or publication.</li></ul> |
+| 2026-10-29 | 0.1.7 release-candidate review of `d05c025` | **RC BLOCKED; PUBLIC DISTRIBUTION UNRESOLVED.** <ul><li>**Verified:** CI 9/9; clean-export artifacts all 0.1.7 and clean; clean installs (CLI 38/38, MCP 11/11, VSIX, offline managed runtime 13/13); compatibility 5/5 and 0.1.6 in a real window 9/9; storage matches its contract; a real Claude Code write into the work folder works only with the one-word grant.</li><li>**Findings:** documentation D-1 to D-6 Medium (the blocker); S-1, S-2, S-3, U-1, ST-1, ST-2, ST-3, ST-7 Low; no Critical, High or Medium security or code finding.</li><li>**Open:** the owner's acceptance runs (real terminal, webview, §20) and governance G-1 to G-6. Report: `docs/bugpilot_0.1.7_rc_review.md`.</li></ul> |
+| 2026-10-29 | 0.1.7 RC remediation batch | **FIXED LOCALLY, VERIFIED ON WINDOWS, UNCOMMITTED; RC BLOCKED.** <ul><li>**Fixed:** D-1 to D-6 (the shipped READMEs, changelog, safety and architecture documents); S-1 (the launcher's `cmd.exe` gate, T-S12); S-2 (the work folder is given only when private: the CLI, `doctor`'s `storage.privacy`, the extension and Open AI Session); U-1 (a policy save during a reread is read again); ST-1 (storage makes the attachments folder); ST-2 (data-folder wording).</li><li>**Verified:** Python 4,201 passed, the extension 2,384 passed, integration 21/21, compatibility 5/5, CLI 38/38, MCP 11/11, refusals 62/62, end to end 8/8; no baseline or golden changed.</li><li>**Pending:** the owner's commit approval, cross-platform CI, the follow-up review, the owner's acceptance runs and governance.</li></ul> |
+| 2026-10-29 | 0.1.7 conditional commit approval: stopped on S-8 | **NO COMMIT; NEW OWNER DECISION NEEDED; RC BLOCKED.** <ul><li>**Decided:** US-D12 for Python (the gate where `cmd.exe` parses the line; native executables unrestricted); S-2 fail-closed with its limitations accepted.</li><li>**Checked:** S-2's conditions met (the Open AI Session restart hardened against double presses and stale answers); the remaining findings Low or Informational, none blocking.</li><li>**Stopped:** S-8, `git` and `rg` as batch files run through `cmd.exe` with issue text, unvalidated (High by impact, conditional, pre-existing).</li></ul> |
+| 2026-10-29 | 0.1.7 S-8 fixed; the RC remediation commit | **COMMITTED AND PUSHED FOR CI; RC BLOCKED.** <ul><li>**S-8:** `git` and `rg` start only as native executables on Windows (`executables.find_program`), never as batch files through `cmd.exe`; a batch-file-only tool is reported as missing, with the reason.</li><li>**The commit:** 36 paths (the 28 reviewed and S-8's 8).</li><li>**Verified:** Python 4,210 passed, the extension 2,386 passed, integration 21/21, compatibility 5/5, CLI 38/38, MCP 11/11, refusals 62/62, end to end 8/8.</li><li>**Pending:** the owner's CI dispatch, all nine jobs, the follow-up review.</li></ul> |
+| 2026-10-31 | 0.1.7 final RC follow-up review of `35040af` | **RC BLOCKED (F-1); REMEDIATION AWAITS APPROVAL.** <ul><li>**CI 41068475707:** 9/9 on `35040af`.</li><li>**Artifacts:** rebuilt from a clean export, hashed and inspected. The installs and real-window checks pass; manual acceptance is incomplete.</li><li>**F-1:** the extension's privacy answer stops at `work/`, while the CLI's covers `work/<id>`; the shipped docs overstate it.</li><li>**Also:** F-2, F-3 and F-5 Low; F-4, F-6 and F-7 Informational.</li><li>**Public distribution:** UNRESOLVED.</li></ul> |
+| 2026-11-01 | 0.1.7 F-1, F-2 and F-3 remediated (Option A′) | **IMPLEMENTED, VERIFIED ON WINDOWS AND COMMITTED (OWNER-APPROVED); RC BLOCKED.** <ul><li>**F-1:** `bugpilot doctor --json --work-item <id>` (`RepositoryStorage.work_item_privacy`); the extension asks it before every grant and accepts only a yes about that very folder.</li><li>**F-2:** Open AI Session types only into the terminal it waited for.</li><li>**F-3:** `setup` finds `git` and `rg` as every run does.</li><li>**F-5:** documented.</li><li>**Compatibility:** a CLI without `--work-item` is refused, with an update sentence (F-6 resolved).</li><li>**Next:** CI 9/9 and a short final RC review.</li></ul> |
+| 2026-11-01 | 0.1.7 final RC acceptance of `9fe8a8a` | **RC REVIEW INCOMPLETE; NO BLOCKER FOUND.** <ul><li>**CI 41351728876:** 9/9 on `9fe8a8a`.</li><li>**Artifacts:** rebuilt from a clean export, reproducible contents, hashed and inspected.</li><li>**Installs, F-1, F-2, F-3:** pass through the installed wheel, the managed runtime and the real panel (driven through the remote-debugging port).</li><li>**Owner's desktop:** a terminal running the agent and the clipboard (report §20, A-1 to A-7).</li><li>**New:** F-8 Low (UX), F-9 to F-13 Informational.</li><li>**Public distribution:** UNRESOLVED.</li></ul> |
+| 2026-11-01 | 0.1.7 technical RC approval of `9fe8a8a` | **RC TECHNICALLY READY (OWNER-APPROVED).** <ul><li>**Owner-reported:** A-1 to A-5 and A-7 steps 1–3 PASS on the owner's desktop.</li><li>**Agent-observed:** §20's evidence (CI 41351728876 9/9, artifacts, installs, F-1 to F-3, the real panel).</li><li>**Not tested:** A-6 (Jira) and A-7 step 4.</li><li>**Accepted:** F-8 Low and the Informational findings, unchanged.</li><li>**Frozen;** no merge, tag, release or publication authorized.</li><li>**Public distribution:** UNRESOLVED (G-1, G-3; G-2 awaits the owner).</li></ul> |
 
 ---
 
@@ -6796,12 +13996,86 @@ These add to the gates that already apply; they do not replace them:
 | 2026-10-19 | 2B-2 decision gate | `main` | recorded in the approval commit below | — | — | documentation only; nothing implemented, pushed or dispatched |
 | 2026-10-19 | 2B-2 final contract resolution | `main` | recorded in the approval commit below | — | — | documentation only; nothing implemented, pushed or dispatched |
 | 2026-10-19 | 2B-2 approvals (C-1 to C-5) | `main` | **the commit that carries this row**: this plan only (`docs: approve Batch 2B-2 design and implementation contract`), parent `73ee57e` | — (not pushed; no CI run) | — | documentation only; the branch not created; implementation NOT STARTED |
+| 2026-10-19/20 | 2B-2 | `verify/0.1.6-storage` (local, not pushed) | recorded in the implementation commit below | — (no CI run; dispatch needs the owner's authorization) | — | local Windows verification only; Linux and macOS not verified |
+| 2026-10-20 | 2B-2 | `verify/0.1.6-storage` (local, not pushed) | recorded in the implementation commit below | — (no CI run) | — | local Windows verification only; Linux and macOS not verified |
+| 2026-10-20 | 2B-2 | `verify/0.1.6-storage` (local, not pushed) | **the commit that carries this row**: the Batch 2B-2 implementation (`feat(storage): move global configuration onto unified storage (Batch 2B-2)`), parent `ea9659c` | — (not pushed; no CI run) | — | committed; local Windows verification only; Linux and macOS not verified; not activated |
+| 2026-10-20 | 2B-2 | `verify/0.1.6-storage` | `7a1c8913827ed641a60090597fed02379dafaf5a` (parent `ea9659c`; pushed, owner-authorized) | 39463867534 (`CI`, `workflow_dispatch`, owner-authorized) | **failure**: 4 succeeded, 4 failed, 1 cancelled | two isolation-guard tests on Linux and macOS (a test-fixture permission defect); macOS safety's runner not acquired |
+| 2026-10-20 | 2B-2 remediation | `verify/0.1.6-storage` | `0b7dd6cc820384b4035711ff9abbb07434fd8479` (parent `7a1c891`; fast-forward push, owner-authorized) | 39486855193 (`CI`, `workflow_dispatch`, owner-authorized) | **success: 9/9** | Batch 2B-2 — IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED |
+| 2026-10-20 | 2B-2 | `verify/0.1.6-storage` (local, not pushed) | **the commit that carries this row**: this plan only (`docs(storage): record Batch 2B-2 cross-platform CI verification`), parent `0b7dd6c` | — | — | documentation only |
+| 2026-10-20 | 2B-2 docs | `verify/0.1.6-storage` | `92efd66486fad0a871e486b135ed5bfe9bb0b0a4` pushed by fast-forward (`0b7dd6c..92efd66`), owner-authorized | — (documentation only; no CI dispatched) | — | the row above is pushed |
+| 2026-10-20 | 2B-3 gate | `verify/0.1.6-storage` | carried by the 2B-3 documentation commit below | — | — | the Batch 2B-3 decision gate; documentation only |
+| 2026-10-20 | 2B-3 decisions | `verify/0.1.6-storage` | carried by the 2B-3 documentation commit below | — | — | the owner decisions and final contract gate; documentation only |
+| 2026-10-20 | 2B-3a contract | `verify/0.1.6-storage` | carried by the 2B-3 documentation commit below | — | — | B-1 to B-4 and the 2B-3a implementation contract; documentation only |
+| 2026-10-20 | 2B-3 docs | `verify/0.1.6-storage` (local, not pushed) | **the commit that carries this row**: this plan only (`docs(storage): record Batch 2B-3 decision gate and 2B-3a contract`), parent `92efd66` | — | — | documentation only; no CI |
+| 2026-10-21 | 2B-3 docs | `verify/0.1.6-storage` | `5b66ffea28ee660599428453391cf32ad20a6818` pushed by fast-forward (`92efd66..5b66ffe`), owner-authorized | — (documentation only; no CI dispatched) | — | the row above is pushed |
+| 2026-10-21 | 2B-3a | `verify/0.1.6-storage` (working tree) | none: uncommitted implementation, on `5b66ffe` | — (no CI) | — | local Windows verification only; Linux and macOS not verified; DD-4 to DD-12 await the owner |
+| 2026-10-21 | 2B-3a | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `5b66ffe`; DD-4 to DD-12 approved | — (no CI) | — | final local Windows verification: **3,807 passed, 59 skipped, 0 failed, 0 errors, 0 deselected**, exit code 0; extension 2,350 passed from Git Bash; Linux and macOS not verified |
+| 2026-10-21 | 2B-3a | `verify/0.1.6-storage` (local, not pushed) | **the commit that carries this row**: the Batch 2B-3a implementation (`feat(storage): move project settings into repository storage (Batch 2B-3a)`), parent `5b66ffe` | — (not pushed; no CI run) | — | committed; local Windows verification only; Linux and macOS not verified; not activated |
+| 2026-10-21 | 2B-3a | `verify/0.1.6-storage` | `743f542ad328b1af5eb9f0b494d07491f2b33ed7` (parent `5b66ffe`; fast-forward push, owner-authorized) | 39675645316, attempt 1 (`CI`, `workflow_dispatch`, owner-dispatched) | **failure**: 8 succeeded, 1 cancelled | no test failed; macOS safety's runner not acquired (macOS arm64 capacity) |
+| 2026-10-21 | 2B-3a | `verify/0.1.6-storage` | `743f542ad328b1af5eb9f0b494d07491f2b33ed7` | 39675645316, attempt 2 (the failed job re-run, owner-authorized) | **success: 9/9** | only macOS safety ran (1,770 passed, 46 skipped, 1 deselected), the other eight carried from attempt 1. Batch 2B-3a — IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED |
+| 2026-10-21 | 2B-3a | `verify/0.1.6-storage` (local, not pushed) | **the commit that carries this row**: this plan only (`docs(storage): record Batch 2B-3a cross-platform CI verification`), parent `743f542` | — | — | documentation only; no CI |
+| 2026-10-21 | 2B-3a docs | `verify/0.1.6-storage` | `c0b8ea7d3ee59002015bd86e664c1b81ffd1ae8d` pushed by fast-forward (`743f542..c0b8ea7`), owner-authorized | — (documentation only; no CI dispatched) | — | the row above is pushed; CI tested `743f542`, not this commit |
+| 2026-10-21 | 2B-3b gate | `verify/0.1.6-storage` | carried by the documentation commit that records this gate, when authorized | — | — | documentation only; no CI |
+| 2026-10-21 | 2B-3b gate | `verify/0.1.6-storage` | `93118926956464e6baa9c5c2631bc74166bf241c` (parent `c0b8ea7`), pushed by fast-forward (`c0b8ea7..9311892`), owner-authorized | — (documentation only; no CI dispatched) | — | the row above is committed and pushed |
+| 2026-10-21 | 2B-3b Phase A | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `9311892` | — (no CI) | — | local Windows verification only; Linux and macOS not verified |
+| 2026-10-21 | 2B-3b Phase A | `verify/0.1.6-storage` | `d8340823546a36cf4800facff3137c84e4617f64` (parent `9311892`), pushed by fast-forward (`9311892..d834082`), owner-authorized | — (no CI dispatched) | — | the Phase A row above is committed and pushed; Phase A has not run in CI |
+| 2026-10-21 | 2B-3b B1-S3 | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `d834082` | — (no CI) | — | the Option A candidate; adversarial validation pending; local Windows verification only |
+| 2026-10-21 | 2B-3b Option C M1 | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `d834082` | — (no CI) | — | M1 beside the Option A candidate; the consumer migration and adversarial validation pending; local Windows verification only |
+| 2026-10-22 | 2B-3b Option C M2 | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `d834082` | — (no CI) | — | M2 on top of M1; one existing test awaits the owner; the full suite not run; local Windows verification only |
+| 2026-10-22 | 2B-3b Option C M2, Row 1 and DD-27 | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `d834082` | — (no CI) | — | the Row 1 test repaired; DD-27 approved; a single-mode read finding awaits the owner; local Windows verification only |
+| 2026-10-22 | 2B-3b Option C M2, DD-28 | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `d834082` | — (no CI) | — | DD-28 approved; DD-27 and DD-28 evidenced against their literal text; local Windows verification only |
+| 2026-10-22 | 2B-3b Option C M2, Case B and CI coverage | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `d834082` | — (no CI) | — | the Case B fix, three POSIX permission tests, the Python 3.10 file list; local Windows verification only |
+| 2026-10-22 and 2026-10-23 | 2B-3b Option C M1/M2 | `verify/0.1.6-storage` | `e789ce2281812a191c6580b6e2f900170beb8a22` (`fix(storage): add held-handle safe reads for unified settings`, parent `d834082`, 15 files, carrying the Case B row above), pushed by fast-forward (`d834082..e789ce2`), owner-authorized | 39892585420 (`CI`, `workflow_dispatch`, owner-dispatched) | **failure: 7/9** | Linux, macOS and Ubuntu Python 3.10 succeeded; both Windows jobs failed the same two exclusive-lock tests; not re-run |
+| 2026-10-23 | 2B-3b Windows diagnostic | `verify/0.1.6-storage` | `c795db41b0d369887a7600319579beeb762cf6f2` (`test(storage): diagnose Windows exclusive-handle reads in CI`, parent `e789ce2`, the two test files only), pushed by fast-forward (`e789ce2..c795db4`), owner-authorized | 39989051086, attempt 1 (`CI`, `workflow_dispatch`, owner-dispatched) | **failure: 7/9** | the evidence sought: the reader's `FILE_FLAG_BACKUP_SEMANTICS` data open read a file held with no sharing; without the flag, winerror 32; Linux, macOS and Ubuntu Python 3.10 succeeded |
+| 2026-10-23 | 2B-3b Windows correction | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `c795db4` | — (no CI) | — | a file's data opened without backup semantics; local Windows verification only; Windows CI revalidation pending |
+| 2026-10-23 | 2B-3b Windows correction | `verify/0.1.6-storage` | `14528ffbeb2af36366f119a5e69eb4da17329e02` (`fix(storage): preserve Windows file sharing and entry classification`, parent `c795db4`, 3 files, carrying the row above), pushed by fast-forward (`c795db4..14528ff`), owner-authorized | 40039289638, attempt 1 (`CI`, `workflow_dispatch`, owner-dispatched) | **success: 9/9** | Option C M1/M2 cross-platform functional and compatibility CI verification PASSED on Linux, macOS, Windows and Python 3.10; M3 OPEN; the race not resolved |
+| 2026-10-23 | 2B-3b CI record | `verify/0.1.6-storage` (working tree) | none: this documentation record, uncommitted, on `14528ff` | — | — | documentation only |
+| 2026-10-23 | 2B-3b CI record | `verify/0.1.6-storage` | `b472ed6b8ca296d233fde640fee61bfb4ca991e3` (`docs(storage): record Option C cross-platform CI verification`, parent `14528ff`, the plan only, carrying the row above), pushed by fast-forward (`14528ff..b472ed6`), owner-authorized | — (documentation only; no CI dispatched) | — | the row above is committed and pushed |
+| 2026-10-23 | 2B-3b M3-R2A | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `b472ed6` | — (no CI) | — | F1 and F2 hardening; local Windows verification only; Linux and macOS CI pending |
+| 2026-10-24 | 2B-3b M3-R2A | `verify/0.1.6-storage` | `aadeefa51162e9152c175aa65926987f00908d23` (`fix(storage): harden Windows held-folder validation and failures`, parent `b472ed6`, 4 files, carrying the row above), pushed by fast-forward (`b472ed6..aadeefa`), owner-authorized | 40060798081, attempt 1 (`CI`, `workflow_dispatch`, owner-dispatched) | **success: 9/9** | functional and regression verification of F1 and F2 on Linux, macOS, Windows and Python 3.10; F1's proof pending; M3 OPEN; the race not resolved |
+| 2026-10-24 | 2B-3b M3-R2A CI record | `verify/0.1.6-storage` (working tree) | none: this documentation record, uncommitted, on `aadeefa` | — | — | documentation only |
+| 2026-10-24 | 2B-3b M3-R2A CI record | `verify/0.1.6-storage` | `08a6c37294800a8e8588d8ec13dc925ac2206aa0` (`docs(storage): record M3-R2A cross-platform CI verification`, parent `aadeefa`, the plan only, carrying the row above), pushed by fast-forward (`aadeefa..08a6c37`), owner-authorized | — (documentation only; no CI dispatched) | — | the row above is committed and pushed |
+| 2026-10-24 | 2B-3b M3-R2B (F3-A) | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `08a6c37` | — (no CI) | — | F3-A fail-closed Fix Mode selection; local Windows verification only; cross-platform CI pending |
+| 2026-10-24 | 2B-3b M3-R2B (F3-A) | `verify/0.1.6-storage` | `3863488ef5a929dde597ac00346a7ada386ac956` (`fix(fix-modes): prevent silent cross-scope fallback`, parent `08a6c37`, 5 files, carrying the row above), pushed by fast-forward (`08a6c37..3863488`), owner-authorized | 40107435984, attempt 1 (`CI`, `workflow_dispatch`, owner-dispatched) | **success: 9/9** | F3-A cross-platform functional and compatibility CI verification PASSED; F1's proof pending; M3 OPEN |
+| 2026-10-24 | 2B-3b F3-A CI record | `verify/0.1.6-storage` (working tree) | none: this documentation record, uncommitted, on `3863488` | — | — | documentation only |
+| 2026-10-24 | 2B-3b F3-A CI record | `verify/0.1.6-storage` | `0641b72c05b7bc8bdb6f2e2d82ef20c6beb1f5ca` (`docs(storage): record F3-A cross-platform CI verification`, parent `3863488`, the plan only, carrying the row above), pushed by fast-forward (`3863488..0641b72`), owner-authorized | — (documentation only; no CI dispatched) | — | the row above is committed and pushed |
+| 2026-10-24 | 2B-3b M3-R2C (F4) | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `0641b72` | — (no CI) | — | F4 Option A: the identity record read on every check; local Windows verification only; cross-platform CI pending |
+| 2026-10-25 | 2B-3b M3-R2C (F4) | `verify/0.1.6-storage` | `9e5483c6cf000600ef6e2d2c40fb06703060d215` (`fix(storage): revalidate repository identity on every check`, parent `0641b72`, 5 files, carrying the row above), pushed by fast-forward (`0641b72..9e5483c`), owner-authorized | 40219531790, attempt 1 (`CI`, `workflow_dispatch`, owner-dispatched) | **success: 9/9** | F4 Option A cross-platform functional and compatibility CI verification PASSED; F1's proof pending; M3 OPEN |
+| 2026-10-25 | 2B-3b F4 CI record | `verify/0.1.6-storage` (working tree) | none: this documentation record, uncommitted, on `9e5483c` | — | — | documentation only |
+| 2026-10-25 | 2B-3b F4 CI record | `verify/0.1.6-storage` | `ce047054c250fbb4d980973c45ca29a7e8a1f9e7` (`docs(storage): record F4 cross-platform CI verification`, parent `9e5483c`, the plan only, carrying the row above), pushed by fast-forward (`9e5483c..ce04705`), owner-authorized | — (documentation only; no CI dispatched) | — | the row above is committed and pushed |
+| 2026-10-25 | 2B-3b O-1 record | `verify/0.1.6-storage` (working tree) | none: this documentation record, uncommitted, on `ce04705`; REL-3 proposes not pushing it before the maintenance release | — | — | documentation only |
+| 2026-10-25 | 2B-3b O-1 fix | `verify/0.1.6-storage` (working tree) | none: the O-1 fix, its tests and this record, uncommitted, on `ce04705` | — | — | not committed; CI pending |
+| 2026-10-26 | 2B-3b O-1 completion | `verify/0.1.6-storage` (working tree) | none: the extended O-1 fix, its tests and this record, uncommitted, on `ce04705` | — | — | not committed; CI pending |
+| 2026-10-26 | 2B-3b O-1 Python fix | `verify/0.1.6-storage` (local) | `f977127c4def106b945c127529a0bf1056a93aff` (`fix(security): prevent repository symlink reads in generated artifacts`, parent `ce04705`, 12 files, carrying the rows above), committed locally, owner-authorized; NOT pushed (the owner's disclosure decision) | — (no CI dispatched) | — | committed locally, not pushed |
+| 2026-10-26 | 2B-3b O-1 release blockers | `verify/0.1.6-storage` (working tree) | none: the extension and `bugpilot list` corrections, their tests and this record, uncommitted, on `f977127` | — | — | not committed |
+| 2026-10-26 | 2B-3b O-1 extension and `list` | `verify/0.1.6-storage` (local) | `836f2047b5e26c97341fa2a1088113393b561ae4` (`fix(security): protect extension and CLI work-item reads`, parent `f977127`, 9 files, carrying the row above), committed locally, owner-authorized; NOT pushed (the owner's disclosure decision) | — (no CI dispatched on this repository) | — | committed locally, not pushed |
+| 2026-10-26 | 2B-3b O-1 private CI | `validation` in the owner's private mirror (not this repository) | `b477fed575428d0ee639547e3c296509a5013bf0` (a parentless snapshot of `836f204`'s tree `adb68380`, no history), pushed by the owner | 40384259264 (`CI`, `workflow_dispatch`, owner-dispatched): seven jobs at the first attempt; the two macOS jobs re-run by the owner after GitHub could not provide runners | **success: 9/9** | private cross-platform functional and compatibility CI verification PASSED; counts and skip summaries from the job logs (the owner's review); M3 OPEN |
+| 2026-10-26 | 2B-3b O-1 CI record | `verify/0.1.6-storage` (working tree) | none: this documentation record, uncommitted, on `836f204` | — | — | documentation only |
+| 2026-10-26 | 2B-3b O-1 backport | `security/o1-0.1.6-backport` (local, in the isolated clone `bugpilot-o1-backport`) | `7844c8b74e70bda033f4e83cb31db42c1ba21027` (`fix(security): backport O-1 file-read protections`, parent `ea9659c`, 17 files), committed locally, owner-authorized; NOT pushed | — (no CI dispatched) | — | committed locally on an isolated branch; `main` unchanged |
+| 2026-10-26 | 2B-3b O-1 backport record | `verify/0.1.6-storage` (working tree) | none: this documentation record, uncommitted, on `a4ef8a0` | — | — | documentation only |
+| 2026-10-26 | 2B-3b O-1 backport private CI | `validation-o1-main` in the owner's private mirror (not this repository) | `1fa80a1c87dffea92f3233efc185b256c0cc879a` (a parentless snapshot of `7844c8b`'s tree `8033b5c`), pushed by the owner | 40421551787, attempt 1 (`CI`, `workflow_dispatch`, owner-dispatched) | **success: 9/9** (owner-reported; logs and artifacts not reviewed here) | release NO-GO today; M3 OPEN |
+| 2026-10-26 | 2B-3b O-1 readiness record | `verify/0.1.6-storage` (working tree) | none: this documentation record, uncommitted, on `a5b7118` | — | — | documentation only |
+| 2026-10-26 | 0.1.6 RC | `release/0.1.6-rc` (local, in the isolated clone) | none: the branch is at `7844c8b`; the version, changelog and licence proposal were prepared and tested in a scratch checkout, not committed (licence approval pending) | — (no CI) | — | not committed |
+| 2026-10-26 | 0.1.6 RC record | `verify/0.1.6-storage` (working tree) | none: this documentation record, uncommitted, on `27fbb97` | — | — | documentation only |
+| 2026-10-26 | 0.1.6 RC | `release/0.1.6-rc` (local, in the isolated clone) | `bed66e095c18d2263bbf6004fa704f6931a529d2` (`release: prepare BugPilot 0.1.6 maintenance candidate`, parent `7844c8b`, 6 files, tree `b3bf793`), committed locally, owner-authorized; NOT pushed | — (no CI yet) | — | committed locally |
+| 2026-10-26 | 0.1.6 RC snapshot | (scratch; for `validation-o1-rc` in the owner's private mirror) | `9aa67982ce18cbae9b9f61eaebf49f26c6473cf2` (a parentless snapshot of `bed66e0`'s tree), built locally, NOT uploaded | — (the owner's upload and dispatch) | — | pending |
+| 2026-10-26 | 0.1.6 RC commit record | `verify/0.1.6-storage` (working tree) | none: this documentation record, uncommitted, on `cafe6ad` | — | — | documentation only |
+| 2026-10-26 | 0.1.6 RC CI | `validation-o1-rc` in the owner's private mirror (not this repository) | `9aa67982ce18cbae9b9f61eaebf49f26c6473cf2` (a parentless snapshot of `bed66e0`'s tree `b3bf793`), pushed by the owner | 40442766609, attempt 1 (`CI`, dispatched by the owner) | **success: 9/9** (owner-reported; logs and artifacts not reviewed here) *(later on 2026-10-26: reviewed by the owner, the four artifacts included; see "Batch 2B-3b — M3-R2E: M3 reviewer handoff and final release gates (2026-10-26)")* | release NO-GO; M3 OPEN |
+| 2026-10-26 | 0.1.6 acceptance record | `verify/0.1.6-storage` (working tree) | none: this documentation record, uncommitted, on `a839788` | — | — | documentation only |
+| 2026-10-26 | 0.1.6 M3 handoff record | `verify/0.1.6-storage` (working tree) | none: this documentation record, uncommitted, on `ffe4d6f` | — | — | documentation only |
+| 2026-10-27 | 0.1.6 final RC | `release/0.1.6-rc` (local, in the isolated clone) | `7feeaf7e1cc8ac48358d6b974431c619096df2e0` (`release: finalize 0.1.6 changelog heading`, parent `bed66e0`, 1 file, tree `b651cbc`), committed locally, owner-authorized (CHG-1); NOT pushed | — (no CI) | — | committed locally |
+| 2026-10-27 | 0.1.6 CHG-1 record | `verify/0.1.6-storage` (working tree) | none: this documentation record, uncommitted, on `ad1fea5` | — | — | documentation only |
+| 2026-10-27 | 0.1.6 release preparation record | `verify/0.1.6-storage` (working tree) | none: this documentation record, uncommitted, on `b5fe9a1` | — | — | documentation only |
+| 2026-10-27 | 0.1.6 risk acceptance record | `verify/0.1.6-storage` (working tree) | none: this documentation record, uncommitted, on `67473c1` | — | — | documentation only |
+| 2026-10-27 | 0.1.6 M3 waiver record | `verify/0.1.6-storage` (working tree) | none: this documentation record, uncommitted, on `4bd9894` | — | — | documentation only |
+| 2026-10-27 | 0.1.7 branch: released 0.1.6 merged in | `verify/0.1.7-storage` | `8d69f6f` (merge of `7feeaf7` into `38fb165`), local, not pushed | — | — | version, licence and changelog of 0.1.6 only |
+| 2026-10-28 | 0.1.7 Simplified Unified Storage | `verify/0.1.7-storage` (working tree) | none: uncommitted on `8d69f6f`, pending the owner's review | — | not run | implementation, tests and documents |
 
 ---
 
 ## 20. Final release-readiness checklist
 
-To be completed in Batch 5. Every box needs evidence: a command and its output, a CI run, or a §18 probe or end-to-end record.
+To be completed in Batch 5. Every box needs evidence: a command and its output, a CI run, or a §18 probe or end-to-end record. *(2026-10-26: this checklist is the Unified Storage release's, now 0.1.7 (REL-1). The 0.1.6 maintenance release's own checklist is in §14.3, "Batch 2B-3b — M3-R2E: 0.1.6 final acceptance and release approval package (2026-10-26)".)*
 
 **Product**
 

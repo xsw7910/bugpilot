@@ -1160,7 +1160,7 @@ const BRANCH_POLICY_HELP = [
  */
 const BRANCH_NAMING_HELP =
   "The name a new branch gets, when the branch policy calls for one. It never creates or switches a branch itself, " +
-  "and a work item keeps the branch it already has. Saved for the repository in .bugpilot/project_settings.json.";
+  "and a work item keeps the branch it already has. Saved for this repository in BugPilot's data folder.";
 
 const BRANCH_NAMING_FIELD = `        <div class="field" id="field-branchNaming">
   ${settingHeader({
@@ -1209,7 +1209,7 @@ ${BRANCH_POLICIES.map((policy) => `            <option value="${policy}" title="
  * Auto-detect, the default, reads high-confidence facts from the repository's
  * build and package files; Generic assumes nothing; Custom uses the details
  * typed below, which appear only when Custom is chosen. The profile is the
- * repository's own — `.bugpilot/repository_profile.json`, written on Apply —
+ * repository's own — `settings/repository_profile.json`, written on Apply —
  * so the CLI and the MCP server describe the repository the same way.
  *
  * The select's options are names; what each means is its tooltip, and the
@@ -1226,7 +1226,7 @@ const REPOSITORY_PROFILE_MEANING: Readonly<Record<RepositoryProfileMode, string>
 const REPOSITORY_PROFILE_HELP =
   "Describe the repository context BugPilot gives to the AI agent. Auto-detect uses high-confidence project files. " +
   "Generic makes no language or framework assumptions. Custom uses the repository details you provide. " +
-  "Saved for the repository in .bugpilot/repository_profile.json.";
+  "Saved for this repository in BugPilot's data folder.";
 
 const REPOSITORY_PROFILE_FIELD = `        <div class="field" id="field-repositoryProfile">
   ${settingHeader({
@@ -1275,10 +1275,10 @@ const REPOSITORY_DETAIL_FIELDS: readonly TextField[] = REPOSITORY_FIELDS.map((en
  */
 const INSTRUCTION_HELP: Readonly<Record<InstructionScope, string>> = {
   user:
-    "Your own instructions for the AI agent, in every repository: ~/.bugpilot/instructions.md. " +
+    "Your own instructions for the AI agent, in every repository: ~/.bugpilot/config/instructions.md. " +
     "They refine how it works; BugPilot's safety rules come first in the task and win any conflict. Changing them requires rebuilding context.",
   project:
-    "Instructions for the AI agent shared with this repository: .bugpilot/instructions.md, which can be committed. " +
+    "Instructions for the AI agent for this repository, kept for it in BugPilot's data folder. " +
     "Use this for project conventions, preferred commands, or important constraints. " +
     "They refine how it works; BugPilot's safety rules come first in the task and win any conflict. Changing them requires rebuilding context.",
 };
@@ -1311,7 +1311,7 @@ function instructionRow(scope: InstructionScope): string {
 
 /**
  * The Verification Policy (0.1.3, §42.5): what the repository expects a pass
- * that changes code to verify, as text — `.bugpilot/verification.md`, or
+ * that changes code to verify, as text — `settings/verification.md`, or
  * BugPilot's default, or the legacy switches older versions saved. The row is
  * state and three actions, never a place to type: Edit opens the file in an
  * editor tab (the CLI creates it first, from the policy in force, if it is not
@@ -1408,7 +1408,7 @@ ${pageHeader({ backId: "verification-preview-back", backTitle: "Back to Advanced
 /**
  * AI Behavior (0.1.4): how the agent is expected to make and report changes in
  * this repository — BugPilot's defaults, always, plus the repository's
- * additions in `.bugpilot/ai_behavior.md`. The Verification Policy's row, for
+ * additions in `settings/ai_behavior.md`. The Verification Policy's row, for
  * another document: Edit opens the file in an editor tab (the CLI creates it
  * first, with its three sections empty, which add nothing until written
  * under), Reset removes it after asking, Preview shows the effective AI
@@ -1416,7 +1416,7 @@ ${pageHeader({ backId: "verification-preview-back", backTitle: "Back to Advanced
  * ai-behavior show --json`.
  */
 const AI_BEHAVIOR_HELP =
-  "How the AI agent is expected to make and report changes in this repository: BugPilot's defaults, always, plus this repository's additions in .bugpilot/ai_behavior.md, which can be committed. " +
+  "How the AI agent is expected to make and report changes in this repository: BugPilot's defaults, always, plus this repository's additions, kept for it in BugPilot's data folder. " +
   "Additions never replace the defaults. The Fix Mode decides how each attempt works within them, and BugPilot's protected rules still come first. Changing them requires rebuilding context.";
 
 const AI_BEHAVIOR_ROW = `        <div class="field policy-row" id="field-ai-behavior" role="group" aria-labelledby="ai-behavior-label" aria-describedby="ai-behavior-description">
@@ -1433,8 +1433,8 @@ const AI_BEHAVIOR_ROW = `        <div class="field policy-row" id="field-ai-beha
             <p class="hint policy-unavailable" id="ai-behavior-unavailable" hidden></p>
           </div>
           <div class="policy-actions" role="group" aria-label="AI Behavior actions">
-            <button type="button" id="ai-behavior-edit" aria-label="Edit AI Behavior in an editor tab" title="Opens .bugpilot/ai_behavior.md in an editor tab. If it does not exist yet, BugPilot creates it with its three sections, empty, which add nothing until you write under them." aria-describedby="ai-behavior-source ai-behavior-help">Edit</button>
-            <button type="button" id="ai-behavior-reset" aria-label="Reset AI Behavior" title="Deletes .bugpilot/ai_behavior.md after asking, so BugPilot's defaults apply alone." aria-describedby="ai-behavior-source">Reset</button>
+            <button type="button" id="ai-behavior-edit" aria-label="Edit AI Behavior in an editor tab" title="Opens this repository's ai_behavior.md in an editor tab. If it does not exist yet, BugPilot creates it with its three sections, empty, which add nothing until you write under them." aria-describedby="ai-behavior-source ai-behavior-help">Edit</button>
+            <button type="button" id="ai-behavior-reset" aria-label="Reset AI Behavior" title="Deletes this repository's ai_behavior.md after asking, so BugPilot's defaults apply alone." aria-describedby="ai-behavior-source">Reset</button>
             <button type="button" id="ai-behavior-preview" aria-label="Preview AI Behavior (read-only)" title="Shows the AI Behavior in force — BugPilot's defaults and any additions — read-only." aria-describedby="ai-behavior-source">Preview</button>
           </div>
           <p class="policy-stale-line" role="status"><span class="policy-stale" id="ai-behavior-stale"></span></p>

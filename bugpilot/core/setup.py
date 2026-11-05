@@ -14,6 +14,7 @@ import sys
 from typing import Callable
 
 from . import git_ops, jira, user_config
+from .executables import batch_file_only, not_found_sentence
 
 _CHECK = "✓"  # ✓
 _MAX_PROMPT_ATTEMPTS = 3
@@ -88,8 +89,8 @@ def run_setup(
     out("")
     out("Checking configuration...")
     out("")
-    _report_tool(out, "Git", "git")
-    _report_tool(out, "ripgrep", "rg")
+    _report_tool(out, "Git", "git", program=True)
+    _report_tool(out, "ripgrep", "rg", program=True)
     _report_tool(out, "GitHub Copilot CLI", "copilot")
 
     out("")
@@ -110,10 +111,11 @@ def run_setup(
     out(f"{_CHECK} Login successful")
 
     # Persist only after a successful login so we never store bad credentials.
-    path = user_config.save_user_config(email, token, base_url)
+    user_config.save_user_config(email, token, base_url)
 
     out("")
-    out(f"Configuration saved to: {path}")
+    # As messages name it (US-D22): the display form, never the user's own folder.
+    out(f"Configuration saved to: {user_config.shown_config_path()}")
     out("")
     out("Setup completed!")
     out("")
@@ -186,11 +188,14 @@ def _read_required(reader: PromptFn, label: str, out: OutFn) -> str | None:
     return None
 
 
-def _report_tool(out: OutFn, label: str, command: str) -> None:
-    if git_ops.command_available(command):
+def _report_tool(out: OutFn, label: str, command: str, *, program: bool = False) -> None:
+    """One tool's line. ``program``: looked for as every run looks for it, never as a batch file (git and rg, S-8)."""
+    if (git_ops.program_available if program else git_ops.command_available)(command):
         out(f"{_CHECK} {label}")
-    else:
-        out(f"! {label} not found (optional now; install it before running fixes).")
+        return
+    out(f"! {label} not found (optional now; install it before running fixes).")
+    if program and batch_file_only(command) is not None:
+        out(f"  {not_found_sentence(command)}")
 
 
 def _abort(out: OutFn, message: str) -> int:

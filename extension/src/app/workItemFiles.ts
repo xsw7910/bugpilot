@@ -1,12 +1,12 @@
 /**
  * Reading what BugPilot generated in a work item's folder, never through a link (O-1).
  *
- * A cloned repository can commit a symbolic link at a work item's folder, at the
- * folder above it, or at a file in it, and a junction can be made there locally.
- * A reader that followed one would show the developer, copy to the clipboard, or
- * hand on to an agent the content of a file outside the repository. So a read here
- * goes only through the folders `checkArtifactDirectory` (`sessionReset.ts`) proves
- * are the repository's own, takes a regular file only, reaches the very file it
+ * A work item's folder is in BugPilot's data folder (0.1.7); before that it was
+ * in the repository, where a clone could commit a symbolic link at it, at the
+ * folder above it, or at a file in it. A reader that followed a link would show
+ * the developer, copy to the clipboard, or hand on to an agent the content of
+ * another file, so a read here still goes only through the folders
+ * `checkArtifactDirectory` (`sessionReset.ts`) proves are the repository's own, takes a regular file only, reaches the very file it
  * looked at (device and file index), and stops at the CLI's limit. The CLI's
  * readers follow the same rule (`bugpilot/core/safe_paths.py`, `read_generated_file`).
  *
@@ -18,7 +18,8 @@
  * file is refused and a FIFO never blocks.
  *
  * A refusal is a `WorkItemRefusal` whose message names the file relative to the
- * repository only — never an absolute path, and never what a link points at.
+ * repository's folder in the data folder only (`work/<id>/<name>`) — never an
+ * absolute path, and never what a link points at.
  */
 
 import { constants } from "node:fs";
@@ -143,7 +144,7 @@ async function lookAtFile(file: string, item: WorkItemFolder): Promise<BigIntSta
  * when it is not there or cannot be examined just now; a refusal, worded for `shown`, for the rest.
  */
 async function lookAtFolder(item: WorkItemFolder, folder: string, shown: string): Promise<string | undefined> {
-  const check = await checkArtifactDirectory(item.root, item.workItemId);
+  const check = await checkArtifactDirectory(item.base, item.workItemId);
   switch (check.kind) {
     case "missing":
     case "failed":
@@ -159,7 +160,7 @@ async function lookAtFolder(item: WorkItemFolder, folder: string, shown: string)
 const FOLDER_REASONS: Readonly<Record<DeletionRefusal, (folder: string) => string>> = {
   link: (folder) => `${folder}, or the folder above it, is a symbolic link or junction`,
   "not-a-directory": (folder) => `${folder}, or the folder above it, is not a folder`,
-  outside: (folder) => `${folder} resolves outside this repository`,
+  outside: (folder) => `${folder} resolves outside this repository's folder in BugPilot's data folder`,
   "invalid-id": () => "its work item id is not one BugPilot could have created",
 };
 
@@ -183,9 +184,9 @@ async function readBounded(handle: FileHandle, limit: number, shown: string): Pr
   return Buffer.concat(chunks, total);
 }
 
-/** A path as messages name it: relative to the repository, with forward slashes, never absolute. */
+/** A path as messages name it: relative to the repository's folder in the data folder, with forward slashes, never absolute. */
 function relative(item: WorkItemFolder, file: string): string {
-  return path.relative(item.root, file).split(path.sep).join("/");
+  return path.relative(item.base, file).split(path.sep).join("/");
 }
 
 function refusal(shown: string, reason: string): WorkItemRefusal {

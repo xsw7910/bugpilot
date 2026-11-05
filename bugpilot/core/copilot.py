@@ -14,7 +14,7 @@ from pathlib import Path
 
 from .config import load_config
 from .git_ops import command_available
-from .handoff import handoff_prompt
+from .handoff import work_item_handoff
 
 
 def collect_agent_status(repo_root: Path | None = None) -> dict[str, str | bool]:
@@ -37,11 +37,11 @@ def agent_status_lines(repo_root: Path | None = None) -> list[str]:
     return ["bugpilot agent-check"] + [f"{key}: {value}" for key, value in status.items()]
 
 
-def auto_invocation_guidance(issue_key: str) -> list[str]:
+def auto_invocation_guidance(repo_root: Path, issue_key: str) -> list[str]:
     """What to tell a developer who must start their agent by hand."""
     return [
         "Agent automatic invocation is not enabled.",
         "Open your AI agent from the target repo root and run:",
-        handoff_prompt(issue_key),
+        work_item_handoff(repo_root, issue_key),
     ]
 

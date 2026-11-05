@@ -1,6 +1,7 @@
 """Project settings: the Verification Policy and branch naming.
 
-One file, ``<repo>/.bugpilot/project_settings.json``, read the same way by the
+One file, the repository's own ``settings/project_settings.json`` in its namespace in BugPilot's
+data folder (0.1.6 Batch 2B-3a; never ``<repo>/.bugpilot/``), read the same way by the
 CLI, the MCP prepare tools and the extension (through ``bugpilot
 project-settings``). These tests hold the defaults, the file's rules, what
 ``task.md`` says, the branch names a template gives — deterministic, safe, never
@@ -17,8 +18,9 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core.config import issue_dir
 from bugpilot.cli import main
-from bugpilot.core import workflow
+from bugpilot.core import storage, workflow
 from bugpilot.core.git_ops import branch_name, branch_template_problem, render_branch_template
 from bugpilot.core.input_adapters import bug_spec_from_description
 from bugpilot.core.models import InvestigationRequest
@@ -30,8 +32,10 @@ from bugpilot.core.project_settings import (
     load_project_settings,
     save_project_settings,
     settings_from_mapping,
+    settings_path,
 )
 from bugpilot.core.prompts import generate_task
+from bugpilot.core.storage import StorageError
 from bugpilot.core.verification import verification_section
 
 DEFAULT_LINES = (
@@ -50,9 +54,18 @@ def _repo(root: Path) -> Path:
     return root
 
 
+def _settings_file(root: Path, name: str = "project_settings.json") -> Path:
+    """A repository's own settings file, where 0.1.6 keeps it, its folder made ready by storage (Batch 2B-3a)."""
+    return storage.repository_storage(root).settings_file(name, create=True)
+
+
+def _shown(root: Path) -> str:
+    """The file as messages name it: built here from the repository's ID and the test's BUGPILOT_HOME."""
+    return f"BUGPILOT_HOME/repositories/{storage.repository_identity(root).repository_id}/settings/project_settings.json"
+
+
 def _settings(root: Path, data: object) -> None:
-    (root / ".bugpilot").mkdir(exist_ok=True)
-    (root / ".bugpilot" / "project_settings.json").write_text(json.dumps(data), encoding="utf-8")
+    _settings_file(root).write_text(json.dumps(data), encoding="utf-8")
 
 
 def _prepare(root: Path, monkeypatch, capsys, *extra: str) -> tuple[str, dict]:
@@ -103,11 +116,10 @@ def test_every_switch_says_what_it_means_and_nothing_invents_a_command():
         assert "the AI Fix Mode decides how this attempt verifies within it" in text
 
 
-def test_the_policy_sits_with_the_project_layer_and_does_not_repeat_the_fix_mode(tmp_path, monkeypatch, capsys, isolate_bugpilot_config):
-    (isolate_bugpilot_config / "instructions.md").write_text("Be brief.\n", encoding="utf-8")
+def test_the_policy_sits_with_the_project_layer_and_does_not_repeat_the_fix_mode(tmp_path, monkeypatch, capsys, user_config_folder):
+    (user_config_folder / "instructions.md").write_text("Be brief.\n", encoding="utf-8")
     root = _repo(tmp_path / "r")
-    (root / ".bugpilot").mkdir()
-    (root / ".bugpilot" / "instructions.md").write_text("Run module tests with the repo script.\n", encoding="utf-8")
+    _settings_file(root, "instructions.md").write_text("Run module tests with the repo script.\n", encoding="utf-8")
     task, _ = _prepare(root, monkeypatch, capsys)
     order = [task.index(h) for h in (
         "## Repository Context", "## Project / Team Instructions", "## Verification Policy",
@@ -134,8 +146,7 @@ def test_a_saved_policy_reaches_the_task(tmp_path, monkeypatch, capsys):
 
 def test_a_file_that_cannot_be_used_is_the_defaults_with_a_warning(tmp_path, monkeypatch, capsys):
     root = _repo(tmp_path / "r")
-    (root / ".bugpilot").mkdir()
-    (root / ".bugpilot" / "project_settings.json").write_text("{not json", encoding="utf-8")
+    _settings_file(root).write_text("{not json", encoding="utf-8")
     task, payload = _prepare(root, monkeypatch, capsys)
     assert "Source: BugPilot defaults (no project settings saved)." in task
     assert any("project_settings.json could not be read" in w and "Using the defaults." in w for w in payload["warnings"])
@@ -148,7 +159,8 @@ def test_a_bad_value_is_its_default_and_said(tmp_path):
     )
     assert settings == ProjectSettings()
     assert warnings == [
-        ".bugpilot/project_settings.json has unknown key(s) extra; they were ignored.",
+        # Named without a repository at hand: the file's own name (0.1.6 Batch 2B-3a; it is no longer in .bugpilot/).
+        "project_settings.json has unknown key(s) extra; they were ignored.",
         "verification.full_suite must be true or false; the default (false) was used.",
         "verification has unknown switch(es) colour; they were ignored.",
         "A branch naming template cannot contain '..' or '//'; the default branch name is used.",
@@ -174,16 +186,18 @@ def _junction(link: Path, target: Path) -> None:
 
 @pytest.mark.parametrize("make_link", [_symlink, _junction], ids=["symlink", "junction"])
 def test_a_linked_config_folder_is_neither_read_nor_written(tmp_path, make_link):
+    """Storage refuses a link on the way, for a read too (0.1.6 Batch 2B-3a, G-6): the command stops."""
     root = _repo(tmp_path / "r")
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     (elsewhere / "project_settings.json").write_text(json.dumps({"verification": {"full_suite": True}}), encoding="utf-8")
-    make_link(root / ".bugpilot", elsewhere)
+    settings_folder = _settings_file(root).parent
+    settings_folder.rmdir()
+    make_link(settings_folder, elsewhere)
 
-    settings, warnings = load_project_settings(root)
-    assert settings == ProjectSettings()
-    assert warnings and warnings[0].startswith(".bugpilot is a symbolic link or junction")
-    with pytest.raises(ProjectSettingsError, match="symbolic link or junction"):
+    with pytest.raises(StorageError, match="settings is a symbolic link or junction"):
+        load_project_settings(root)
+    with pytest.raises(StorageError, match="settings is a symbolic link or junction"):
         save_project_settings(root, ProjectSettings(branch_template="fix/{issue}"))
     assert json.loads((elsewhere / "project_settings.json").read_text(encoding="utf-8")) == {"verification": {"full_suite": True}}
 
@@ -199,7 +213,7 @@ def test_show_and_set_through_the_cli(tmp_path, monkeypatch, capsys):
     assert shown["saved"] is False
     assert shown["settings"] == shown["defaults"] == ProjectSettings().to_dict()
     assert shown["default_branch_template"] == "feature/{issue}-{slug}"
-    assert shown["path"] == ".bugpilot/project_settings.json"
+    assert shown["path"] == _shown(root)
 
     payload = tmp_path / "s.json"
     payload.write_text(json.dumps({"verification": {"full_suite": True}, "branch_naming": {"template": "bugfix/{issue}-{slug}"}}), encoding="utf-8")
@@ -208,8 +222,9 @@ def test_show_and_set_through_the_cli(tmp_path, monkeypatch, capsys):
     assert saved["saved"] is True
     assert saved["settings"]["verification"]["full_suite"] is True
     assert saved["settings"]["branch_naming"]["template"] == "bugfix/{issue}-{slug}"
-    on_disk = json.loads((root / ".bugpilot" / "project_settings.json").read_text(encoding="utf-8"))
+    on_disk = json.loads(settings_path(root).read_text(encoding="utf-8"))
     assert on_disk == saved["settings"]
+    assert not (root / ".bugpilot").exists()  # nothing in the repository
 
 
 def test_set_refuses_an_unsafe_template_and_keeps_the_file(tmp_path, monkeypatch, capsys):
@@ -223,7 +238,7 @@ def test_set_refuses_an_unsafe_template_and_keeps_the_file(tmp_path, monkeypatch
         failed = json.loads(capsys.readouterr().out)
         assert failed["error"]["code"] == "INVALID_INPUT"
         assert "default branch name is used" not in failed["error"]["message"]
-    assert json.loads((root / ".bugpilot" / "project_settings.json").read_text(encoding="utf-8")) == {"branch_naming": {"template": "fix/{issue}"}}
+    assert json.loads(settings_path(root).read_text(encoding="utf-8")) == {"branch_naming": {"template": "fix/{issue}"}}
 
 
 # --- branch naming --------------------------------------------------------------------------
@@ -276,17 +291,17 @@ def test_per_issue_records_the_templated_branch_and_a_later_template_does_not_re
     monkeypatch.chdir(root)
     assert main(["bug", "--prepare-only", "JR-12345", "--allow-mock", "--branch-policy", "per-issue"]) == 0
     capsys.readouterr()
-    guidance = json.loads((root / ".ai" / "JR-12345" / "issue.json").read_text(encoding="utf-8"))["guidance"]
+    guidance = json.loads((issue_dir(root, "JR-12345") / "issue.json").read_text(encoding="utf-8"))["guidance"]
     first = guidance["branch_name"]
     assert first.startswith("bugfix/JR-12345-")
-    task = (root / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
+    task = (issue_dir(root, "JR-12345") / "task.md").read_text(encoding="utf-8")
     assert f"- Branch name: `{first}`" in task
 
     # A new template, and another preparation: the work item keeps its branch.
     _settings(root, {"branch_naming": {"template": "fix/{issue}"}})
     assert main(["bug", "--prepare-only", "JR-12345", "--allow-mock", "--resume"]) == 0
     workflow.copilot_task_step(root, "JR-12345")
-    task = (root / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
+    task = (issue_dir(root, "JR-12345") / "task.md").read_text(encoding="utf-8")
     assert f"- Branch name: `{first}`" in task
     assert "fix/JR-12345`" not in task
     # Preparing again never calls for a new branch.
@@ -298,10 +313,10 @@ def test_the_current_policy_suggests_the_templated_name(tmp_path, monkeypatch, c
     _settings(root, {"branch_naming": {"template": "fix/{issue}"}})
     monkeypatch.chdir(root)
     assert main(["bug", "--prepare-only", "JR-12345", "--allow-mock"]) == 0
-    task = (root / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
+    task = (issue_dir(root, "JR-12345") / "task.md").read_text(encoding="utf-8")
     assert "`fix/JR-12345`" in task
     assert "feature/JR-12345" not in task
-    guidance = json.loads((root / ".ai" / "JR-12345" / "issue.json").read_text(encoding="utf-8"))["guidance"]
+    guidance = json.loads((issue_dir(root, "JR-12345") / "issue.json").read_text(encoding="utf-8"))["guidance"]
     assert "branch_name" not in guidance
 
 
@@ -318,7 +333,7 @@ def test_the_cli_the_core_entry_point_and_mcp_write_the_same_policy_and_branch(t
     _settings(core_root, settings)
     spec = bug_spec_from_description("Saving a record crashes", repo_root=core_root)
     workflow.run_investigation(core_root, InvestigationRequest(spec=spec))
-    core_task = (core_root / ".ai" / spec.work_item_id / "task.md").read_text(encoding="utf-8")
+    core_task = (issue_dir(core_root, spec.work_item_id) / "task.md").read_text(encoding="utf-8")
 
     assert _section(cli_task, "## Verification Policy") == _section(core_task, "## Verification Policy")
     assert re.search(r"`bugfix/bug-[0-9a-f]{8}-saving-a-record-crashes`", cli_task)
@@ -330,13 +345,13 @@ def test_the_cli_the_core_entry_point_and_mcp_write_the_same_policy_and_branch(t
     mcp_root = _repo(tmp_path / "mcp")
     _settings(mcp_root, settings)
     result = mcp_server._run("prepare", mcp_root, InvestigationRequest(spec=bug_spec_from_description("Saving a record crashes", repo_root=mcp_root)))
-    mcp_task = (mcp_root / ".ai" / result.issue_key / "task.md").read_text(encoding="utf-8")
+    mcp_task = (issue_dir(mcp_root, result.issue_key) / "task.md").read_text(encoding="utf-8")
     assert _section(mcp_task, "## Verification Policy") == _section(cli_task, "## Verification Policy")
     assert _section(mcp_task, "## Branch Instructions") == _section(cli_task, "## Branch Instructions")
 
 
 def test_generate_task_without_settings_writes_the_defaults():
-    task = generate_task("JR-1", "Saving crashes")
+    task = generate_task("JR-1", "Saving crashes", work_folder="/data/work")
     section = _section(task, "## Verification Policy")
     for line in DEFAULT_LINES:
         assert line in section
@@ -345,15 +360,14 @@ def test_generate_task_without_settings_writes_the_defaults():
 def test_change_scope_is_not_a_setting():
     """Deliberately not a setting: every Fix Mode already sets how broad a change may be."""
     assert "change_scope" not in ProjectSettings().to_dict()
-    assert "## Change Scope" not in generate_task("JR-1", "Saving crashes")
+    assert "## Change Scope" not in generate_task("JR-1", "Saving crashes", work_folder="/data/work")
 
 
 def test_a_file_with_a_bom_is_read_like_any_other(tmp_path, monkeypatch, capsys):
     """PowerShell 5's `Set-Content -Encoding UTF8` writes a BOM; it is not an error."""
     root = _repo(tmp_path / "repo")
-    (root / ".bugpilot").mkdir()
     data = {"verification": {"full_suite": True}, "branch_naming": {"template": "bugfix/{issue}-{slug}"}}
-    (root / ".bugpilot" / "project_settings.json").write_bytes(b"\xef\xbb\xbf" + json.dumps(data).encode("utf-8"))
+    _settings_file(root).write_bytes(b"\xef\xbb\xbf" + json.dumps(data).encode("utf-8"))
     settings, warnings = load_project_settings(root)
     assert warnings == []
     assert settings.verification.full_suite is True and settings.branch_template == "bugfix/{issue}-{slug}"
@@ -368,9 +382,8 @@ def test_a_file_with_a_bom_is_read_like_any_other(tmp_path, monkeypatch, capsys)
 def test_a_deeply_nested_file_is_the_defaults_not_a_crash(tmp_path, monkeypatch, capsys):
     """Under the size cap, but deep enough that json raises RecursionError."""
     root = _repo(tmp_path / "repo")
-    (root / ".bugpilot").mkdir()
     nested = "[" * 30_000 + "]" * 30_000  # 60 KB: under the 64 KB cap
-    (root / ".bugpilot" / "project_settings.json").write_text(nested, encoding="utf-8")
+    _settings_file(root).write_text(nested, encoding="utf-8")
     settings, warnings = load_project_settings(root)
     assert settings == ProjectSettings()
     assert any("nested too deeply" in w and "Using the defaults." in w for w in warnings)
@@ -420,7 +433,7 @@ def test_a_saved_template_without_issue_is_not_used_and_a_recorded_branch_is_kep
     monkeypatch.chdir(root)
     assert main(["bug", "--prepare-only", "JR-12345", "--allow-mock", "--branch-policy", "per-issue"]) == 0
     capsys.readouterr()
-    recorded = json.loads((root / ".ai" / "JR-12345" / "issue.json").read_text(encoding="utf-8"))["guidance"]["branch_name"]
+    recorded = json.loads((issue_dir(root, "JR-12345") / "issue.json").read_text(encoding="utf-8"))["guidance"]["branch_name"]
     assert recorded.startswith("bugfix/JR-12345-")
 
     # The file as an earlier version could have saved it: not used, and said.
@@ -432,7 +445,7 @@ def test_a_saved_template_without_issue_is_not_used_and_a_recorded_branch_is_kep
     # Preparing again keeps the recorded branch: nothing is renamed.
     assert main(["bug", "--prepare-only", "JR-12345", "--allow-mock", "--resume"]) == 0
     workflow.copilot_task_step(root, "JR-12345")
-    task = (root / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
+    task = (issue_dir(root, "JR-12345") / "task.md").read_text(encoding="utf-8")
     assert f"- Branch name: `{recorded}`" in task
     assert "`fix/" not in _section(task, "## Branch Instructions")
 

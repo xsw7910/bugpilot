@@ -23,7 +23,7 @@ from pathlib import Path
 
 from .artifact_io import atomic_write_text
 from .artifacts import REVIEW_REPORT_ARTIFACT, WorkItemNotFoundError
-from .config import issue_dir, writable_issue_dir
+from .config import issue_dir, shown_work, writable_issue_dir
 from .fix_report import section_of
 from .identity import validate_work_item_id
 
@@ -120,7 +120,7 @@ def record_review(
     # Checked for links before the report is written.
     target = writable_issue_dir(repo_root, work_item_id, create=False)
     if not target.is_dir():
-        raise WorkItemNotFoundError(f"Work item not found: .ai/{work_item_id}/")
+        raise WorkItemNotFoundError(f"Work item not found: {shown_work(repo_root, work_item_id)}")
     sections = review.sections()
     for key, heading in REVIEW_SECTIONS:
         if len(sections[key]) > MAX_SECTION_CHARS:
@@ -131,7 +131,7 @@ def record_review(
     existed = path.exists()
     if existed and not replace:
         raise ReviewReportExistsError(
-            f"A review result is already recorded in .ai/{work_item_id}/{REVIEW_REPORT_ARTIFACT}. "
+            f"A review result is already recorded in {shown_work(repo_root, work_item_id, REVIEW_REPORT_ARTIFACT)}. "
             "It was kept; pass --replace to overwrite it."
         )
     atomic_write_text(path, render_review_report(work_item_id, review))

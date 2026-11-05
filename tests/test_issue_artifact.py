@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core.config import issue_dir
 from bugpilot.core import issue as issue_module
 from bugpilot.core import workflow
 from bugpilot.core.fix_mode_state import select_fix_mode
@@ -124,15 +125,15 @@ def fake_jira(monkeypatch):
 
 
 def _read(repo: Path, work_item_id: str) -> dict:
-    return json.loads((repo / ".ai" / work_item_id / "issue.json").read_text(encoding="utf-8"))
+    return json.loads((issue_dir(repo, work_item_id) / "issue.json").read_text(encoding="utf-8"))
 
 
 def _task(repo: Path, work_item_id: str) -> str:
-    return (repo / ".ai" / work_item_id / "task.md").read_text(encoding="utf-8")
+    return (issue_dir(repo, work_item_id) / "task.md").read_text(encoding="utf-8")
 
 
 def _assert_no_legacy_issue_files(repo: Path, work_item_id: str) -> None:
-    target = repo / ".ai" / work_item_id
+    target = issue_dir(repo, work_item_id)
     present = [name for name in LEGACY_ISSUE_FILES if (target / name).exists()]
     assert present == [], f"legacy issue files written: {present}"
 
@@ -189,7 +190,7 @@ def test_a_jira_run_writes_one_canonical_issue_artifact(tmp_path, fake_jira):
 
 def test_issue_json_keeps_no_raw_payload_urls_tokens_or_people(tmp_path, fake_jira):
     _jira(tmp_path)
-    raw = (tmp_path / ".ai" / "JR-12345" / "issue.json").read_text(encoding="utf-8")
+    raw = (issue_dir(tmp_path, "JR-12345") / "issue.json").read_text(encoding="utf-8")
 
     for absent in (
         "token=secret",
@@ -207,10 +208,10 @@ def test_issue_json_keeps_no_raw_payload_urls_tokens_or_people(tmp_path, fake_ji
 def test_the_status_file_still_reports_the_recorded_mode(tmp_path, fake_jira):
     """The extension reads the mode from `run.json`; its source moved."""
     _jira(tmp_path, fix_mode_id="investigate-first")
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text(encoding="utf-8"))
+    status = json.loads((issue_dir(tmp_path, "JR-12345") / "run.json").read_text(encoding="utf-8"))
 
     assert status["fix_mode"]["id"] == "investigate-first"
-    assert ".ai/JR-12345/issue.json" in status["generated_files"]
+    assert "work/JR-12345/issue.json" in status["generated_files"]
 
 
 # --- manual source -------------------------------------------------------------
@@ -294,7 +295,7 @@ def test_keywords_survive_the_round_trip_through_issue_json(tmp_path, fake_jira)
     It must search exactly what the live run searched, and rank the same files.
     """
     _jira(tmp_path)
-    target = tmp_path / ".ai" / "JR-12345"
+    target = issue_dir(tmp_path, "JR-12345")
     live = json.loads((target / "retrieval.json").read_text(encoding="utf-8"))
 
     workflow.code_search_step(tmp_path, "JR-12345")
@@ -340,7 +341,7 @@ def test_save_and_load_round_trip_as_readable_utf8(tmp_path):
     issue = replace(_full_issue(), title="三维视图切换图层后崩溃")
     path = save_issue(tmp_path, issue)
 
-    assert path == tmp_path / ".ai" / "JR-12345" / "issue.json"
+    assert path == issue_dir(tmp_path, "JR-12345") / "issue.json"
     assert "三维视图切换图层后崩溃" in path.read_text(encoding="utf-8")
     assert load_issue(tmp_path, "JR-12345") == issue
 
@@ -357,7 +358,7 @@ def test_issue_json_is_written_atomically(tmp_path, monkeypatch):
     monkeypatch.setattr(issue_module, "atomic_write_text", recording)
     save_issue(tmp_path, _full_issue())
 
-    assert written == [tmp_path / ".ai" / "JR-12345" / "issue.json"]
+    assert written == [issue_dir(tmp_path, "JR-12345") / "issue.json"]
 
 
 def test_a_missing_issue_is_none(tmp_path):
@@ -377,7 +378,7 @@ def test_a_missing_issue_is_none(tmp_path):
     ],
 )
 def test_an_unusable_issue_file_is_an_error_not_a_fallback(tmp_path, contents):
-    target = tmp_path / ".ai" / "JR-12345"
+    target = issue_dir(tmp_path, "JR-12345")
     target.mkdir(parents=True)
     (target / "issue.json").write_text(contents, encoding="utf-8")
 
@@ -388,7 +389,7 @@ def test_an_unusable_issue_file_is_an_error_not_a_fallback(tmp_path, contents):
 
 
 def test_non_utf8_bytes_are_an_error_not_a_crash(tmp_path):
-    target = tmp_path / ".ai" / "JR-12345"
+    target = issue_dir(tmp_path, "JR-12345")
     target.mkdir(parents=True)
     (target / "issue.json").write_bytes(b'{"schema_version": 1, "id": "\xff\xfe"}')
 
@@ -458,7 +459,7 @@ def test_a_fresh_run_starts_without_the_previous_guidance(tmp_path, fake_jira):
 def test_refinement_restores_the_issue_from_issue_json(tmp_path, fake_jira):
     """Refine never re-fetches, so issue.json is all it has — and all it needs."""
     _jira(tmp_path, fix_mode_id="test-driven")
-    target = tmp_path / ".ai" / "JR-12345"
+    target = issue_dir(tmp_path, "JR-12345")
     retrieval_before = (target / "retrieval.json").read_text(encoding="utf-8")
 
     # Same issue, same options: the same search, term for term and file for file.
@@ -477,7 +478,7 @@ def test_refinement_restores_the_issue_from_issue_json(tmp_path, fake_jira):
 
 def test_a_legacy_layout_is_not_read(tmp_path, fake_jira):
     """No fallback: the old files are ignored, not migrated."""
-    target = tmp_path / ".ai" / "JR-12345"
+    target = issue_dir(tmp_path, "JR-12345")
     target.mkdir(parents=True)
     (target / "developer_hint.md").write_text("old hint\n", encoding="utf-8")
     (target / "fix_mode.json").write_text(
@@ -503,7 +504,7 @@ def test_a_standalone_fetch_keeps_guidance_and_repairs_a_corrupt_issue(tmp_path,
     workflow.fetch_step(tmp_path, "JR-12345")
     assert _read(tmp_path, "JR-12345")["guidance"]["hint"] == HINT
 
-    (tmp_path / ".ai" / "JR-12345" / "issue.json").write_text("{torn", encoding="utf-8")
+    (issue_dir(tmp_path, "JR-12345") / "issue.json").write_text("{torn", encoding="utf-8")
     workflow.fetch_step(tmp_path, "JR-12345")
     assert _read(tmp_path, "JR-12345")["title"] == "WidgetController rejects a valid output type"
 

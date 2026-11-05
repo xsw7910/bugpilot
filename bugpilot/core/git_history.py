@@ -47,10 +47,10 @@ from pathlib import Path
 from .code_files import is_documentation, is_searchable
 from .config import issue_dir
 from .evidence import evidence_block, one_line
-from .executables import child_environment, find_executable
+from .executables import batch_file_only, child_environment, find_program, not_found_sentence
 from .git_ops import (
     TIMEOUT_EXIT_CODE,
-    command_available,
+    program_available,
     current_branch,
     inside_git_repo,
     run_command,
@@ -995,7 +995,7 @@ def _changed_file_count(repo_root: Path, commit: str) -> int | None:
     """
     if not _HASH_RE.fullmatch(commit):
         return None
-    git = find_executable("git")
+    git = find_program("git")
     if git is None:
         return None
     try:
@@ -1191,8 +1191,10 @@ def collect_git_history(
         history_depth=settings.history_depth,
         max_related_commits=settings.max_related_commits,
     )
-    if not command_available("git"):
-        return GitHistoryOutcome(work_item_id, GitHistoryRecord("unavailable", search, warnings=(NO_GIT_WARNING,)))
+    if not program_available("git"):
+        # Never git as a batch file: its patterns are the issue's text, and cmd.exe would act on them (S-8).
+        warning = NO_GIT_WARNING if batch_file_only("git") is None else f"{NO_GIT_WARNING} {not_found_sentence('git')}"
+        return GitHistoryOutcome(work_item_id, GitHistoryRecord("unavailable", search, warnings=(warning,)))
     if not inside_git_repo(repo_root):
         return GitHistoryOutcome(
             work_item_id, GitHistoryRecord("unavailable", search, warnings=(NOT_A_REPOSITORY_WARNING,))
@@ -1488,7 +1490,7 @@ def _changed_files(repo_root: Path, commit: str) -> list[tuple[str, str]] | None
     """
     if not _HASH_RE.fullmatch(commit):
         return None
-    git = find_executable("git")
+    git = find_program("git")
     if git is None:
         return None
     try:

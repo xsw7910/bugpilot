@@ -6,6 +6,7 @@ import json
 
 import pytest
 
+from bugpilot.core.config import issue_dir, prompt_path
 from bugpilot.cli import main
 from bugpilot.core import errors
 from bugpilot.core.agent_runner import RETRY_HANDOFF_PROMPT, AgentRunResult
@@ -116,7 +117,7 @@ def test_list_survives_a_directory_with_no_spec(tmp_path, monkeypatch, capsys):
     """One unreadable work item must not break the listing."""
     monkeypatch.chdir(tmp_path)
     _prepare_manual(capsys)
-    (tmp_path / ".ai" / "JR-99999").mkdir(parents=True)
+    (issue_dir(tmp_path, "JR-99999")).mkdir(parents=True)
 
     main(["list", "--json"])
     payload = json.loads(capsys.readouterr().out)
@@ -196,7 +197,7 @@ def test_retry_generates_feedback_and_prompt(tmp_path, monkeypatch, capsys):
     work_item = _prepare_manual(capsys)
 
     assert main(["bug", work_item, "--retry", "--prepare-only"]) == 0
-    target = tmp_path / ".ai" / work_item
+    target = issue_dir(tmp_path, work_item)
     assert (target / "user_feedback.md").exists()
     assert (target / "agent_retry_prompt.md").exists()
 
@@ -222,7 +223,7 @@ def test_retry_hands_the_agent_the_retry_prompt(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     work_item = _prepare_manual(capsys)
     main(["bug", work_item, "--retry", "--prepare-only"])
-    (tmp_path / ".ai" / work_item / "user_feedback.md").write_text(
+    (issue_dir(tmp_path, work_item) / "user_feedback.md").write_text(
         "the fix missed the writer path", encoding="utf-8"
     )
     capsys.readouterr()
@@ -235,7 +236,7 @@ def test_retry_hands_the_agent_the_retry_prompt(tmp_path, monkeypatch, capsys):
 
     assert main(["bug", work_item, "--retry", "--launch-agent", "claude"]) == 0
     assert captured["prompt"] == RETRY_HANDOFF_PROMPT.format(
-        prompt_file=f".ai/{work_item}/agent_retry_prompt.md"
+        prompt_file=prompt_path(issue_dir(tmp_path, work_item) / "agent_retry_prompt.md")
     )
 
 
@@ -253,7 +254,7 @@ def test_retry_json_reports_the_files(tmp_path, monkeypatch, capsys):
 def test_retry_keeps_existing_feedback(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     work_item = _prepare_manual(capsys)
-    feedback = tmp_path / ".ai" / work_item / "user_feedback.md"
+    feedback = issue_dir(tmp_path, work_item) / "user_feedback.md"
     main(["bug", work_item, "--retry", "--prepare-only"])
     feedback.write_text("my own notes", encoding="utf-8")
     capsys.readouterr()
@@ -357,7 +358,7 @@ def test_only_issue_details_reports_no_agent_task(tmp_path, monkeypatch, capsys)
     ])
     payload = json.loads(capsys.readouterr().out)
     assert payload["agent_task"] is None
-    assert not (tmp_path / ".ai" / payload["work_item_id"] / "task.md").exists()
+    assert not (issue_dir(tmp_path, payload["work_item_id"]) / "task.md").exists()
 
 
 def test_only_issue_details_does_not_launch_an_agent(tmp_path, monkeypatch, capsys):
@@ -395,7 +396,7 @@ def test_supplied_keywords_reach_the_extraction(tmp_path, monkeypatch, capsys):
     ])
     work_item = json.loads(capsys.readouterr().out)["work_item_id"]
 
-    retrieval = json.loads((tmp_path / ".ai" / work_item / "retrieval.json").read_text(encoding="utf-8"))
+    retrieval = json.loads((issue_dir(tmp_path, work_item) / "retrieval.json").read_text(encoding="utf-8"))
     # Searched as the developer's own keyword, at the strongest weight there is.
     assert {"value": "OpenCsvStatistics", "source": "user"}.items() <= retrieval["terms"][0].items()
 

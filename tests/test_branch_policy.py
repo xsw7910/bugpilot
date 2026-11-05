@@ -14,6 +14,7 @@ import json
 
 import pytest
 
+from bugpilot.core.config import issue_dir
 from bugpilot.cli import build_parser, main
 from bugpilot.core import workflow
 from bugpilot.core.branch_policy import (
@@ -50,7 +51,7 @@ LIFECYCLE_RULE = (
 def task(policy: str | None = None, key: str = "JR-1", title: str = "Stale search results", **kwargs) -> str:
     if policy is not None:
         kwargs["branch_policy"] = policy
-    return generate_task(key, title, **kwargs)
+    return generate_task(key, title, **kwargs, work_folder="/data/work")
 
 
 # --- the policies -------------------------------------------------------------
@@ -219,11 +220,11 @@ def test_issue_json_records_the_policy_and_branch_and_reads_them_back():
 
 
 def _task_text(tmp_path, key: str = "JR-12345") -> str:
-    return (tmp_path / ".ai" / key / "task.md").read_text(encoding="utf-8")
+    return (issue_dir(tmp_path, key) / "task.md").read_text(encoding="utf-8")
 
 
 def _guidance(tmp_path, key: str = "JR-12345") -> dict:
-    return json.loads((tmp_path / ".ai" / key / "issue.json").read_text(encoding="utf-8"))["guidance"]
+    return json.loads((issue_dir(tmp_path, key) / "issue.json").read_text(encoding="utf-8"))["guidance"]
 
 
 def _recorded(tmp_path, key: str = "JR-12345") -> str | None:
@@ -231,7 +232,7 @@ def _recorded(tmp_path, key: str = "JR-12345") -> str | None:
 
 
 def _edit_guidance(tmp_path, key: str = "JR-12345", **fields) -> None:
-    path = tmp_path / ".ai" / key / "issue.json"
+    path = issue_dir(tmp_path, key) / "issue.json"
     data = json.loads(path.read_text(encoding="utf-8"))
     data["guidance"].update(fields)
     path.write_text(json.dumps(data), encoding="utf-8")

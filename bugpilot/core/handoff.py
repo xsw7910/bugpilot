@@ -26,6 +26,8 @@ file decides.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from .artifacts import CONTEXT_ARTIFACT, TASK_ARTIFACT
 
 # The files an agent must read before doing anything. `task.md` is the task,
@@ -75,14 +77,23 @@ def _sentence(actions: tuple[str, ...]) -> str:
 _FORBIDDEN_SENTENCE = _sentence(FORBIDDEN_ACTIONS)
 
 
-def handoff_prompt(issue_key: str) -> str:
+def handoff_prompt(task_file: str) -> str:
     """The launch prompt for an agent started by bugpilot, or by the extension.
 
     One sentence rather than a handoff document: everything the agent needs is
     in the task file it names. It is passed on a command line and asserted by
-    tests on both sides of the extension boundary.
+    tests on both sides of the extension boundary. ``task_file`` is the work
+    item's ``task.md``, absolute (:func:`work_item_handoff`): the agent runs in
+    the repository, and the file is in BugPilot's data folder (0.1.7).
     """
-    return f"Read .ai/{issue_key}/{TASK_ARTIFACT} and complete the workflow."
+    return f"Read {task_file} and complete the workflow."
+
+
+def work_item_handoff(repo_root: Path, issue_key: str) -> str:
+    """:func:`handoff_prompt` for a work item: its ``task.md``, as ``config.prompt_path`` names it."""
+    from .config import issue_dir, prompt_path
+
+    return handoff_prompt(prompt_path(issue_dir(repo_root, issue_key) / TASK_ARTIFACT))
 
 
 def retry_handoff_prompt(prompt_file: str) -> str:
@@ -113,11 +124,12 @@ def skill_steps() -> tuple[str, ...]:
     a command line rather than a tool call. Everything after that is the same
     handoff as every other entry point.
     """
-    reads = " and ".join(f"`.ai/<ISSUE>/{name}`" for name in REQUIRED_READS)
+    reads = " and ".join(f"`{name}`" for name in REQUIRED_READS)
     return (
         "Run `bugpilot bug <ISSUE> --prepare-only --resume` from the repository root. "
         'For a bug with no issue key, run `bugpilot bug --description="..." --prepare-only` instead.',
-        f"Read {reads}. They contain the issue details, the ranked candidate "
+        f"Read {reads} in the work folder that command prints: BugPilot keeps it in its own "
+        "data folder, outside the repository. They contain the issue details, the ranked candidate "
         "files and the relevant git history — read them instead of searching "
         "the repository from scratch.",
         f"Complete the workflow `{TASK_ARTIFACT}` describes for the selected AI Fix "

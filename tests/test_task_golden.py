@@ -15,7 +15,7 @@ import re
 import pytest
 
 import task_golden
-from task_golden import MATRIX, TaskCase, golden_path, measure, read_golden, render
+from task_golden import MATRIX, TaskCase, golden_path, measure, normalized, read_golden, render
 
 BASELINE = task_golden.GOLDEN_DIR.parent.parent / "baselines" / "0.1.3-batch0"
 
@@ -55,10 +55,13 @@ def test_the_matrix_covers_every_input_that_changes_the_task():
     assert len({case.name for case in MATRIX}) == len(MATRIX)
 
 
-def test_the_matrix_is_rendered_from_inputs_resolved_like_a_run(monkeypatch, tmp_path):
+def test_the_matrix_is_rendered_from_inputs_resolved_like_a_run(user_config_folder, tmp_path):
     """Never the machine's own configuration: a developer's instructions must not reach a golden file."""
-    monkeypatch.setenv("BUGPILOT_CONFIG_DIR", str(tmp_path))
-    (tmp_path / "instructions.md").write_text("A private preference that must not leak.\n", encoding="utf-8")
+    from bugpilot.core.instructions import load_instructions
+
+    (user_config_folder / "instructions.md").write_text("A private preference that must not leak.\n", encoding="utf-8")
+    # Where a run on this machine reads them (0.1.6: BUGPILOT_HOME/config/), so the check below means something.
+    assert "must not leak" in load_instructions(tmp_path).user.text
     case = next(case for case in MATRIX if case.name == "jira-fix-current")
 
     assert "must not leak" not in render(case)
@@ -73,7 +76,7 @@ def test_only_the_configured_case_carries_instructions_and_saved_settings():
         # A repository verification.md replaces the saved switches as the source (0.1.3).
         legacy = case.configured and not case.verification_file
         assert ("Source: repository configuration (project settings)." in text) == legacy, case.name
-        assert ("Source: repository Verification Policy (.bugpilot/verification.md)." in text) == case.verification_file, case.name
+        assert ("Source: repository Verification Policy." in text) == case.verification_file, case.name  # E-1, V
 
 
 def test_a_case_says_what_its_inputs_say():
@@ -205,7 +208,7 @@ def test_ai_behavior_is_one_section_in_the_project_layer_with_its_additions_cont
     assert "### Code Change Conventions" in behavior
     assert ("### Repository Additions" in behavior) == case.ai_behavior, case.name
     if case.ai_behavior:
-        assert "Source: BugPilot defaults, with this repository's additions (.bugpilot/ai_behavior.md)." in behavior
+        assert "Source: BugPilot defaults, with this repository's additions." in behavior  # E-1, A
         for heading in ("Code Change Conventions", "Evidence Standards", "Reporting Standards"):
             assert f"\n#### {heading}\n" in behavior, (case.name, heading)
     else:
@@ -270,9 +273,13 @@ def test_every_policy_keeps_main_master_and_detached_head_protected(case: TaskCa
 
 
 def test_the_median_task_is_at_least_a_fifth_smaller_than_the_baseline():
-    """The deduplication target (§42.4), measured against the baseline record — never a later one."""
+    """The deduplication target (§42.4), measured against the baseline record — never a later one.
+
+    Measured on the normalized task (0.1.7, US-D30): the work folder a task names absolutely is replaced by
+    `<WORK>`, so a machine's path length is not counted. The ceiling is the same.
+    """
     import statistics
 
     before = _baseline_task()["median"]["approx_tokens"]
-    after = statistics.median(measure(read_golden(case))["approx_tokens"] for case in MATRIX)
+    after = statistics.median(measure(normalized(read_golden(case), case))["approx_tokens"] for case in MATRIX)
     assert (before - after) / before >= 0.20, (before, after)

@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core.config import issue_dir, memory_dir
 from bugpilot.cli import main
 from bugpilot.core import workflow
 from bugpilot.core.email_notify import build_email_draft
@@ -44,7 +45,7 @@ FIXED_REPORT = (
 
 
 def _package(root: Path, work_item: str = "JR-12345") -> Path:
-    target = root / ".ai" / work_item
+    target = issue_dir(root, work_item)
     target.mkdir(parents=True)
     save_issue(root, IssueArtifact(id=work_item, source="jira", title="CSV rejected"))
     (target / "context.md").write_text("# Bug Context\n", encoding="utf-8")
@@ -129,7 +130,7 @@ def test_tests_not_run_passes_through_verbatim(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     assert main(["memory", "update", "JR-12345"]) == 0
-    memory = (tmp_path / ".ai_memory" / "bugs" / "JR-12345.md").read_text(encoding="utf-8")
+    memory = (memory_dir(tmp_path) / "JR-12345.md").read_text(encoding="utf-8")
     draft = build_email_draft(tmp_path, "JR-12345")
 
     assert "### Tests\nNot run: no code changed." in memory
@@ -177,7 +178,7 @@ def test_prepare_stays_five_and_the_report_makes_six(tmp_path):
         tmp_path,
         InvestigationRequest(spec=spec, options=InvestigationOptions(keywords=["WidgetController"])),
     )
-    target = tmp_path / ".ai" / spec.work_item_id
+    target = issue_dir(tmp_path, spec.work_item_id)
     assert {p.name for p in target.iterdir()} == CORE_PREPARE
 
     # The agent writes its report; the core set is now exactly six.
@@ -188,7 +189,7 @@ def test_prepare_stays_five_and_the_report_makes_six(tmp_path):
     workflow.check_results_step(tmp_path, spec.work_item_id)
     workflow.summarize_results_step(tmp_path, spec.work_item_id)
     run = json.loads((target / "run.json").read_text(encoding="utf-8"))
-    assert f".ai/{spec.work_item_id}/fix_report.md" in run["generated_files"]
+    assert f"work/{spec.work_item_id}/fix_report.md" in run["generated_files"]
     assert {p.name for p in target.iterdir()} == CORE_PREPARE | {"fix_report.md"}
 
 

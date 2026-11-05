@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core.config import issue_dir
 from bugpilot.core import git_history, retrieval as retrieval_module, workflow
 from bugpilot.core.git_history import (
     GitHistoryQuery,
@@ -324,12 +325,12 @@ def _prepare(root: Path, options: InvestigationOptions | None = None, plan: Inve
 
 
 def _section(root: Path, work_item: str) -> dict | None:
-    data = json.loads((root / ".ai" / work_item / "retrieval.json").read_text(encoding="utf-8"))
+    data = json.loads((issue_dir(root, work_item) / "retrieval.json").read_text(encoding="utf-8"))
     return data.get("git_history")
 
 
 def _context_hashes(root: Path, work_item: str) -> list[str]:
-    context = (root / ".ai" / work_item / "context.md").read_text(encoding="utf-8")
+    context = (issue_dir(root, work_item) / "context.md").read_text(encoding="utf-8")
     return re.findall(r"^#### ([0-9a-f]{10}) — ", context.split("## Git History", 1)[1], flags=re.M)
 
 
@@ -346,13 +347,13 @@ def test_a_prepared_run_records_the_section_and_the_context_renders_it(tmp_path)
     recorded = [c["short_hash"] for c in section["commits"]]
     assert _context_hashes(root, spec.work_item_id) == recorded
     assert len(set(recorded)) == len(recorded)
-    context = (root / ".ai" / spec.work_item_id / "context.md").read_text(encoding="utf-8")
+    context = (issue_dir(root, spec.work_item_id) / "context.md").read_text(encoding="utf-8")
     assert f"{len(recorded)} related commit{'s' if len(recorded) != 1 else ''} found." in context
     for commit in section["commits"]:
         for reason in commit["reasons"]:
             assert f"- {reason}" in context
     # Still exactly the five artifacts.
-    assert {p.name for p in (root / ".ai" / spec.work_item_id).iterdir()} == {
+    assert {p.name for p in (issue_dir(root, spec.work_item_id)).iterdir()} == {
         "issue.json", "retrieval.json", "context.md", "task.md", "run.json",
     }
 
@@ -431,7 +432,7 @@ def test_skipping_git_history_leaves_no_section_behind(tmp_path):
 
     # Code Search rewrote the file; Git history did not run, so nothing claims it did.
     assert _section(root, spec.work_item_id) is None
-    run = json.loads((root / ".ai" / spec.work_item_id / "run.json").read_text(encoding="utf-8"))
+    run = json.loads((issue_dir(root, spec.work_item_id) / "run.json").read_text(encoding="utf-8"))
     assert run["steps"]["git_context"] == "skipped"
 
 
@@ -440,7 +441,7 @@ def test_skipping_git_history_leaves_no_section_behind(tmp_path):
 def test_a_resume_that_skips_both_steps_keeps_the_section_and_does_not_render_it(tmp_path):
     root = _code_repo(tmp_path)
     spec = _prepare(root)
-    path = root / ".ai" / spec.work_item_id / "retrieval.json"
+    path = issue_dir(root, spec.work_item_id) / "retrieval.json"
     before = path.read_text(encoding="utf-8")
 
     _prepare(root, plan=InvestigationPlan(code_search=False, git_history=False), spec=spec, fresh=False)
@@ -448,9 +449,9 @@ def test_a_resume_that_skips_both_steps_keeps_the_section_and_does_not_render_it
     # Untouched on disk, for a reader that trusts it only when run.json says
     # the step passed — and this run's context does not present it as its own.
     assert path.read_text(encoding="utf-8") == before
-    context = (root / ".ai" / spec.work_item_id / "context.md").read_text(encoding="utf-8")
+    context = (issue_dir(root, spec.work_item_id) / "context.md").read_text(encoding="utf-8")
     assert "_Git context has not been generated yet._" in context
-    run = json.loads((root / ".ai" / spec.work_item_id / "run.json").read_text(encoding="utf-8"))
+    run = json.loads((issue_dir(root, spec.work_item_id) / "run.json").read_text(encoding="utf-8"))
     assert run["steps"]["git_context"] == "skipped"
 
 
@@ -469,7 +470,7 @@ def test_a_failed_step_takes_the_earlier_section_out(tmp_path, monkeypatch):
         _prepare(root, plan=InvestigationPlan(code_search=False), spec=spec, fresh=False)
 
     assert _section(root, spec.work_item_id) is None
-    run = json.loads((root / ".ai" / spec.work_item_id / "run.json").read_text(encoding="utf-8"))
+    run = json.loads((issue_dir(root, spec.work_item_id) / "run.json").read_text(encoding="utf-8"))
     assert run["steps"]["git_context"] == "fail"
 
 
@@ -477,7 +478,7 @@ def test_without_a_retrieval_nothing_is_invented(tmp_path):
     spec = bug_spec_from_description("x")
     workflow.run_investigation(tmp_path, InvestigationRequest(spec=spec, plan=InvestigationPlan(code_search=False)))
 
-    assert not (tmp_path / ".ai" / spec.work_item_id / "retrieval.json").exists()
+    assert not (issue_dir(tmp_path, spec.work_item_id) / "retrieval.json").exists()
 
 
 # --- context rendering -------------------------------------------------------------------------
@@ -502,7 +503,7 @@ def test_a_work_item_whose_git_history_did_not_run_says_so(tmp_path):
     spec = bug_spec_from_description("x")
     workflow.run_investigation(tmp_path, InvestigationRequest(spec=spec, plan=InvestigationPlan(git_history=False)))
 
-    context = (tmp_path / ".ai" / spec.work_item_id / "context.md").read_text(encoding="utf-8")
+    context = (issue_dir(tmp_path, spec.work_item_id) / "context.md").read_text(encoding="utf-8")
     assert "_Git context has not been generated yet._" in context
 
 

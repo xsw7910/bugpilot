@@ -76,6 +76,8 @@ def generate_task(
     instructions: ResolvedInstructions | None = None,
     project_settings: ResolvedProjectSettings | None = None,
     ai_behavior: ResolvedAiBehavior | None = None,
+    *,
+    work_folder: str,
 ) -> str:
     """``task.md``: the one package BugPilot hands a coding agent.
 
@@ -104,6 +106,12 @@ def generate_task(
     (:func:`ai_behavior.resolve_ai_behavior`): BugPilot's defaults plus the
     repository's additions. ``None`` is the defaults; the section is always
     written.
+
+    ``work_folder`` is the work item's folder in BugPilot's data folder, as
+    :func:`config.prompt_path` renders it: absolute, with forward slashes. The
+    agent runs in the repository, so the task names that folder once, in
+    Execution Location, and its report's destination absolutely; every other
+    file is named by its plain name in that folder (plan §9.8.1).
     """
     # The full analysis/fix/review/test workflow lives inside the task, so no
     # standalone per-phase prompt files are generated.
@@ -112,6 +120,7 @@ def generate_task(
     mode = _task_fix_mode(fix_mode)
     return _copilot_task(
         issue_key,
+        work_folder,
         branch,
         hint,
         jira_comment,
@@ -131,7 +140,7 @@ def copilot_team_instructions() -> str:
 
     Repository-neutral by design. What a particular repository is belongs to its
     Repository Profile, and a team's own rules to its project instructions
-    (``.bugpilot/instructions.md``). One copy at run time: an installed wheel
+    (its ``instructions.md`` setting). One copy at run time: an installed wheel
     and a source checkout write the same rules. ``docs/agent_team_instructions.md``
     mirrors it for readers, and a test keeps the two identical.
     """
@@ -165,7 +174,7 @@ TASK_SECTION_CLASSES: dict[str, str] = {
     "Project / Team Instructions": "project-instructions",
     "Verification Policy": "verification-policy",
     # BugPilot's default conventions (the Working Guidance of 0.1.3) and the
-    # repository's additions (`.bugpilot/ai_behavior.md`, 0.1.4).
+    # repository's additions (its `ai_behavior.md` setting, 0.1.4).
     "AI Behavior": "ai-behavior",
     "User Instructions": "user-instructions",
     "Branch Instructions": "protected",
@@ -269,7 +278,7 @@ def _precedence_section() -> str:
     )
 
 
-def investigation_handoff_block(issue_key: str) -> str:
+def investigation_handoff_block() -> str:
     """Where an investigation-only mode stops, in place of the delivery offer.
 
     An investigation has nothing to deliver, so offering to commit and push is
@@ -284,7 +293,7 @@ def investigation_handoff_block(issue_key: str) -> str:
         "## Investigation Handoff\n\n"
         "This Fix Mode is investigation-only. There is no fix to deliver in this pass.\n\n"
         "When the investigation is complete:\n"
-        f"- Write `.ai/{issue_key}/fix_report.md`, every section investigation-phrased.\n"
+        "- Write `fix_report.md` in the work folder, every section investigation-phrased.\n"
         "- Tell the developer: \"Investigation complete. No source changes have been applied.\"\n"
         "- Show the leading root-cause hypothesis, the evidence for it, the competing "
         "hypotheses, the proposed fix plan, and the proposed verification.\n"
@@ -304,6 +313,7 @@ def investigation_handoff_block(issue_key: str) -> str:
 
 def _copilot_task(
     issue_key: str,
+    work_folder: str,
     branch: str,
     hint: str | None = None,
     jira_comment: bool = True,
@@ -370,7 +380,7 @@ def _copilot_task(
     # commit and push is withheld from an investigation. Dropping both is how a
     # workflow change silently removed a BugPilot safety rule once.
     closing_block = (
-        investigation_handoff_block(issue_key)
+        investigation_handoff_block()
         if investigating
         else assisted_delivery_block(issue_key, branch_policy=branch_policy, branch=branch)
     )
@@ -379,7 +389,8 @@ def _copilot_task(
         f"{hint_block}"
         "## Execution Location\n\n"
         "- Run your AI agent from the target repository root, not from the bugpilot tool source directory.\n"
-        f"- `.ai/{issue_key}/` paths are relative to the target repository root.\n\n"
+        f"- This work item's files are outside the repository, in `{work_folder}/`. "
+        "File names in this task are in that folder.\n\n"
         "## BugPilot Safety Rules\n\n"
         f"{_team_instructions_section()}"
         f"{repository_context_section(repository)}"
@@ -388,15 +399,15 @@ def _copilot_task(
         f"{ai_behavior_section(ai_behavior)}"
         f"{user_instruction_section(instructions)}"
         f"{branch_instructions(branch_policy, branch, issue_key)}"
-        f"{_attachments_section(issue_key, attachments, attachment_notes)}"
+        f"{_attachments_section(attachments, attachment_notes)}"
         "## Required Input Files\n\n"
-        f"- Read `.ai/{issue_key}/context.md`: the Issue Details (reproduction steps, actual/expected "
+        "- Read `context.md`: the Issue Details (reproduction steps, actual/expected "
         "results, environment, errors, missing information), similar fixes and git history.\n"
-        f"- Read and inspect `.ai/{issue_key}/retrieval.json` if present: the ranked related files with their matched lines, the search terms, and the search confidence.\n\n"
+        "- Read and inspect `retrieval.json` if present: the ranked related files with their matched lines, the search terms, and the search confidence.\n\n"
         f"{_fix_mode_section(mode)}"
         f"{_precedence_section()}"
         f"{_evidence_rules_section()}"
-        f"{_required_output_section(issue_key, investigating)}"
+        f"{_required_output_section(work_folder, investigating)}"
         f"{delivery_safety_block(issue_key, branch, branch_policy=branch_policy, standalone=False)}"
         f"{jira_status_block}"
         f"{closing_block}"
@@ -414,11 +425,11 @@ def _evidence_rules_section() -> str:
     )
 
 
-def _required_output_section(issue_key: str, investigating: bool) -> str:
+def _required_output_section(work_folder: str, investigating: bool) -> str:
     """One report in every mode, its sections described for the mode in hand.
 
     One artifact contract matters more than mode-specific file names:
-    `check_results`, the VS Code view, the retry prompt and `.ai_memory` all
+    `check_results`, the VS Code view, the retry prompt and bug memory all
     read this one name. `fix_report.md` means "post-agent workflow report", not
     "confirmed fix" — an investigation fills the same sections with
     investigation state, and the Summary line says honestly what happened.
@@ -426,7 +437,7 @@ def _required_output_section(issue_key: str, investigating: bool) -> str:
     if not investigating:
         return (
             "## Required Output Files\n\n"
-            f"Write one report: `.ai/{issue_key}/fix_report.md`, with exactly these sections.\n\n"
+            f"Write one report: `{work_folder}/fix_report.md`, with exactly these sections.\n\n"
             "- `## Summary`: one honest line on the outcome — fixed, attempted, or no-op — "
             "then a short paragraph.\n"
             "- `## Analysis`: the root cause and the evidence for it.\n"
@@ -442,7 +453,7 @@ def _required_output_section(issue_key: str, investigating: bool) -> str:
         )
     return (
         "## Required Output Files\n\n"
-        f"Write one report: `.ai/{issue_key}/fix_report.md`, with exactly these sections. "
+        f"Write one report: `{work_folder}/fix_report.md`, with exactly these sections. "
         "In this investigation-only mode they record investigation state, not a completed "
         "fix.\n\n"
         "- `## Summary`: state that this was an investigation and that no source changes "
@@ -459,7 +470,6 @@ def _required_output_section(issue_key: str, investigating: bool) -> str:
 
 
 def _attachments_section(
-    issue_key: str,
     attachments: Sequence[str] | None,
     notes: Mapping[str, str] | None = None,
 ) -> str:
@@ -496,7 +506,7 @@ def _attachments_section(
         entries += f"### {shown}\n\n"
         if note:
             entries += f"Description: {note}\n"
-        entries += f"File: `.ai/{issue_key}/{ATTACHMENTS_DIR}/{shown}`\n"
+        entries += f"File: `{ATTACHMENTS_DIR}/{shown}`\n"
         if shown != name:
             entries += (
                 "Its file name holds characters shown here as `<U+XXXX>`; list the attachments folder "

@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core.config import issue_dir
 from bugpilot.core import retrieval as retrieval_module
 from bugpilot.core import workflow
 from bugpilot.core.input_adapters import bug_spec_from_description
@@ -102,7 +103,7 @@ def _prepare(root: Path, *, hint: str | None = HINT, keywords=("WidgetController
 
 
 def _read(root: Path, work_item_id: str) -> dict:
-    return json.loads((root / ".ai" / work_item_id / "retrieval.json").read_text(encoding="utf-8"))
+    return json.loads((issue_dir(root, work_item_id) / "retrieval.json").read_text(encoding="utf-8"))
 
 
 def _term(data: dict, value: str) -> dict:
@@ -115,7 +116,7 @@ def _term(data: dict, value: str) -> dict:
 @needs_rg
 def test_a_prepare_run_writes_one_canonical_retrieval_artifact(tmp_path):
     work_item = _prepare(_repo(tmp_path))
-    target = tmp_path / ".ai" / work_item
+    target = issue_dir(tmp_path, work_item)
     data = _read(tmp_path, work_item)
 
     assert set(data) == PREPARED_RETRIEVAL_KEYS
@@ -220,7 +221,7 @@ def test_the_line_budget_still_bounds_the_evidence(tmp_path):
 def test_the_same_search_serializes_identically(tmp_path):
     _repo(tmp_path)
     work_item = _prepare(tmp_path)
-    target = tmp_path / ".ai" / work_item / "retrieval.json"
+    target = issue_dir(tmp_path, work_item) / "retrieval.json"
     first = target.read_text(encoding="utf-8")
 
     # The same options again: keywords are a per-run option, the hint is recorded.
@@ -259,7 +260,7 @@ def test_a_standalone_context_rebuilds_the_same_document(tmp_path):
     write the same context.md.
     """
     work_item = _prepare(_repo(tmp_path), keywords=())
-    target = tmp_path / ".ai" / work_item
+    target = issue_dir(tmp_path, work_item)
     from_pipeline = (target / "context.md").read_text(encoding="utf-8")
 
     # The steps a developer would run by hand, each from the persisted artifacts:
@@ -274,9 +275,9 @@ def test_a_standalone_context_rebuilds_the_same_document(tmp_path):
 @needs_rg
 def test_the_context_renders_its_retrieval_sections_from_the_artifact(tmp_path):
     work_item = _prepare(_repo(tmp_path))
-    context = (tmp_path / ".ai" / work_item / "context.md").read_text(encoding="utf-8")
+    context = (issue_dir(tmp_path, work_item) / "context.md").read_text(encoding="utf-8")
 
-    assert f"See `.ai/{work_item}/retrieval.json`" in context
+    assert "See `retrieval.json`, beside this file," in context
     assert "- `src/WidgetController.cpp` confidence=high" in context
     assert "Confidence: High" in context
     assert "#### src/WidgetController.cpp" in context
@@ -317,7 +318,7 @@ def test_eleven_ranked_files_all_reach_the_agent_context(tmp_path, monkeypatch):
     request = InvestigationRequest(spec=spec, options=InvestigationOptions(max_files=11))
     workflow.run_investigation(tmp_path, request)
 
-    target = tmp_path / ".ai" / spec.work_item_id
+    target = issue_dir(tmp_path, spec.work_item_id)
     files = [item["file"] for item in _read(tmp_path, spec.work_item_id)["related_files"]]
     # 1. The retrieval kept eleven, as asked — twelve files match.
     assert len(files) == 11
@@ -407,7 +408,7 @@ def test_refine_with_a_new_hint_overrides_the_recorded_one(tmp_path, searched_hi
     data = _read(tmp_path, work_item)
     assert _term(data, "restoration")["source"] == "hint"
     assert not any(term["value"] == "validation" for term in data["terms"])
-    issue = json.loads((tmp_path / ".ai" / work_item / "issue.json").read_text(encoding="utf-8"))
+    issue = json.loads((issue_dir(tmp_path, work_item) / "issue.json").read_text(encoding="utf-8"))
     assert issue["guidance"]["hint"] == NEW_HINT
     # And a refinement after that keeps the new one.
     workflow.refine_investigation(tmp_path, work_item)
@@ -430,9 +431,9 @@ def test_refining_the_hint_leaves_the_fix_mode_alone(tmp_path):
 
     workflow.refine_investigation(tmp_path, work_item, InvestigationOptions(hint=NEW_HINT))
 
-    issue = json.loads((tmp_path / ".ai" / work_item / "issue.json").read_text(encoding="utf-8"))
+    issue = json.loads((issue_dir(tmp_path, work_item) / "issue.json").read_text(encoding="utf-8"))
     assert issue["guidance"]["fix_mode"]["id"] == "conservative"
-    task = (tmp_path / ".ai" / work_item / "task.md").read_text(encoding="utf-8")
+    task = (issue_dir(tmp_path, work_item) / "task.md").read_text(encoding="utf-8")
     assert "- Mode: Conservative Fix" in task
     assert NEW_HINT in task
 
@@ -445,7 +446,7 @@ def test_a_plan_without_code_search_writes_no_retrieval(tmp_path):
     request = InvestigationRequest(spec=spec, plan=InvestigationPlan(code_search=False))
     workflow.run_investigation(tmp_path, request)
 
-    target = tmp_path / ".ai" / spec.work_item_id
+    target = issue_dir(tmp_path, spec.work_item_id)
     assert not (target / "retrieval.json").exists()
     context = (target / "context.md").read_text(encoding="utf-8")
     assert "_Code search has not been generated yet._" in context
@@ -464,7 +465,7 @@ def test_resume_without_the_search_keeps_the_persisted_retrieval(tmp_path):
     workflow.run_investigation(tmp_path, request, fresh=False)
 
     assert _read(tmp_path, spec.work_item_id) == before
-    context = (tmp_path / ".ai" / spec.work_item_id / "context.md").read_text(encoding="utf-8")
+    context = (issue_dir(tmp_path, spec.work_item_id) / "context.md").read_text(encoding="utf-8")
     assert "- `src/WidgetController.cpp`" in context
 
 
@@ -502,7 +503,7 @@ def test_save_and_load_round_trip(tmp_path):
     artifact = replace(_artifact(), reasons=("三维视图切换图层后崩溃",))
     path = save_retrieval(tmp_path, "JR-12345", artifact)
 
-    assert path == tmp_path / ".ai" / "JR-12345" / "retrieval.json"
+    assert path == issue_dir(tmp_path, "JR-12345") / "retrieval.json"
     assert "三维视图切换图层后崩溃" in path.read_text(encoding="utf-8")
     assert load_retrieval(tmp_path, "JR-12345") == artifact
 
@@ -518,7 +519,7 @@ def test_retrieval_json_is_written_atomically(tmp_path, monkeypatch):
     monkeypatch.setattr(retrieval_module, "atomic_write_text", recording)
     save_retrieval(tmp_path, "JR-12345", _artifact())
 
-    assert written == [tmp_path / ".ai" / "JR-12345" / "retrieval.json"]
+    assert written == [issue_dir(tmp_path, "JR-12345") / "retrieval.json"]
 
 
 def test_a_missing_retrieval_is_none(tmp_path):
@@ -538,7 +539,7 @@ def test_a_missing_retrieval_is_none(tmp_path):
     ],
 )
 def test_an_unusable_retrieval_is_an_error_not_a_fallback(tmp_path, contents):
-    target = tmp_path / ".ai" / "JR-12345"
+    target = issue_dir(tmp_path, "JR-12345")
     target.mkdir(parents=True)
     (target / "retrieval.json").write_text(contents, encoding="utf-8")
 
@@ -548,7 +549,7 @@ def test_an_unusable_retrieval_is_an_error_not_a_fallback(tmp_path, contents):
 
 
 def test_the_old_retrieval_files_are_not_read(tmp_path):
-    target = tmp_path / ".ai" / "JR-12345"
+    target = issue_dir(tmp_path, "JR-12345")
     target.mkdir(parents=True)
     (target / "related_files.json").write_text(json.dumps([{"file": "src/a.cpp"}]), encoding="utf-8")
     (target / "search_quality.json").write_text(json.dumps({"confidence": "high"}), encoding="utf-8")

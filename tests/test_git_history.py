@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core.config import issue_dir
 from bugpilot.core import git_history, workflow
 from bugpilot.core.git_history import (
     MAX_EXTRACTED_TERMS,
@@ -434,7 +435,7 @@ def test_outside_a_git_repository_the_document_says_so(tmp_path):
 
 
 def test_without_git_the_document_says_so(tmp_path, monkeypatch):
-    monkeypatch.setattr(git_history, "command_available", lambda command: False)
+    monkeypatch.setattr(git_history, "program_available", lambda command: False)
 
     assert "git command is not available." in generate_git_context(tmp_path, "JR-12345")
 
@@ -712,7 +713,7 @@ def test_a_prepared_run_finds_a_commit_file_history_alone_would_miss(tmp_path):
 
     workflow.run_investigation(root, request)
 
-    context = (root / ".ai" / spec.work_item_id / "context.md").read_text(encoding="utf-8")
+    context = (issue_dir(root, spec.work_item_id) / "context.md").read_text(encoding="utf-8")
     history = context.split("## Git History", 1)[1]
     assert "Fix postblend gather ordering" in history
     assert "matched shared keyword: postblend" in history

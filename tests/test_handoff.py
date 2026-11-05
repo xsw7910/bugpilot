@@ -18,7 +18,7 @@ import re
 import pytest
 
 from bugpilot.core import handoff
-from bugpilot.core.agent_runner import HANDOFF_PROMPT, RETRY_HANDOFF_PROMPT
+from bugpilot.core.agent_runner import RETRY_HANDOFF_PROMPT
 
 SKILL_PATH = pathlib.Path(__file__).resolve().parents[1] / "skills" / "bugpilot-investigate" / "SKILL.md"
 
@@ -33,9 +33,10 @@ def _normalize(text: str) -> str:
 
 def test_launch_prompts_are_unchanged():
     """R1: these reach a spawned agent's command line and are asserted elsewhere."""
-    assert HANDOFF_PROMPT == "Read .ai/{issue_key}/task.md and complete the workflow."
+    # 0.1.7: the task file is named absolutely (the agent works in the repository; the file is in BugPilot's data
+    # folder), so the sentence takes the file as the retry sentence always has.
     assert RETRY_HANDOFF_PROMPT == "Read {prompt_file} and continue the workflow."
-    assert handoff.handoff_prompt("JR-1") == "Read .ai/JR-1/task.md and complete the workflow."
+    assert handoff.handoff_prompt("/data/work/JR-1/task.md") == "Read /data/work/JR-1/task.md and complete the workflow."
 
 
 def test_mcp_prompt_is_exactly_the_agreed_wording():

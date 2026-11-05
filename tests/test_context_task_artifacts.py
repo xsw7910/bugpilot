@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core.config import issue_dir, memory_dir, prompt_path, shown_work
 from bugpilot import mcp_server
 from bugpilot.cli import main
 from bugpilot.core import workflow
@@ -107,7 +108,7 @@ def _git_repo(root: Path) -> Path:
 
 def _seed_memory(root: Path) -> None:
     """A past fix the search should find: it shares the issue's vocabulary."""
-    bugs = root / ".ai_memory" / "bugs"
+    bugs = memory_dir(root)
     bugs.mkdir(parents=True, exist_ok=True)
     (bugs / "JR-11111.md").write_text(
         "# JR-11111: WidgetController dropped the CSV output type\n\n"
@@ -137,11 +138,11 @@ def _jira(root: Path, *, hint: str | None = HINT, fresh: bool = True) -> str:
 
 
 def _files(root: Path, work_item: str) -> set[str]:
-    return {path.name for path in (root / ".ai" / work_item).iterdir()}
+    return {path.name for path in (issue_dir(root, work_item)).iterdir()}
 
 
 def _read(root: Path, work_item: str, name: str) -> str:
-    return (root / ".ai" / work_item / name).read_text(encoding="utf-8")
+    return (issue_dir(root, work_item) / name).read_text(encoding="utf-8")
 
 
 def _section(markdown: str, heading: str) -> str:
@@ -174,8 +175,8 @@ def test_a_jira_prepare_writes_exactly_the_canonical_files(tmp_path, fake_jira):
 @needs_rg
 def test_a_resumed_run_rewrites_the_two_files_and_no_others(tmp_path, fake_jira):
     _jira(_repo(tmp_path))
-    (tmp_path / ".ai" / "JR-12345" / "context.md").unlink()
-    (tmp_path / ".ai" / "JR-12345" / "task.md").unlink()
+    (issue_dir(tmp_path, "JR-12345") / "context.md").unlink()
+    (issue_dir(tmp_path, "JR-12345") / "task.md").unlink()
 
     _jira(tmp_path, hint=None, fresh=False)
 
@@ -202,7 +203,7 @@ def test_the_context_carries_guidance_issue_and_code_search(tmp_path):
     # The description itself, which the old context left to a separate file.
     assert "WidgetController rejects the CSV output type." in _section(context, "## Issue Details")
     search = _section(context, "## Code Search")
-    assert f"`.ai/{work_item}/retrieval.json`" in search
+    assert "See `retrieval.json`, beside this file," in search
     assert "- `src/WidgetController.cpp` confidence=high" in search
     assert "#### src/WidgetController.cpp" in search
     # The matched lines, quoted in one evidence block per file with their line numbers (0.1.5).
@@ -231,7 +232,7 @@ def test_git_history_reaches_the_context_without_a_file_of_its_own(tmp_path):
     assert "— Filter the CSV output type in WidgetController" in history
     assert "Relevant files:\n- `src/WidgetController.cpp`\n" in history
     assert "matched shared keyword: WidgetController" in history
-    assert not (tmp_path / ".ai" / work_item / "git_context.md").exists()
+    assert not (issue_dir(tmp_path, work_item) / "git_context.md").exists()
 
 
 @needs_rg
@@ -258,9 +259,10 @@ def test_similar_fixes_reach_the_context_without_a_file_of_their_own(tmp_path):
     work_item = _manual(tmp_path)
     similar = _section(_read(tmp_path, work_item, "context.md"), "## Similar Fixes")
 
-    assert "`.ai_memory/bugs/JR-11111.md`" in similar
+    # Named absolutely (0.1.7): the agent works in the repository, and the memory is in BugPilot's data folder.
+    assert f"`{prompt_path(memory_dir(tmp_path) / 'JR-11111.md')}`" in similar
     assert "JR-11111: WidgetController dropped the CSV output type" in similar
-    assert not (tmp_path / ".ai" / work_item / "memory_search.md").exists()
+    assert not (issue_dir(tmp_path, work_item) / "memory_search.md").exists()
 
 
 @needs_rg
@@ -291,10 +293,11 @@ def test_the_task_carries_the_task_the_handoff_and_the_team_rules(tmp_path):
     # Then what the repository is, from its profile.
     assert "Repository profile:" in _section(task, "## Repository Context")
     inputs = _section(task, "## Required Input Files")
-    assert f"- Read `.ai/{work_item}/context.md`:" in inputs
+    assert "- Read `context.md`:" in inputs
     assert "similar fixes and git history" in inputs
     outputs = _section(task, "## Required Output Files")
-    assert f"Write one report: `.ai/{work_item}/fix_report.md`" in outputs
+    # The report is named absolutely, in the work folder (0.1.7): the agent works in the repository.
+    assert f"Write one report: `{prompt_path(issue_dir(tmp_path, work_item))}/fix_report.md`" in outputs
     for heading in ("`## Summary`", "`## Analysis`", "`## Changes`", "`## Tests`", "`## Review Notes`"):
         assert heading in outputs, heading
     # No status comment asked for: the Safety Rules' Jira rule leaves no Jira write at all.
@@ -342,7 +345,7 @@ def test_a_standalone_rebuild_reproduces_the_pipelines_context(tmp_path, monkeyp
     workflow.run_investigation(tmp_path, request)
     original = _read(tmp_path, spec.work_item_id, "context.md")
     assert "FilterPipeline" in original
-    (tmp_path / ".ai" / spec.work_item_id / "context.md").unlink()
+    (issue_dir(tmp_path, spec.work_item_id) / "context.md").unlink()
     monkeypatch.chdir(tmp_path)
 
     assert main(["context", spec.work_item_id]) == 0
@@ -366,16 +369,16 @@ def test_a_multi_line_hint_stays_one_guidance_bullet(tmp_path):
 def test_the_context_command_gathers_git_and_memory_in_memory(tmp_path, monkeypatch, capsys):
     work_item = _manual(_repo(tmp_path))
     _seed_memory(tmp_path)
-    (tmp_path / ".ai" / work_item / "context.md").unlink()
+    (issue_dir(tmp_path, work_item) / "context.md").unlink()
     monkeypatch.chdir(tmp_path)
     capsys.readouterr()
 
     assert main(["context", work_item, "--json"]) == 0
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["generated_files"] == [f".ai/{work_item}/context.md"]
+    assert payload["generated_files"] == [f"work/{work_item}/context.md"]
     context = _read(tmp_path, work_item, "context.md")
-    assert "`.ai_memory/bugs/JR-11111.md`" in context
+    assert f"`{prompt_path(memory_dir(tmp_path) / 'JR-11111.md')}`" in context
     assert "_Git context has not been generated yet._" not in context
     assert _files(tmp_path, work_item) == PREPARED_FILES
 
@@ -391,14 +394,14 @@ def test_the_context_command_gathers_git_and_memory_in_memory(tmp_path, monkeypa
 )
 def test_the_intermediate_commands_print_and_write_nothing(tmp_path, monkeypatch, capsys, argv, printed):
     work_item = _manual(_repo(tmp_path))
-    before = {path.name: path.read_bytes() for path in (tmp_path / ".ai" / work_item).iterdir()}
+    before = {path.name: path.read_bytes() for path in (issue_dir(tmp_path, work_item)).iterdir()}
     monkeypatch.chdir(tmp_path)
     capsys.readouterr()
 
     assert main([*argv, work_item]) == 0
 
     assert printed in capsys.readouterr().out
-    after = {path.name: path.read_bytes() for path in (tmp_path / ".ai" / work_item).iterdir()}
+    after = {path.name: path.read_bytes() for path in (issue_dir(tmp_path, work_item)).iterdir()}
     # run.json records the step; nothing new appears and nothing else changes.
     assert set(after) == set(before)
     for name in ("issue.json", "retrieval.json", "context.md", "task.md"):
@@ -409,7 +412,7 @@ def test_the_intermediate_commands_print_and_write_nothing(tmp_path, monkeypatch
 def test_agent_task_rewrites_task_md_from_the_canonical_files(tmp_path, monkeypatch, capsys):
     work_item = _manual(_repo(tmp_path))
     original = _read(tmp_path, work_item, "task.md")
-    (tmp_path / ".ai" / work_item / "task.md").unlink()
+    (issue_dir(tmp_path, work_item) / "task.md").unlink()
     monkeypatch.chdir(tmp_path)
 
     assert main(["agent-task", work_item]) == 0
@@ -424,7 +427,7 @@ def test_agent_task_rewrites_task_md_from_the_canonical_files(tmp_path, monkeypa
 
 def _old_layout(root: Path, work_item: str = "JR-12345") -> Path:
     """A work item directory from an older version: context and task under the old names."""
-    target = root / ".ai" / work_item
+    target = issue_dir(root, work_item)
     target.mkdir(parents=True)
     (target / "bug_context.md").write_text("# Bug Context: JR-12345\n", encoding="utf-8")
     (target / "agent_task.md").write_text("# Agent Task: JR-12345\n", encoding="utf-8")
@@ -438,7 +441,7 @@ def test_agent_task_does_not_accept_bug_context_md(tmp_path, monkeypatch, capsys
 
     assert main(["agent-task", "JR-12345"]) == 1
 
-    assert "Missing .ai/JR-12345/context.md." in capsys.readouterr().err
+    assert f"Missing {shown_work(tmp_path, 'JR-12345', 'context.md')}." in capsys.readouterr().err
     assert not (target / "task.md").exists()
 
 
@@ -451,7 +454,7 @@ def test_a_jira_comment_draft_does_not_accept_the_old_files(tmp_path):
 
 def test_the_mcp_package_does_not_point_at_the_old_files(tmp_path):
     _old_layout(tmp_path)
-    result = workflow.WorkflowResult("JR-12345", tmp_path / ".ai" / "JR-12345", generated_files=[])
+    result = workflow.WorkflowResult("JR-12345", issue_dir(tmp_path, "JR-12345"), generated_files=[])
 
     package = mcp_server._package(tmp_path, "JR-12345", result)
 

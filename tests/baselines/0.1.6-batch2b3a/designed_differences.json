@@ -1,0 +1,167 @@
+{
+ "describes": "Designed differences of 0.1.6 Batch 2B-3a, applied after Batch 2B-2's (plan section 14.3, Batch 2B-3a - owner decisions B-1 to B-4 and the implementation contract). Each entry is an exact JSON-pointer from/to pair whose `from` is the value the earlier records leave; `approved` stays empty until the owner approves the observed values.",
+ "base_commit": "5b66ffea28ee660599428453391cf32ad20a6818",
+ "frozen": {
+  "pollution.json": "26f9d0bea3c4fe805deae71ecf9e276209bac397de3b718756183d1faf7b2536",
+  "handoff.json": "77cee49805bc8c19f4cb2eb1678f86b129a4a572553f3c96adab93e5a32e6530",
+  "cli_paths.json": "0e8ac086364efb785ae041b59977ebc84e35b1b650bee97c39a571e3d215e30a",
+  "task_size.json": "3da947696009e3adee34c24f7eefab7702d1ab0db0506ca1711e3056044af8d1"
+ },
+ "differences": [
+  {
+   "id": "DD-4",
+   "record": "pollution.json",
+   "pointer": "/steps/8/created",
+   "from": [
+    ".bugpilot",
+    ".bugpilot/instructions.md"
+   ],
+   "to": [],
+   "decision": "US-D9 (G-4), Batch 2B-3a: project instructions live in the repository's namespace; nothing is created in the repository",
+   "evidence": "tests/test_repository_settings_storage.py::test_dd4_project_instructions_are_written_to_the_namespace_and_nothing_into_the_repository",
+   "approved": "2026-10-21"
+  },
+  {
+   "id": "DD-5",
+   "record": "pollution.json",
+   "pointer": "/steps/9/created",
+   "from": [
+    ".bugpilot/verification.md"
+   ],
+   "to": [
+    ".bugpilot",
+    ".bugpilot/verification.md"
+   ],
+   "decision": "Batch 2B-3a, indirect: `verification set` now creates .bugpilot itself, since the project instructions no longer do; verification.md stays there until 2B-3b",
+   "evidence": "tests/test_repository_settings_storage.py::test_dd5_the_verification_policy_now_creates_the_bugpilot_folder_itself",
+   "approved": "2026-10-21"
+  },
+  {
+   "id": "DD-6",
+   "record": "pollution.json",
+   "pointer": "/steps/11/created",
+   "from": [
+    ".bugpilot/project_settings.json"
+   ],
+   "to": [],
+   "decision": "US-D9 (G-4), Batch 2B-3a: project settings live in the repository's namespace; nothing is created in the repository",
+   "evidence": "tests/test_repository_settings_storage.py::test_dd6_project_settings_are_written_to_the_namespace_and_nothing_into_the_repository",
+   "approved": "2026-10-21"
+  },
+  {
+   "id": "DD-7",
+   "record": "pollution.json",
+   "pointer": "/steps/12/created",
+   "from": [
+    ".bugpilot/repository_profile.json"
+   ],
+   "to": [],
+   "decision": "US-D9 (G-4), Batch 2B-3a: the Repository Profile lives in the repository's namespace; nothing is created in the repository",
+   "evidence": "tests/test_repository_settings_storage.py::test_dd7_the_repository_profile_is_written_to_the_namespace_and_nothing_into_the_repository",
+   "approved": "2026-10-21"
+  },
+  {
+   "id": "DD-8",
+   "record": "pollution.json",
+   "pointer": "/steps/13/created",
+   "from": [
+    ".bugpilot/fix_modes",
+    ".bugpilot/fix_modes/team-fix.json"
+   ],
+   "to": [],
+   "decision": "US-D9 (G-4), Batch 2B-3a: project Fix Modes live in the repository's namespace; nothing is created in the repository",
+   "evidence": "tests/test_repository_settings_storage.py::test_dd8_a_project_fix_mode_is_written_to_the_namespace_and_nothing_into_the_repository",
+   "approved": "2026-10-21"
+  },
+  {
+   "id": "DD-9",
+   "record": "pollution.json",
+   "pointer": "/git_status",
+   "from": [
+    "?? .ai/JR-12345/agent_retry_prompt.md",
+    "?? .ai/JR-12345/context.md",
+    "?? .ai/JR-12345/email_draft.md",
+    "?? .ai/JR-12345/fix_report.md",
+    "?? .ai/JR-12345/issue.json",
+    "?? .ai/JR-12345/jira_comment_draft.md",
+    "?? .ai/JR-12345/notification.eml",
+    "?? .ai/JR-12345/retrieval.json",
+    "?? .ai/JR-12345/review_report.md",
+    "?? .ai/JR-12345/run.json",
+    "?? .ai/JR-12345/task.md",
+    "?? .ai/JR-12345/user_feedback.md",
+    "?? .ai/JR-12345/verification_report.md",
+    "?? .ai/local_<timestamp>/context.md",
+    "?? .ai/local_<timestamp>/issue.json",
+    "?? .ai/local_<timestamp>/retrieval.json",
+    "?? .ai/local_<timestamp>/run.json",
+    "?? .ai/local_<timestamp>/task.md",
+    "?? .ai_memory/bugs/JR-12345.md",
+    "?? .ai_memory/bugs/local_<timestamp>.md",
+    "?? .bugpilot/ai_behavior.md",
+    "?? .bugpilot/fix_modes/team-fix.json",
+    "?? .bugpilot/instructions.md",
+    "?? .bugpilot/project_settings.json",
+    "?? .bugpilot/repository_profile.json",
+    "?? .bugpilot/verification.md"
+   ],
+   "to": [
+    "?? .ai/JR-12345/agent_retry_prompt.md",
+    "?? .ai/JR-12345/context.md",
+    "?? .ai/JR-12345/email_draft.md",
+    "?? .ai/JR-12345/fix_report.md",
+    "?? .ai/JR-12345/issue.json",
+    "?? .ai/JR-12345/jira_comment_draft.md",
+    "?? .ai/JR-12345/notification.eml",
+    "?? .ai/JR-12345/retrieval.json",
+    "?? .ai/JR-12345/review_report.md",
+    "?? .ai/JR-12345/run.json",
+    "?? .ai/JR-12345/task.md",
+    "?? .ai/JR-12345/user_feedback.md",
+    "?? .ai/JR-12345/verification_report.md",
+    "?? .ai/local_<timestamp>/context.md",
+    "?? .ai/local_<timestamp>/issue.json",
+    "?? .ai/local_<timestamp>/retrieval.json",
+    "?? .ai/local_<timestamp>/run.json",
+    "?? .ai/local_<timestamp>/task.md",
+    "?? .ai_memory/bugs/JR-12345.md",
+    "?? .ai_memory/bugs/local_<timestamp>.md",
+    "?? .bugpilot/ai_behavior.md",
+    "?? .bugpilot/verification.md"
+   ],
+   "decision": "US-D9 (G-4), Batch 2B-3a: the four moved files leave git status; ai_behavior.md and verification.md stay until 2B-3b",
+   "evidence": "tests/test_repository_settings_storage.py::test_dd9_only_the_verification_policy_and_ai_behavior_still_reach_git_status",
+   "approved": "2026-10-21"
+  },
+  {
+   "id": "DD-10",
+   "record": "cli_paths.json",
+   "pointer": "/instructions show --json path fields/project",
+   "from": ".bugpilot/instructions.md",
+   "to": "BUGPILOT_HOME/repositories/<repository-id>/settings/instructions.md",
+   "decision": "J-2 (G-7), US-D22 (G-11), Batch 2B-3a: the project file's `path` is the display form of its new place; §8.10 row 18 (abs) and row 19 (display_path) come later, so this interim value is not compliant",
+   "evidence": "tests/test_repository_settings_storage.py::test_dd10_instructions_show_names_the_project_file_in_display_form",
+   "approved": "2026-10-21"
+  },
+  {
+   "id": "DD-11",
+   "record": "cli_paths.json",
+   "pointer": "/project-settings show --json path fields/path",
+   "from": ".bugpilot/project_settings.json",
+   "to": "BUGPILOT_HOME/repositories/<repository-id>/settings/project_settings.json",
+   "decision": "J-2 (G-7), US-D22 (G-11), Batch 2B-3a: `path` is the display form of the new place; §8.10 rows 20 and 21 come later, so this interim value is not compliant",
+   "evidence": "tests/test_repository_settings_storage.py::test_dd11_project_settings_show_names_its_file_in_display_form",
+   "approved": "2026-10-21"
+  },
+  {
+   "id": "DD-12",
+   "record": "cli_paths.json",
+   "pointer": "/repository-profile show --json path fields/path",
+   "from": ".bugpilot/repository_profile.json",
+   "to": "BUGPILOT_HOME/repositories/<repository-id>/settings/repository_profile.json",
+   "decision": "J-2 (G-7), US-D22 (G-11), Batch 2B-3a: `path` is the display form of the new place; §8.10 rows 20 and 21 come later, so this interim value is not compliant",
+   "evidence": "tests/test_repository_settings_storage.py::test_dd12_repository_profile_show_names_its_file_in_display_form",
+   "approved": "2026-10-21"
+  }
+ ]
+}

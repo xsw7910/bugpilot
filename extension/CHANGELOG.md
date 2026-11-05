@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.1.7 — unreleased
+
+- **BugPilot writes nothing into your repository.** Work items, similar-fix
+  memory and the repository's settings (Project Instructions, the Verification
+  Policy, AI Behavior, project settings, the Repository Profile, project Fix
+  Modes) are kept in BugPilot's data folder,
+  `~/.bugpilot/repositories/<repository>/`, and your Jira site, User
+  Instructions and Fix Modes in `~/.bugpilot/config/`. `BUGPILOT_HOME` moves the
+  data folder; `bugpilot doctor` shows where a repository's files are.
+- **The handoff names the task file by its full path.** Your agent still works
+  in the repository; an agent that asks before reading or writing outside it
+  asks for that one folder. Claude CLI is given that folder with `--add-dir`
+  when its `--help` lists the option (and `bugpilot bug --launch-agent claude`
+  always gives it), so it can write `fix_report.md` there. On Windows an
+  npm-installed `claude.cmd` cannot be asked for its options, so it gets no
+  `--add-dir` and Claude asks before writing there. The folder is given only
+  when it, and every folder above it up to BugPilot's data folder, is private
+  to you (`bugpilot doctor --json --work-item <id>` reports it); otherwise
+  nothing is started, and BugPilot says why. Claude Code also loads a `.claude/` folder it finds in
+  a folder it is given; BugPilot never writes one. The path names your home
+  folder; set `BUGPILOT_HOME` to a neutral folder to keep your user name out of
+  the agent's instructions.
+- **A home folder whose path holds other characters.** Fix with AI hands a
+  task over only when the path holds just ASCII letters, digits, spaces and
+  `. , : # / _ -`. With a letter such as `é`, an apostrophe or parentheses in
+  your user name, it hands over to no agent and says so: set
+  `BUGPILOT_HOME` to a folder with such a path, private to you, or use Copy
+  Handoff Prompt.
+- **The repository's folder follows its path.** Moving or renaming the
+  repository, opening a subfolder of it, or changing `BUGPILOT_HOME` starts a
+  new, empty folder; the earlier work items stay in the old one.
+- **Upgrading: nothing is migrated.** A repository's `.ai/`, `.ai_memory/` and
+  `.bugpilot/`, and `~/.bugpilot/config.toml`, are no longer read, and are never
+  deleted. Set up Jira again (`bugpilot setup`, or Jira Setup in the panel),
+  prepare work items again, and set again the settings you want to keep.
+  Update a CLI you installed yourself at the same time: an older extension
+  does not find what a 0.1.7 CLI prepares, and a 0.1.7 CLI started by one says
+  so (`EXTENSION_OUTDATED`) instead of preparing anything.
+- **Settings are no longer shared through the repository.** They are yours, for
+  that repository, on your machine.
+- **The `.gitignore` warning is gone**, with nothing left in the repository to
+  ignore. This extension needs BugPilot CLI 0.1.7 or later; with an older one
+  the panel asks you to update it.
+
 ## 0.1.6
 
 - **Safer reading of BugPilot's project files.** BugPilot is stricter about

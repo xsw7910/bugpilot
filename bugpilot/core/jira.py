@@ -73,7 +73,7 @@ ERROR_MESSAGES = {
     # Names the two ways to configure Jira and nothing else: no value, no site.
     "missing_env": (
         "Jira is not configured: no Jira site, email and API token were found in the environment or in "
-        "~/.bugpilot/config.toml. Run `bugpilot setup`, or set JIRA_BASE_URL, JIRA_EMAIL and JIRA_TOKEN."
+        "~/.bugpilot/config/config.toml. Run `bugpilot setup`, or set JIRA_BASE_URL, JIRA_EMAIL and JIRA_TOKEN."
     ),
     "invalid_site": (
         "The Jira site must be an https:// address with no user name, password, query or fragment, "

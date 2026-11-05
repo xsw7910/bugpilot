@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 
 import _isolation
+from bugpilot.core.config import data_dir
 
 REPO = Path(__file__).resolve().parents[1]
 EXPECTED_TOOLS = {
@@ -165,6 +166,6 @@ def test_a_tool_call_writes_into_the_directory_the_server_was_launched_in(client
         5,
     )
     assert answer["result"]["isError"] is not True, answer["result"]
-    written = list((tmp_path / ".ai").iterdir())
+    written = list(((data_dir(tmp_path) / "work")).iterdir())
     assert len(written) == 1
     assert (written[0] / "task.md").exists()

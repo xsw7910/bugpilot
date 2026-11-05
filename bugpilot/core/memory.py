@@ -14,7 +14,7 @@ from pathlib import Path
 
 from .artifacts import RETRIEVAL_ARTIFACT
 from .artifact_io import atomic_write_text
-from .config import memory_dir, writable_memory_file
+from .config import memory_dir, prompt_path, readable_data_dir, writable_memory_file
 from .evidence import one_line
 from .identity import is_known_work_item_id
 from .issue import IssueArtifact
@@ -35,9 +35,9 @@ def build_memory_entry(issue_key: str, issue: IssueArtifact, context_path: str) 
         "Prototype prepare-only workflow generated this memory entry during preparation. "
         "No code fix has been attempted by bugpilot.\n\n"
         "## Code Search Summary\n\n"
-        f"See `.ai/{issue_key}/{RETRIEVAL_ARTIFACT}`.\n\n"
+        f"See `work/{issue_key}/{RETRIEVAL_ARTIFACT}`.\n\n"
         "## Related Files\n\n"
-        f"See `.ai/{issue_key}/{RETRIEVAL_ARTIFACT}`.\n"
+        f"See `work/{issue_key}/{RETRIEVAL_ARTIFACT}`.\n"
     )
 
 
@@ -86,7 +86,8 @@ def search_memory(
     # and a memory file that is a link or not a regular file is skipped unread,
     # counted in the report.
     folder = memory_dir(repo_root)
-    memories = sorted(folder.glob("*.md")) if generated_folder_exists(repo_root, folder) else []
+    base = readable_data_dir(repo_root)
+    memories = sorted(folder.glob("*.md")) if generated_folder_exists(base, folder) else []
     results = []
     skipped = 0
 
@@ -94,7 +95,7 @@ def search_memory(
         if issue_key and path.stem == issue_key:
             continue
         try:
-            data = read_generated_file(repo_root, path)
+            data = read_generated_file(base, path)
         except UnsafePathError:
             skipped += 1
             continue
@@ -106,7 +107,8 @@ def search_memory(
             continue
         results.append(
             {
-                "file": f".ai_memory/bugs/{path.name}",
+                # Absolute (0.1.7): the agent works in the repository, and the memory is in the data folder.
+                "file": str(folder / path.name),
                 "score": score,
                 "matched_keywords": _matched_keywords(text, keywords),
                 "title": _first_heading(text) or path.stem,
@@ -168,7 +170,11 @@ def _render_memory_search(
     else:
         for result in results:
             keywords_text = ", ".join(one_line(str(keyword)) for keyword in result["matched_keywords"])
-            lines.append(f"- `{one_line(str(result['file']))}` score={result['score']} keywords={keywords_text}")
+            # BugPilot's own folder, named as agent instructions name it (absolute, 0.1.7); the file's name is
+            # earlier output, kept to one line as every other field is.
+            path = Path(str(result["file"]))
+            shown = f"{prompt_path(path.parent)}/{one_line(path.name)}"
+            lines.append(f"- `{shown}` score={result['score']} keywords={keywords_text}")
             lines.append(f"  - {one_line(str(result['title']))}")
     if skipped:
         lines += ["", f"_{skipped} memory file(s) were not read: a link, a junction or not a regular file._"]

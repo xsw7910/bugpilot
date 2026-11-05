@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core.config import issue_dir
 from bugpilot.cli import main
 from bugpilot.core.executables import find_executable
 from bugpilot.core.review_changes import (
@@ -104,6 +105,7 @@ def test_the_collector_writes_nothing_into_the_repository(repo):
 
 
 def test_bugpilots_own_folders_are_left_out(repo):
+    # A 0.1.5/0.1.6 layout left in the repository: still never part of a review diff (0.1.7 keeps the exclusion).
     (repo / ".ai" / "JR-1").mkdir(parents=True)
     (repo / ".ai" / "JR-1" / "task.md").write_text("task\n", encoding="utf-8")
     (repo / ".ai_memory").mkdir()
@@ -164,7 +166,7 @@ def test_no_commit_yet_and_not_a_repository_are_said_plainly(tmp_path, monkeypat
 
 
 def test_review_package_returns_the_changes_only_when_asked(repo, monkeypatch, capsys):
-    (repo / ".ai" / "JR-12345").mkdir(parents=True)
+    (issue_dir(repo, "JR-12345")).mkdir(parents=True)
     (repo / "widget.py").write_text("def widget():\n    return 2\n", encoding="utf-8")
     monkeypatch.chdir(repo)
 

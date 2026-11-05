@@ -175,7 +175,7 @@ test("the dialog says what resets, that History stays, and what Delete costs", (
 
 /**
  * A throwaway repository: a source file, two prepared work items, a file of
- * the developer's own in `.ai/`, a memory entry, and a folder outside it all.
+ * a stray file in `work/`, a memory entry, and a folder outside it all.
  */
 function repository() {
   const base = mkdtempSync(path.join(tmpdir(), "bugpilot-reset-"));
@@ -184,13 +184,13 @@ function repository() {
   mkdirSync(path.join(root, "src"), { recursive: true });
   writeFileSync(path.join(root, "src", "widget.ts"), "export const widget = 1;\n");
   for (const id of ["JR-1", "JR-2"]) {
-    mkdirSync(path.join(root, ".ai", id, "attachments"), { recursive: true });
+    mkdirSync(path.join(root, "work", id, "attachments"), { recursive: true });
     for (const name of ["issue.json", "retrieval.json", "context.md", "task.md", "run.json"]) {
-      writeFileSync(path.join(root, ".ai", id, name), `${id} ${name}\n`);
+      writeFileSync(path.join(root, "work", id, name), `${id} ${name}\n`);
     }
-    writeFileSync(path.join(root, ".ai", id, "attachments", "crash.log"), "trace\n");
+    writeFileSync(path.join(root, "work", id, "attachments", "crash.log"), "trace\n");
   }
-  writeFileSync(path.join(root, ".ai", "notes.txt"), "mine\n");
+  writeFileSync(path.join(root, "work", "notes.txt"), "mine\n");
   mkdirSync(path.join(root, ".ai_memory", "bugs"), { recursive: true });
   writeFileSync(path.join(root, ".ai_memory", "bugs", "JR-1.md"), "memory\n");
   mkdirSync(outside);
@@ -211,7 +211,7 @@ function linkDirectory(target: string, at: string): void {
 function fakeClean(root: string, workItemId: string, calls: string[]) {
   return async () => {
     calls.push(workItemId);
-    rmSync(path.join(root, ".ai", workItemId), { recursive: true, force: true });
+    rmSync(path.join(root, "work", workItemId), { recursive: true, force: true });
     return { code: 0 };
   };
 }
@@ -220,15 +220,15 @@ test("Delete removes the current work item's folder and nothing else", async () 
   const repo = repository();
   try {
     const calls: string[] = [];
-    const outcome = await deleteWorkItemArtifacts({ root: repo.root, workItemId: "JR-1", clean: fakeClean(repo.root, "JR-1", calls) });
+    const outcome = await deleteWorkItemArtifacts({ base: repo.root, workItemId: "JR-1", clean: fakeClean(repo.root, "JR-1", calls) });
     assert.deepEqual(outcome, { kind: "deleted" });
     assert.deepEqual(calls, ["JR-1"]);
-    assert.equal(existsSync(path.join(repo.root, ".ai", "JR-1")), false);
+    assert.equal(existsSync(path.join(repo.root, "work", "JR-1")), false);
     // Untouched: the repository's source, the other work item, the developer's
-    // own file in .ai/, the memory entry, and anything outside.
+    // stray file in work/, the memory entry, and anything outside.
     assert.equal(readFileSync(path.join(repo.root, "src", "widget.ts"), "utf8"), "export const widget = 1;\n");
-    assert.equal(readFileSync(path.join(repo.root, ".ai", "JR-2", "task.md"), "utf8"), "JR-2 task.md\n");
-    assert.equal(readFileSync(path.join(repo.root, ".ai", "notes.txt"), "utf8"), "mine\n");
+    assert.equal(readFileSync(path.join(repo.root, "work", "JR-2", "task.md"), "utf8"), "JR-2 task.md\n");
+    assert.equal(readFileSync(path.join(repo.root, "work", "notes.txt"), "utf8"), "mine\n");
     assert.equal(readFileSync(path.join(repo.root, ".ai_memory", "bugs", "JR-1.md"), "utf8"), "memory\n");
     assert.equal(readFileSync(path.join(repo.outside, "precious.txt"), "utf8"), "do not delete\n");
   } finally {
@@ -240,11 +240,11 @@ test("no folder to delete is said as such, and nothing runs", async () => {
   const repo = repository();
   try {
     const calls: string[] = [];
-    const outcome = await deleteWorkItemArtifacts({ root: repo.root, workItemId: "JR-3", clean: fakeClean(repo.root, "JR-3", calls) });
+    const outcome = await deleteWorkItemArtifacts({ base: repo.root, workItemId: "JR-3", clean: fakeClean(repo.root, "JR-3", calls) });
     assert.deepEqual(outcome, { kind: "missing" });
     assert.deepEqual(calls, []);
-    // No .ai/ at all is the same answer.
-    rmSync(path.join(repo.root, ".ai"), { recursive: true });
+    // No work/ at all is the same answer.
+    rmSync(path.join(repo.root, "work"), { recursive: true });
     assert.deepEqual(await checkArtifactDirectory(repo.root, "JR-1"), { kind: "missing" });
   } finally {
     repo.cleanup();
@@ -254,10 +254,10 @@ test("no folder to delete is said as such, and nothing runs", async () => {
 test("a work item folder that is a link or junction is refused, and what it points at survives", async () => {
   const repo = repository();
   try {
-    rmSync(path.join(repo.root, ".ai", "JR-1"), { recursive: true });
-    linkDirectory(repo.outside, path.join(repo.root, ".ai", "JR-1"));
+    rmSync(path.join(repo.root, "work", "JR-1"), { recursive: true });
+    linkDirectory(repo.outside, path.join(repo.root, "work", "JR-1"));
     const calls: string[] = [];
-    const outcome = await deleteWorkItemArtifacts({ root: repo.root, workItemId: "JR-1", clean: fakeClean(repo.root, "JR-1", calls) });
+    const outcome = await deleteWorkItemArtifacts({ base: repo.root, workItemId: "JR-1", clean: fakeClean(repo.root, "JR-1", calls) });
     assert.deepEqual(outcome, { kind: "refused", reason: "link" });
     assert.deepEqual(calls, [], "the delete ran through a link");
     assert.equal(readFileSync(path.join(repo.outside, "precious.txt"), "utf8"), "do not delete\n");
@@ -266,16 +266,16 @@ test("a work item folder that is a link or junction is refused, and what it poin
   }
 });
 
-test("an .ai folder that is itself a link or junction is refused", async () => {
+test("a work folder that is itself a link or junction is refused", async () => {
   const repo = repository();
   try {
     const elsewhere = path.join(repo.outside, "ai");
     mkdirSync(path.join(elsewhere, "JR-1"), { recursive: true });
     writeFileSync(path.join(elsewhere, "JR-1", "task.md"), "elsewhere\n");
-    rmSync(path.join(repo.root, ".ai"), { recursive: true });
-    linkDirectory(elsewhere, path.join(repo.root, ".ai"));
+    rmSync(path.join(repo.root, "work"), { recursive: true });
+    linkDirectory(elsewhere, path.join(repo.root, "work"));
     const calls: string[] = [];
-    const outcome = await deleteWorkItemArtifacts({ root: repo.root, workItemId: "JR-1", clean: fakeClean(repo.root, "JR-1", calls) });
+    const outcome = await deleteWorkItemArtifacts({ base: repo.root, workItemId: "JR-1", clean: fakeClean(repo.root, "JR-1", calls) });
     assert.deepEqual(outcome, { kind: "refused", reason: "link" });
     assert.deepEqual(calls, []);
     assert.equal(readFileSync(path.join(elsewhere, "JR-1", "task.md"), "utf8"), "elsewhere\n");
@@ -287,13 +287,13 @@ test("an .ai folder that is itself a link or junction is refused", async () => {
 test("a file where the folder should be is refused", async () => {
   const repo = repository();
   try {
-    rmSync(path.join(repo.root, ".ai", "JR-1"), { recursive: true });
-    writeFileSync(path.join(repo.root, ".ai", "JR-1"), "not a folder\n");
+    rmSync(path.join(repo.root, "work", "JR-1"), { recursive: true });
+    writeFileSync(path.join(repo.root, "work", "JR-1"), "not a folder\n");
     const calls: string[] = [];
-    const outcome = await deleteWorkItemArtifacts({ root: repo.root, workItemId: "JR-1", clean: fakeClean(repo.root, "JR-1", calls) });
+    const outcome = await deleteWorkItemArtifacts({ base: repo.root, workItemId: "JR-1", clean: fakeClean(repo.root, "JR-1", calls) });
     assert.deepEqual(outcome, { kind: "refused", reason: "not-a-directory" });
     assert.deepEqual(calls, []);
-    assert.equal(readFileSync(path.join(repo.root, ".ai", "JR-1"), "utf8"), "not a folder\n");
+    assert.equal(readFileSync(path.join(repo.root, "work", "JR-1"), "utf8"), "not a folder\n");
   } finally {
     repo.cleanup();
   }
@@ -311,7 +311,7 @@ test("an id BugPilot could not have created is refused before the file system is
   for (const id of ["", "..", "../src", "JR-1/../../src", "JR-1\\..\\src", "C:\\work", "/etc", "src", "JR-1 ", "jr 1"]) {
     let ran = false;
     const outcome = await deleteWorkItemArtifacts({
-      root: "/work/app",
+      base: "/work/app",
       workItemId: id,
       clean: async () => {
         ran = true;
@@ -325,7 +325,7 @@ test("an id BugPilot could not have created is refused before the file system is
   assert.deepEqual(touched, []);
 });
 
-test("a folder that resolves anywhere but the repository's own .ai/<id> is refused", async () => {
+test("a folder that resolves anywhere but the base's own work/<id> is refused", async () => {
   // A reparse point lstat does not call a link still resolves elsewhere: the
   // resolved path is what is compared.
   const fs: DeletionFileSystem = {
@@ -335,7 +335,7 @@ test("a folder that resolves anywhere but the repository's own .ai/<id> is refus
   };
   let ran = false;
   const outcome = await deleteWorkItemArtifacts({
-    root: "/work/app",
+    base: "/work/app",
     workItemId: "JR-1",
     clean: async () => {
       ran = true;
@@ -352,7 +352,7 @@ test("on Windows the comparison ignores case, as the file system does", async ()
   const fs: DeletionFileSystem = {
     lstat: (async () => ({ isSymbolicLink: () => false, isDirectory: () => true })) as unknown as DeletionFileSystem["lstat"],
     realpath: (async (file: string) =>
-      String(file).endsWith("JR-1") ? path.resolve("/Work/App/.AI/jr-1") : path.resolve("/work/app")) as unknown as DeletionFileSystem["realpath"],
+      String(file).endsWith("JR-1") ? path.resolve("/Work/App/WORK/jr-1") : path.resolve("/work/app")) as unknown as DeletionFileSystem["realpath"],
   };
   assert.equal((await checkArtifactDirectory(path.resolve("/work/app"), "JR-1", fs, true)).kind, "ok");
   assert.equal((await checkArtifactDirectory(path.resolve("/work/app"), "JR-1", fs, false)).kind, "refused");
@@ -363,32 +363,32 @@ test("success is the folder gone — never an exit code alone", async () => {
   try {
     // Exit 0, folder still there.
     assert.deepEqual(
-      await deleteWorkItemArtifacts({ root: repo.root, workItemId: "JR-1", clean: async () => ({ code: 0 }) }),
+      await deleteWorkItemArtifacts({ base: repo.root, workItemId: "JR-1", clean: async () => ({ code: 0 }) }),
       { kind: "failed", reason: "still-present" },
     );
     // Exit 1, folder still there.
     assert.deepEqual(
-      await deleteWorkItemArtifacts({ root: repo.root, workItemId: "JR-1", clean: async () => ({ code: 1 }) }),
+      await deleteWorkItemArtifacts({ base: repo.root, workItemId: "JR-1", clean: async () => ({ code: 1 }) }),
       { kind: "failed", reason: "exit-1" },
     );
     // A delete that stopped half-way: one file gone, an error, the rest left.
     const halfway = await deleteWorkItemArtifacts({
-      root: repo.root,
+      base: repo.root,
       workItemId: "JR-1",
       clean: async () => {
-        rmSync(path.join(repo.root, ".ai", "JR-1", "task.md"));
+        rmSync(path.join(repo.root, "work", "JR-1", "task.md"));
         return { code: 1 };
       },
     });
     assert.deepEqual(halfway, { kind: "failed", reason: "exit-1" });
-    assert.equal(existsSync(path.join(repo.root, ".ai", "JR-1", "context.md")), true);
+    assert.equal(existsSync(path.join(repo.root, "work", "JR-1", "context.md")), true);
     // Gone, but the command said it failed: not claimed as a clean delete.
     assert.deepEqual(
       await deleteWorkItemArtifacts({
-        root: repo.root,
+        base: repo.root,
         workItemId: "JR-1",
         clean: async () => {
-          rmSync(path.join(repo.root, ".ai", "JR-1"), { recursive: true });
+          rmSync(path.join(repo.root, "work", "JR-1"), { recursive: true });
           return { code: 2 };
         },
       }),
@@ -403,14 +403,14 @@ test("a delete that could not start, or timed out, is a failure with a safe reas
   const repo = repository();
   try {
     const spawnFailed = await deleteWorkItemArtifacts({
-      root: repo.root,
+      base: repo.root,
       workItemId: "JR-1",
       clean: async () => {
         throw Object.assign(new Error(`spawn bugpilot ENOENT ${repo.root}`), { code: "ENOENT" });
       },
     });
     assert.deepEqual(spawnFailed, { kind: "failed", reason: "spawn-ENOENT" });
-    const timedOut = await deleteWorkItemArtifacts({ root: repo.root, workItemId: "JR-1", clean: async () => ({ code: null, aborted: true }) });
+    const timedOut = await deleteWorkItemArtifacts({ base: repo.root, workItemId: "JR-1", clean: async () => ({ code: null, aborted: true }) });
     assert.deepEqual(timedOut, { kind: "failed", reason: "timeout" });
     // Neither reason carries a path or a message.
     for (const outcome of [spawnFailed, timedOut]) {
@@ -431,44 +431,50 @@ test("why nothing was reset is said without any path but the work item's own fol
   ] as const) {
     const message = deletionProblem(deletion, "JR-12345");
     assert.match(message, /^Session not reset: /);
-    // The only paths in it are the work item's folder and `.ai/` itself.
-    const others = message.replaceAll(".ai/JR-12345/", "").replaceAll(".ai/", "");
+    // The only paths in it are the work item's folder and `work/` itself.
+    const others = message.replaceAll("work/JR-12345/", "").replaceAll("work/", "");
     assert.doesNotMatch(others, /[\\/]/, message);
     assert.doesNotMatch(message, /exit-1/, "a code reached the developer's sentence");
   }
   assert.match(deletionProblem({ kind: "refused", reason: "link" }, "JR-12345"), /Nothing was deleted\./);
-  assert.match(deletionProblem({ kind: "failed", reason: "exit-1" }, "JR-12345"), /\.ai\/JR-12345\//);
+  assert.match(deletionProblem({ kind: "failed", reason: "exit-1" }, "JR-12345"), /work\/JR-12345\//);
 });
 
 // --- writing into the work item folder -----------------
 
-test("the extension's write into .ai/<id>/ lands in the repository's own folder, creating it when needed", async () => {
+test("the extension's write into work/<id>/ lands in the work item's own folder, and never creates one (0.1.7)", async () => {
   const repo = repository();
   try {
-    await writeWorkItemFile({ root: repo.root, workItemId: "JR-1", name: "user_feedback.md", contents: "first\n" });
-    assert.equal(readFileSync(path.join(repo.root, ".ai", "JR-1", "user_feedback.md"), "utf8"), "first\n");
-    await writeWorkItemFile({ root: repo.root, workItemId: "JR-1", name: "user_feedback.md", contents: "second\n" });
-    assert.equal(readFileSync(path.join(repo.root, ".ai", "JR-1", "user_feedback.md"), "utf8"), "second\n");
-    rmSync(path.join(repo.root, ".ai"), { recursive: true });
-    await writeWorkItemFile({ root: repo.root, workItemId: "JR-9", name: "user_feedback.md", contents: "new\n" });
-    assert.equal(readFileSync(path.join(repo.root, ".ai", "JR-9", "user_feedback.md"), "utf8"), "new\n");
+    await writeWorkItemFile({ base: repo.root, workItemId: "JR-1", name: "user_feedback.md", contents: "first\n" });
+    assert.equal(readFileSync(path.join(repo.root, "work", "JR-1", "user_feedback.md"), "utf8"), "first\n");
+    await writeWorkItemFile({ base: repo.root, workItemId: "JR-1", name: "user_feedback.md", contents: "second\n" });
+    assert.equal(readFileSync(path.join(repo.root, "work", "JR-1", "user_feedback.md"), "utf8"), "second\n");
+    // The CLI creates a work item's folder, private and recorded, when it prepares it; this never does.
+    await assert.rejects(
+      writeWorkItemFile({ base: repo.root, workItemId: "JR-9", name: "user_feedback.md", contents: "new\n" }),
+      /work\/JR-9\/ is not there — prepare the work item again — so user_feedback\.md was not written\./,
+    );
+    assert.equal(existsSync(path.join(repo.root, "work", "JR-9")), false);
+    rmSync(path.join(repo.root, "work"), { recursive: true });
+    await assert.rejects(writeWorkItemFile({ base: repo.root, workItemId: "JR-1", name: "user_feedback.md", contents: "x\n" }));
+    assert.equal(existsSync(path.join(repo.root, "work")), false);
   } finally {
     repo.cleanup();
   }
 });
 
-test("a linked .ai or work item folder is refused, nothing is written through it, and the reason names no absolute path", async () => {
-  for (const linked of [".ai", ".ai/JR-1"] as const) {
+test("a linked work or work item folder is refused, nothing is written through it, and the reason names no absolute path", async () => {
+  for (const linked of ["work", "work/JR-1"] as const) {
     const repo = repository();
     try {
       const elsewhere = path.join(repo.outside, "target");
       mkdirSync(path.join(elsewhere, "JR-1"), { recursive: true });
       rmSync(path.join(repo.root, ...linked.split("/")), { recursive: true });
-      linkDirectory(linked === ".ai" ? elsewhere : path.join(elsewhere, "JR-1"), path.join(repo.root, ...linked.split("/")));
+      linkDirectory(linked === "work" ? elsewhere : path.join(elsewhere, "JR-1"), path.join(repo.root, ...linked.split("/")));
       await assert.rejects(
-        writeWorkItemFile({ root: repo.root, workItemId: "JR-1", name: "user_feedback.md", contents: "feedback\n" }),
+        writeWorkItemFile({ base: repo.root, workItemId: "JR-1", name: "user_feedback.md", contents: "feedback\n" }),
         (error: Error) => {
-          assert.match(error.message, /does not write through a link or junction, and \.ai\/JR-1\/ or \.ai\/ is one/);
+          assert.match(error.message, /does not write through a link or junction, and work\/JR-1\/ or work\/ is one/);
           assert.equal(error.message.includes(repo.root), false, error.message);
           return true;
         },
@@ -481,14 +487,14 @@ test("a linked .ai or work item folder is refused, nothing is written through it
   }
 });
 
-test("a linked .ai with no work item folder yet is refused before anything is created through it", async () => {
+test("a linked work folder with no work item folder yet is refused, and nothing is created through it", async () => {
   const repo = repository();
   try {
     const elsewhere = path.join(repo.outside, "target");
     mkdirSync(elsewhere);
-    rmSync(path.join(repo.root, ".ai"), { recursive: true });
-    linkDirectory(elsewhere, path.join(repo.root, ".ai"));
-    await assert.rejects(writeWorkItemFile({ root: repo.root, workItemId: "JR-7", name: "user_feedback.md", contents: "x\n" }));
+    rmSync(path.join(repo.root, "work"), { recursive: true });
+    linkDirectory(elsewhere, path.join(repo.root, "work"));
+    await assert.rejects(writeWorkItemFile({ base: repo.root, workItemId: "JR-7", name: "user_feedback.md", contents: "x\n" }));
     assert.equal(existsSync(path.join(elsewhere, "JR-7")), false, "a folder was created through the link");
   } finally {
     repo.cleanup();
@@ -500,15 +506,15 @@ test("a user_feedback.md that is itself a link is refused, and its target is unc
   try {
     const target = path.join(repo.outside, "precious.txt");
     try {
-      symlinkSync(target, path.join(repo.root, ".ai", "JR-1", "user_feedback.md"), "file");
+      symlinkSync(target, path.join(repo.root, "work", "JR-1", "user_feedback.md"), "file");
     } catch (error) {
       // A file link needs a privilege Windows grants only in Developer Mode.
       if ((error as { code?: string }).code === "EPERM") return t.skip("file links need Developer Mode here");
       throw error;
     }
     await assert.rejects(
-      writeWorkItemFile({ root: repo.root, workItemId: "JR-1", name: "user_feedback.md", contents: "overwrite\n" }),
-      /\.ai\/JR-1\/user_feedback\.md is one/,
+      writeWorkItemFile({ base: repo.root, workItemId: "JR-1", name: "user_feedback.md", contents: "overwrite\n" }),
+      /work\/JR-1\/user_feedback\.md is one/,
     );
     assert.equal(readFileSync(target, "utf8"), "do not delete\n");
   } finally {
@@ -520,10 +526,10 @@ test("only a plain file name in a valid work item folder is written", async () =
   const repo = repository();
   try {
     for (const name of ["../escape.md", "..", "a/b.md", "a\\b.md", ""]) {
-      await assert.rejects(writeWorkItemFile({ root: repo.root, workItemId: "JR-1", name, contents: "x\n" }), /nothing was written/, name);
+      await assert.rejects(writeWorkItemFile({ base: repo.root, workItemId: "JR-1", name, contents: "x\n" }), /nothing was written/, name);
     }
     await assert.rejects(
-      writeWorkItemFile({ root: repo.root, workItemId: "../../escape-1", name: "user_feedback.md", contents: "x\n" }),
+      writeWorkItemFile({ base: repo.root, workItemId: "../../escape-1", name: "user_feedback.md", contents: "x\n" }),
       /id is not one BugPilot could have created/,
     );
     assert.equal(existsSync(path.join(repo.root, "..", "escape.md")), false);

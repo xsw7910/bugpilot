@@ -27,6 +27,9 @@
  * launch an agent on a context that went stale in between.
  */
 
+import path from "node:path";
+
+import { promptPath } from "./dataFolder.ts";
 import { firstLine, sectionOf } from "./fixReport.ts";
 import { NOT_RECORDED as REVIEW_NOT_RECORDED_TEXT } from "./reviewReport.ts";
 import { STATUS_LABELS } from "./verificationReport.ts";
@@ -202,9 +205,13 @@ export function userFeedbackMarkdown(workItemId: string, feedback: string): stri
   return `# User Feedback: ${workItemId}\n\n## Required Next Attempt\n\n${feedback.trim()}\n`;
 }
 
-/** The one sentence a new attempt with feedback is launched with, as the CLI's `retry_handoff_prompt`. */
-export function retryHandoffText(workItemId: string): string {
-  return `Read .ai/${workItemId}/${RETRY_PROMPT_ARTIFACT} and continue the workflow.`;
+/**
+ * The one sentence a new attempt with feedback is launched with, as the CLI's `retry_handoff_prompt`.
+ * `workDir` is the work item's folder in BugPilot's data folder: the prompt file is named absolutely, with
+ * forward slashes, since the agent runs in the repository (0.1.7).
+ */
+export function retryHandoffText(workDir: string): string {
+  return `Read ${promptPath(path.join(workDir, RETRY_PROMPT_ARTIFACT))} and continue the workflow.`;
 }
 
 /** The two helpers the feedback form can offer, each only while its source exists. */

@@ -21,6 +21,7 @@ import type { Environment } from "./app/environment.ts";
 import { TASK_ARTIFACT } from "./app/artifacts.ts";
 import { AttachmentReferenceRegistry, initializeAttachmentGc, runAttachmentGc } from "./app/attachmentStorage.ts";
 import { Controller } from "./app/controller.ts";
+import { askWorkFolderPrivacy } from "./app/dataFolder.ts";
 import { isWorkItemId, restoreForm } from "./app/form.ts";
 import { commandForLog, redactKnown, rejectedValueForLog, sensitiveValues } from "./app/logSafety.ts";
 import { deleteWorkItemArtifacts } from "./app/sessionReset.ts";
@@ -224,12 +225,12 @@ export function activate(context: vscode.ExtensionContext): void {
     create: (text: string) => verificationCommand({ kind: "set", text }),
     reset: () => verificationCommand({ kind: "reset" }),
     fileExists: async () => {
-      const root = controller.root;
-      return root ? verificationFileExists(root) : false;
+      const repositoryDir = controller.repositoryDir;
+      return repositoryDir ? verificationFileExists(repositoryDir) : false;
     },
     fileKind: async () => {
-      const root = controller.root;
-      return root ? verificationFileKind(root) : ("absent" as const);
+      const repositoryDir = controller.repositoryDir;
+      return repositoryDir ? verificationFileKind(repositoryDir) : ("absent" as const);
     },
   };
   // The repository's AI Behavior (0.1.4): read through the CLI for the stale
@@ -248,12 +249,12 @@ export function activate(context: vscode.ExtensionContext): void {
     create: (text: string) => aiBehaviorCommand({ kind: "set", text }),
     reset: () => aiBehaviorCommand({ kind: "reset" }),
     fileExists: async () => {
-      const root = controller.root;
-      return root ? aiBehaviorFileExists(root) : false;
+      const repositoryDir = controller.repositoryDir;
+      return repositoryDir ? aiBehaviorFileExists(repositoryDir) : false;
     },
     fileKind: async () => {
-      const root = controller.root;
-      return root ? aiBehaviorFileKind(root) : ("absent" as const);
+      const repositoryDir = controller.repositoryDir;
+      return repositoryDir ? aiBehaviorFileKind(repositoryDir) : ("absent" as const);
     },
   };
   // The read-only views (0.1.4): one `--json` command each, in the repository,
@@ -326,13 +327,14 @@ export function activate(context: vscode.ExtensionContext): void {
       // reopens nothing (§37.103).
       saveWorkItem: (workItemId) =>
         void context.workspaceState.update(WORK_ITEM_STATE_KEY, workItemId),
-      // Reset Session's Delete generated files: `.ai/<work item>/`, checked to
-      // be the repository's own real folder, then removed by the CLI's `clean`
+      // Reset Session's Delete generated files: `work/<work item>/` in BugPilot's
+      // data folder, checked to be the repository's own real folder there, then
+      // removed by the CLI's `clean`, run in the repository
       // — the Clean command's own delete — and looked at again. Nothing of its
       // output reaches the log: the controller says what happened.
-      deleteWorkItemArtifacts: (root, workItemId) =>
+      deleteWorkItemArtifacts: (root, repositoryDir, workItemId) =>
         deleteWorkItemArtifacts({
-          root,
+          base: repositoryDir,
           workItemId,
           clean: () => trustedRunner(executable).run(["clean", workItemId], { cwd: root, timeoutMs: 120_000 }),
         }),
@@ -418,15 +420,20 @@ export function activate(context: vscode.ExtensionContext): void {
           trustedRunner(executable).runJson(args, { cwd: root, env: environment, timeoutMs: 30_000 });
         return loadIssueDetails(runJson, issueKey);
       },
+      // Before Claude CLI is given a work item's folder: the CLI's own check of that folder and every folder
+      // above it up to BugPilot's data folder, asked then (`doctor --json --work-item <id>`, 0.1.7, S-2, F-1).
+      // Anything but a clear yes about that very folder is a no.
+      workFolderPrivacy: (root, grant) =>
+        askWorkFolderPrivacy((args) => trustedRunner(executable).runJson(args, { cwd: root, timeoutMs: 60_000 }), grant),
       improveHint: improveHintWithProvider,
       // Review with AI's captured one-shot run: the agent's own argv, the prompt
       // on stdin, the repository as cwd, stdout read at exit. No terminal.
       runCapturedReview,
-      // The shown work item's `.ai/<id>/`, and nothing wider: an agent's
+      // The shown work item's folder, and nothing wider: an agent's
       // fix_report.md shows up without a reload (§37.81).
       watchArtifacts: watchArtifactDirectory,
-      // The repository's `.bugpilot/` policy files: an edit in an editor tab,
-      // a `git pull` or a branch switch makes a prepared context stale (§42.2).
+      // The repository's settings files, in BugPilot's data folder: an edit in an
+      // editor tab makes a prepared context stale (§42.2).
       watchPolicies: watchPolicyDirectory,
       // Repository Files' quick fix: the open .gitignore through the editor,
       // the file through VS Code's file system (§37.85).
@@ -469,8 +476,9 @@ export function activate(context: vscode.ExtensionContext): void {
       artifacts: () => controller.artifacts,
       history: async () => {
         const root = controller.root;
-        if (!root) return { kind: "empty", detail: "Open the repository you are fixing bugs in." };
-        return loadHistory(root, (args) =>
+        const repositoryDir = controller.repositoryDir;
+        if (!root || !repositoryDir) return { kind: "empty", detail: "Open the repository you are fixing bugs in." };
+        return loadHistory(repositoryDir, (args) =>
           trustedRunner(executable).runJson(args, { cwd: root, timeoutMs: 30_000 }),
         );
       },

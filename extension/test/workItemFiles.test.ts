@@ -1,7 +1,7 @@
 /**
  * O-1: reading a work item's files never goes through a link — against a real file system.
  *
- * A cloned repository can commit a link at `.ai`, at a work item's folder or at a file in it (and a junction can
+ * A link can stand at `work`, at a work item's folder or at a file in it (and a junction can
  * be made there on Windows). Each test builds a repository and an "outside" folder in a temporary directory, with
  * a synthetic sentinel outside: a refused read must say nothing of it, and name no absolute path.
  */
@@ -31,7 +31,7 @@ async function inRepository(body: (layout: Layout) => Promise<void>): Promise<vo
   const tmp = await mkdtemp(path.join(tmpdir(), "bugpilot-o1-test-"));
   try {
     const root = path.join(tmp, "repo");
-    const item = path.join(root, ".ai", ID);
+    const item = path.join(root, "work", ID);
     const outside = path.join(tmp, "outside");
     await mkdir(item, { recursive: true });
     await mkdir(outside);
@@ -43,7 +43,7 @@ async function inRepository(body: (layout: Layout) => Promise<void>): Promise<vo
   }
 }
 
-const folderOf = (layout: Layout) => ({ root: layout.root, workItemId: ID });
+const folderOf = (layout: Layout) => ({ base: layout.root, workItemId: ID });
 
 async function linkFile(target: string, at: string): Promise<boolean> {
   try {
@@ -80,11 +80,11 @@ test("a regular file reads exactly as readFile reads it", async () => {
   });
 });
 
-test("nothing there reads as undefined: no file, no work item folder, no .ai", async () => {
+test("nothing there reads as undefined: no file, no work item folder, no work folder", async () => {
   await inRepository(async (layout) => {
     assert.equal(await readWorkItemFile(path.join(layout.item, "context.md"), folderOf(layout)), undefined);
     assert.equal(await workItemFileState(path.join(layout.item, "context.md"), folderOf(layout)), "missing");
-    await rm(path.join(layout.root, ".ai"), { recursive: true });
+    await rm(path.join(layout.root, "work"), { recursive: true });
     assert.equal(await readWorkItemFile(path.join(layout.item, "context.md"), folderOf(layout)), undefined);
     assert.deepEqual(await listWorkItemFolder(layout.item, folderOf(layout)), { kind: "missing" });
   });
@@ -98,7 +98,7 @@ test("a link at the file is refused, whether or not its target exists", async (t
       return;
     }
     const message = await refused(readWorkItemFile(file, folderOf(layout)), layout);
-    assert.match(message, /^BugPilot will not read \.ai\/JR-12345\/context\.md: it is a symbolic link or junction\./);
+    assert.match(message, /^BugPilot will not read work\/JR-12345\/context\.md: it is a symbolic link or junction\./);
     await refused(workItemFileState(file, folderOf(layout)), layout);
     const dangling = path.join(layout.item, "issue.json");
     assert.ok(await linkFile(path.join(layout.outside, "missing.json"), dangling));
@@ -106,8 +106,8 @@ test("a link at the file is refused, whether or not its target exists", async (t
   });
 });
 
-test("a link or junction at the work item folder, or at .ai, is refused, and the listing is unreadable", async () => {
-  for (const at of ["work-item", ".ai"] as const) {
+test("a link or junction at the work item folder, or at work, is refused, and the listing is unreadable", async () => {
+  for (const at of ["work-item", "work"] as const) {
     await inRepository(async (layout) => {
       const elsewhere = path.join(layout.tmp, "elsewhere", ID);
       await mkdir(elsewhere, { recursive: true });
@@ -116,12 +116,12 @@ test("a link or junction at the work item folder, or at .ai, is refused, and the
         await rm(layout.item, { recursive: true });
         await linkFolder(elsewhere, layout.item);
       } else {
-        await rm(path.join(layout.root, ".ai"), { recursive: true });
-        await linkFolder(path.dirname(elsewhere), path.join(layout.root, ".ai"));
+        await rm(path.join(layout.root, "work"), { recursive: true });
+        await linkFolder(path.dirname(elsewhere), path.join(layout.root, "work"));
       }
       const file = path.join(layout.item, "context.md");
       const message = await refused(readWorkItemFile(file, folderOf(layout)), layout);
-      assert.match(message, /\.ai\/JR-12345, or the folder above it, is a symbolic link or junction/);
+      assert.match(message, /work\/JR-12345, or the folder above it, is a symbolic link or junction/);
       await refused(workItemFileState(file, folderOf(layout)), layout);
       const listing = await listWorkItemFolder(layout.item, folderOf(layout));
       assert.equal(listing.kind, "unreadable");

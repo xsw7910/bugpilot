@@ -2,8 +2,8 @@
  * Is this workspace ready to run bugpilot, and if not, what should we offer?
  *
  * Two questions have to be answered before any UI can do anything useful:
- * which repository to operate on (§5.3 — bugpilot writes `.ai/<work_item>/`
- * into its cwd, so guessing wrong scatters artifacts into the wrong checkout),
+ * which repository to operate on (§5.3 — bugpilot files `work/<work_item>/`
+ * under the repository it runs in, so guessing wrong files artifacts under the wrong checkout),
  * and whether a usable bugpilot exists (§5.4 — the "CLI not installed" row of the
  * three-state table).
  *

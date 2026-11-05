@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core.config import issue_dir, memory_dir
 from bugpilot.cli import main
 from bugpilot.core import workflow
 from bugpilot.core.input_adapters import bug_spec_from_description
@@ -43,7 +44,7 @@ MEMORIES = {
 
 
 def _seed(root: Path, memories: dict[str, str]) -> Path:
-    folder = root / ".ai_memory" / "bugs"
+    folder = memory_dir(root)
     folder.mkdir(parents=True, exist_ok=True)
     for name, text in memories.items():
         (folder / f"{name}.md").write_text(text, encoding="utf-8")
@@ -56,9 +57,15 @@ def _extraction(supplied: list[str] | None = None, text: str = ISSUE_TEXT) -> di
 
 
 def _found(report: str) -> list[str]:
-    """The memory files the report lists, in its order."""
+    """The memory files the report lists, in its order, as `memory/<name>`.
+
+    The report names each absolutely (0.1.7): the agent works in the repository, and the memory is in
+    BugPilot's data folder. That is checked here, then the folder is left out of what the tests compare.
+    """
     section = report.split("## Similar Historical Issues", 1)[1]
-    return [line.split("`")[1] for line in section.splitlines() if line.startswith("- `")]
+    listed = [line.split("`")[1] for line in section.splitlines() if line.startswith("- `")]
+    assert all(Path(path).is_absolute() and "/memory/" in path for path in listed), listed
+    return ["memory/" + path.rsplit("/", 1)[1] for path in listed]
 
 
 def _search(root: Path, options: InvestigationOptions, supplied: list[str] | None = None) -> list[str]:
@@ -68,7 +75,8 @@ def _search(root: Path, options: InvestigationOptions, supplied: list[str] | Non
 
 
 def _file(name: str) -> str:
-    return f".ai_memory/bugs/{name}.md"
+    """A memory entry as a search names it: in the repository's folder of the data folder (0.1.7)."""
+    return f"memory/{name}.md"
 
 
 # --- defaults -----------------------------------------------------------------------------
@@ -218,7 +226,7 @@ def test_additional_keywords_never_reach_code_search_or_git_history(tmp_path):
         root, InvestigationRequest(spec=spec, options=options, plan=InvestigationPlan(git_history=False))
     )
 
-    retrieval = json.loads((root / ".ai" / spec.work_item_id / "retrieval.json").read_text(encoding="utf-8"))
+    retrieval = json.loads((issue_dir(root, spec.work_item_id) / "retrieval.json").read_text(encoding="utf-8"))
     assert "legacyexporter" not in [term["value"].casefold() for term in retrieval["terms"]]
     # Git History's query, built from the same options, does not carry it either.
     query = workflow._git_history_query(root, spec.work_item_id, None, None, None, options, GitHistoryOptions())
@@ -227,7 +235,7 @@ def test_additional_keywords_never_reach_code_search_or_git_history(tmp_path):
     # The shared Keywords themselves are unchanged by it.
     assert options.keywords == ["spectral"]
     # And the past fix it names is in the context.
-    context = (root / ".ai" / spec.work_item_id / "context.md").read_text(encoding="utf-8")
+    context = (issue_dir(root, spec.work_item_id) / "context.md").read_text(encoding="utf-8")
     assert _file("legacy-exporter") in context.split("## Similar Fixes", 1)[1]
 
 
@@ -328,7 +336,7 @@ def test_similar_fixes_off_never_searches_memory(tmp_path, monkeypatch):
     )
 
     assert calls == []
-    run = json.loads((tmp_path / ".ai" / spec.work_item_id / "run.json").read_text(encoding="utf-8"))
+    run = json.loads((issue_dir(tmp_path, spec.work_item_id) / "run.json").read_text(encoding="utf-8"))
     assert run["steps"]["memory_search"] == "skipped"
     # The settings are still what the run was given: switching the step off
     # does not clear them.
@@ -357,7 +365,7 @@ def test_no_memory_is_a_quick_clean_no_result(tmp_path, memory):
     # invented, no memory_search.md, no similar_fixes.json.
     after = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*") if ".ai" not in path.parts)
     assert after == before
-    work_item = tmp_path / ".ai" / "JR-12345"
+    work_item = issue_dir(tmp_path, "JR-12345")
     for name in ("memory_search.md", "memory_search.json", "similar_fixes.json"):
         assert not (work_item / name).exists()
 

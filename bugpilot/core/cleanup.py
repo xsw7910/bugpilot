@@ -5,8 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import storage
+from .config import data_dir, shown
 from .identity import validate_work_item_id
-from .safe_paths import owned_path, remove_owned_path
+from .repository_settings import guarded
+from .safe_paths import owned_path
 
 
 @dataclass
@@ -30,29 +33,52 @@ def validate_issue_key(issue_key: str) -> None:
 def clean_issue_artifacts(repo_root: Path, issue_key: str, include_memory: bool = False) -> CleanResult:
     """Delete one work item's generated artifacts, and its memory entry if asked.
 
-    Every path is checked before anything is deleted (``safe_paths.owned_path``):
-    a link or junction at ``.ai``, ``.ai/<id>``, ``.ai_memory`` or below raises
-    :class:`~bugpilot.core.safe_paths.UnsafePathError` and nothing is removed —
-    not the folder, not the memory entry. Both ``clean`` and ``bug --fresh``
-    come through here.
+    Both live in the repository's folder in BugPilot's data folder (0.1.7):
+    ``work/<id>/`` and ``memory/<id>.md``, which the result names relative to
+    that folder. Every path is checked before anything is deleted: a link or
+    junction at ``work``, ``work/<id>``, ``memory`` or the memory entry raises
+    :class:`~bugpilot.core.safe_paths.UnsafePathError` in the deletion's own
+    words (``safe_paths.owned_path``, as in 0.1.6), and storage's checks of the
+    data folder down to the namespace raise its ``StorageError``; either way
+    nothing is removed — not the folder, not the memory entry. Storage then
+    deletes each one only inside this repository's
+    namespace (``RepositoryStorage.remove_work_item``). Both ``clean`` and
+    ``bug --fresh`` come through here. A repository's 0.1.5 ``.ai/`` and
+    ``.ai_memory/`` folders are never touched.
+    A data folder that cannot be examined or changed right now is
+    ``StorageAccessError``, in storage's sentence (C-1, F2-S).
     """
     validate_issue_key(issue_key)
     result = CleanResult(issue_key=issue_key)
+    namespace = storage.repository_storage(repo_root)
 
-    workflow_dir = owned_path(repo_root, (".ai", issue_key))
-    memory_file = owned_path(repo_root, (".ai_memory", "bugs", f"{issue_key}.md")) if include_memory else None
+    # Checked first, both of them, so a refusal of either deletes nothing.
+    base = data_dir(repo_root)
+    owned_path(base, ("work", issue_key), boundary=storage.DATA_ROOT_BOUNDARY)
+    if include_memory:
+        owned_path(base, ("memory", f"{issue_key}.md"), boundary=storage.DATA_ROOT_BOUNDARY)
+    return guarded("delete", lambda: shown(base), lambda: _remove(namespace, result, include_memory))
 
-    if remove_owned_path(workflow_dir):
-        result.deleted_paths.append(f".ai/{issue_key}/")
+
+def _remove(namespace: storage.RepositoryStorage, result: CleanResult, include_memory: bool) -> CleanResult:
+    """Storage's checks of both targets first, then each checked deletion, recorded in ``result``."""
+    issue_key = result.issue_key
+    folder, memory = f"work/{issue_key}/", f"memory/{issue_key}.md"
+    namespace.work_item_dir(issue_key, create=False)
+    if include_memory:
+        namespace.memory_file(issue_key, create=False)
+
+    if namespace.remove_work_item(issue_key):
+        result.deleted_paths.append(folder)
     else:
-        result.missing_paths.append(f".ai/{issue_key}/")
+        result.missing_paths.append(folder)
 
-    if memory_file is not None:
-        if remove_owned_path(memory_file):
-            result.deleted_paths.append(f".ai_memory/bugs/{issue_key}.md")
+    if include_memory:
+        if namespace.remove_memory_file(issue_key):
+            result.deleted_paths.append(memory)
         else:
-            result.missing_paths.append(f".ai_memory/bugs/{issue_key}.md")
+            result.missing_paths.append(memory)
     else:
-        result.preserved_paths.append(f".ai_memory/bugs/{issue_key}.md")
+        result.preserved_paths.append(memory)
 
     return result

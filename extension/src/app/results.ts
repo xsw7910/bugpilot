@@ -1,6 +1,6 @@
 /**
  * The Results tree: the work item on screen (Current), every work item under
- * `.ai/` (History), and what BugPilot is configured with (Diagnostics), as
+ * the repository's work folder in BugPilot's data folder (History), and what BugPilot is configured with (Diagnostics), as
  * three groups of one native view (§37.106, §37.110).
  *
  * They were two views, Artifacts and History. VS Code gives every expanded view
@@ -76,7 +76,7 @@ export async function resultsChildren(
 }
 
 function currentChildren(list: ArtifactList): ResultsNode[] {
-  if (list.kind === "loading") return [{ kind: "message", text: "Scanning .ai/ …" }];
+  if (list.kind === "loading") return [{ kind: "message", text: "Reading the work items …" }];
   if (list.kind === "empty" || list.kind === "error") return [{ kind: "message", text: list.detail }];
   return list.entries.map((entry) => ({ kind: "artifact", entry }));
 }
@@ -184,7 +184,7 @@ function currentGroupItem(workItemId: string | undefined): ResultsItem {
 const HISTORY_GROUP_ITEM: ResultsItem = {
   label: "History",
   id: "bugpilot.results.history",
-  tooltip: "Every work item in this repository's .ai/, most recently changed first. Click one to reopen it.",
+  tooltip: "Every work item BugPilot keeps for this repository, most recently changed first. Click one to reopen it.",
   accessibleName: "History",
   icon: "history",
   collapsible: "collapsed",
